@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Rebuilt the history source: the engine's own message list (`$.session.messages()`) is the primary list, and the transcript file enriches it with uuids, turn details and older history. A transcript that is missing, renamed, still being written or read after a `/clear` can no longer empty the rail
+- Fixed the rail losing every prompt before a `/compact` whose boundary links forward into the new segment
+- Fixed the rail losing prompts before a compaction once the engine replaced its list with the summary, and listing that summary as a prompt
+- Fixed a transcript read still in flight when `/clear` or a resume starts over repopulating the old conversation's rail
+- Fixed a resumed session whose transcript is in another directory never being looked for again, and a failed transcript read being silent
+
 - Added a "Classic hooks" row to `/config` (#69): on a machine with managed settings or in a Team or Enterprise organization, Claude Code notes each session that the security default skipped claude-navigator's `classic.SessionStart` and `classic.Stop` hooks; turning the row off registers neither hook, which silences those notes and changes nothing else there, since the rail finds the transcript on its own. It stays on by default: without the classic hooks, a session resumed from another directory, or an install loaded with `--plugin-dir`, leaves the rail no transcript to read
 
 ## 0.9.0

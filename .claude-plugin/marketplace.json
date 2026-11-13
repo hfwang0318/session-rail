@@ -1,14 +1,17 @@
 {
-  "name": "oikon48",
-  "owner": { "name": "oikon48" },
-  "metadata": { "description": "oikon48's Claude Code plugins and mods" },
+  "name": "hfwang",
+  "owner": {
+    "name": "hfwang"
+  },
+  "metadata": {
+    "description": "hfwang's Claude Code plugins and mods; fork of prompt-rail by oikon48"
+  },
   "plugins": [
     {
       "name": "claude-navigator",
       "source": "./plugins/claude-navigator",
-      "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one, click to jump to it.",
-      "homepage": "https://github.com/oikon48/claude-navigator",
-      "repository": "https://github.com/oikon48/claude-navigator"
+      "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one, click to jump to it. Fork of prompt-rail, engine-native history.",
+      "homepage": "https://github.com/oikon48/prompt-rail"
     }
   ]
 }

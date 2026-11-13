@@ -45,11 +45,12 @@ This section is claude-navigator's privacy policy: what it reads, runs, and stor
 
 claude-navigator makes no network requests and sends nothing anywhere, neither the transcript it reads nor your prompts. It collects no analytics, and its author receives no data from it. Everything it does stays on your machine:
 
-- It reads the current session's transcript file (the `.jsonl` file Claude Code writes for the session) to list your prompts and their turns.
+- It reads the engine's own message list for the session (`$.session.messages()`) to list your prompts. The engine holds this list in memory; reading it makes no file access and no network request. It is the primary source, so the rail still lists your prompts when no transcript can be read.
+- It reads the current session's transcript file (the `.jsonl` file Claude Code writes for the session) to add each prompt's stored id, its turn details, and prompts older than the engine's 4096-entry window.
 - Where no hook names that file, as on a machine with managed settings or in a Team or Enterprise organization, where Claude Code's security default keeps the classic hooks from installed plugins, it looks for the file where Claude Code keeps it: `projects/<folder>/<session id>.jsonl` under the config folder the mod is installed in, the folder named after the session's working directory. It checks whether that file exists, and for a working directory whose folder name Claude Code shortens, it lists the folder names under `projects` to find the one that matches. It reads no other file there.
 - When a transcript is too large to read in one call, it streams the file with `tail -c +N <transcript>`, which writes the file from byte N on to the mod, so the rail reads only what is new. On a Windows path where `tail` cannot start, it runs `powershell -NoProfile -NonInteractive` with a short script that copies the same file from that position. The output of either goes to the mod alone. It runs no other program.
 - It writes one setting, its own `claude-navigator.mode` (the "Rail mode" row in `/config`), when you pick a layout. It sets no other setting and no environment variable.
-- In the mod's own store it keeps the layout last on and the transcript paths of the most recent sessions, so a resumed session can find its rail again.
+- In the mod's own store it keeps the layout last on and the transcript paths of the most recent sessions, so a resumed session can find its rail again. A test build may stage a message list under one reserved store key; a normal install never writes it and reads it only to prefer it over the engine's own list.
 
 Its hooks watch and do not change what passes through them:
 
@@ -57,16 +58,20 @@ Its hooks watch and do not change what passes through them:
 - `classic.SessionStart` and `classic.Stop` read the transcript path from the event to refresh the rail, and pass the event on unchanged; the rail adds no context or instructions. The "Classic hooks" row in `/config` can turn their registration off.
 - `session.end` notes that a `/clear` or a resume has started another conversation, so the rail starts its list over, and passes the event on unchanged.
 - `prompt.submit` and `session.receive` note that a prompt was sent, and pass it on unchanged.
-- `turn.start`, `turn.complete`, and `ui.render` on transcript rows note which prompt is on screen and which turn is running, read the transcript again as a turn starts and ends, and draw those rows as Claude Code does. `ui.render`, `ui.focus`, and `ui.press` on the rail's own pane and band draw the rail and take its clicks and keys. In the below layout, `ui.render` on the hint line under the prompt draws Claude Code's own line unchanged and adds the rail's row under it.
+- `turn.start`, `turn.complete`, and `ui.render` on transcript rows note which prompt is on screen and which turn is running, read the engine's message list and the transcript again as a turn starts and ends, and draw those rows as Claude Code does. `ui.render`, `ui.focus`, and `ui.press` on the rail's own pane and band draw the rail and take its clicks and keys. In the below layout, `ui.render` on the hint line under the prompt draws Claude Code's own line unchanged and adds the rail's row under it.
 
 ## Limitations
 
 - The Claude desktop app draws the horizontal rail, but a click cannot jump there, since the app gives a plugin no way to scroll its transcript.
 - A `/compact` command's own row cannot be jumped to.
 - Near the end of the transcript, `next` cannot scroll further.
+- After a compaction, prompts before the boundary come from the transcript; with no transcript to read, they cannot be listed in that session.
+- With no transcript, a prompt can be jumped to only after its row has been drawn once.
 
 ## Source and license
 
-Source, issues, and the full README with screenshots: https://github.com/oikon48/claude-navigator
+This is a fork of prompt-rail: https://github.com/oikon48/prompt-rail
 
-[MIT](https://github.com/oikon48/claude-navigator/blob/main/LICENSE)
+The full README with screenshots and the refactor notes are in the fork's checkout: `README.md` and `docs/refactor-comparison.md`.
+
+[MIT](https://github.com/oikon48/prompt-rail/blob/main/LICENSE), Copyright (c) 2026 oikon48; fork changes under the same license.

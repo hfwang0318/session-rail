@@ -13,20 +13,28 @@ A rail of your prompts for Claude Code. Hover to read one, click to jump back to
 
 </div>
 
+> **Fork.** claude-navigator is a fork of [prompt-rail](https://github.com/oikon48/prompt-rail) by oikon48, under the MIT license. The rail, layouts, commands and settings are prompt-rail's. The history source is rebuilt: the engine's own message list (`$.session.messages()`) now leads, and the transcript file enriches it with ids, turn details and history older than the engine keeps. See [docs/refactor-comparison.md](docs/refactor-comparison.md) for what changed and why.
+
 ## Quick start
 
 claude-navigator is a mod, so it needs Claude Code 2.1.287 or later, where mods are on by default. If you set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` during early access, you can remove it, since Claude Code now ignores it.
 
-1. Install, from your shell or inside a session:
+1. Install from this checkout, from your shell or inside a session:
 
    ```bash
-   claude plugin marketplace add oikon48/claude-navigator
-   claude plugin install claude-navigator@oikon48
+   claude plugin marketplace add /path/to/claude-navigator
+   claude plugin install claude-navigator@hfwang
    ```
 
    ```
-   /plugin marketplace add oikon48/claude-navigator
-   /plugin install claude-navigator@oikon48
+   /plugin marketplace add /path/to/claude-navigator
+   /plugin install claude-navigator@hfwang
+   ```
+
+   For development, load the plugin straight from the checkout instead:
+
+   ```bash
+   claude --plugin-dir /path/to/claude-navigator/plugins/claude-navigator
    ```
 
 2. Start a new session. The rail opens on its own.
@@ -100,16 +108,21 @@ In the horizontal layout, `ctrl+x tab` moves the focus to the bars: the ring sta
 ## How it works
 
 <details>
-<summary>From the transcript file to the rail</summary>
+<summary>From the engine's message list and the transcript to the rail</summary>
 
 ```mermaid
 flowchart LR
-  T[transcript .jsonl] -->|every prompt on the live branch| R[rail]
+  E["engine: $.session.messages()<br/>the person's prompts, in order"] -->|primary list| R[rail]
+  T["transcript .jsonl<br/>uuids, turns, pre-compact history"] -->|enrichment only| R
   S[rows on screen] -->|topmost row's prompt| R
   R -->|click, next/prev| J[scroll that prompt's row into view]
 ```
 
-The rail lists the prompts of the live branch, so prompts abandoned with `/rewind` drop out, and prompts from before a resume are listed too. The prompt you are reading owns the topmost row on screen. The transcript is read again only when its size or time changed.
+The engine's message list is the rail's primary source. It names the person's prompts in conversation order without reading a file, so the list survives a transcript that is missing, renamed, still being written, or read too late after a `/clear`. The transcript is read as an optional second source: it supplies the uuid each prompt is stored under (so a jump can address its row), each prompt's turn details, and prompts older than the engine's 4096-entry window. A transcript read can add to the engine's list but never empty it.
+
+A compaction replaces the engine's list with a summary message plus the most recent rows, so the rail filters that summary out and restores the prompts before the boundary from the transcript. Prompts abandoned with `/rewind` still drop out: the transcript read follows only the live branch.
+
+The prompt you are reading owns the topmost row on screen. The transcript is read again only when its size or time changed.
 
 </details>
 
@@ -125,6 +138,9 @@ The rail lists the prompts of the live branch, so prompts abandoned with `/rewin
 - The dock width is shared by all plugin panes; drag its edge to narrow it, down to 24 columns.
 - A `/compact` command's own row cannot be jumped to; its tick turns dotted after the first try.
 - Near the end of the transcript, `next` cannot scroll further.
+- After a compaction, the engine keeps only the summary and the most recent messages. Prompts before the boundary are listed from the transcript; where no transcript can be read at all, they cannot be listed in that session.
+- With no transcript to read, a prompt can be jumped to only after its row has been drawn once, since the engine's list carries no row id of its own.
+- Anthropic's public plugin directory reserves names beginning with `claude-`, so `claude plugin validate` rejects this plugin's manifest there. Local installs from this checkout work; rename the manifest if you publish it to that directory.
 
 </details>
 
@@ -148,4 +164,4 @@ The directory picks the new commit up within about six hours and scans it before
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE), Copyright (c) 2026 oikon48. This fork keeps the same license and adds its changes under it.

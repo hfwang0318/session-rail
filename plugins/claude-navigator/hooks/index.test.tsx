@@ -1,5 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { bar, configDirOf, drawnRow, findTranscript, jumpNotice, noteScroll, pickPrompt, rowKey, stepFrom, streamRequests, tick, transcriptCandidates, turnLine } from './index.tsx'
+import { bar, configDirOf, drawnRow, ENGINE_MESSAGES_TEST_KEY, findTranscript, jumpNotice, noteScroll, pickPrompt, rowKey, stepFrom, streamRequests, tick, transcriptCandidates, turnLine } from './index.tsx'
+import { engineId, matchStored, mergePrompts, promptsFromMessages } from './history.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -2362,4 +2363,203 @@ test('rows that left untold are dropped even while reports never pause', async (
     if (at === 150) await u3.redraw(prompt('continue', { first: 0, last: 1, of: 2 }))
   }
   expect(await heavyIn(band)).toBe(2)
+})
+
+// --- claude-navigator: engine-native history ---
+
+test('the engine list keeps the person\'s prompts in order and leaves the rest out', () => {
+  const prompts = promptsFromMessages(
+    [
+      { role: 'user', text: 'one' },
+      { role: 'assistant', text: 'ok' },
+      { role: 'user', text: '<command-name>/compact</command-name>' },
+      { role: 'user', text: 'two' },
+      { role: 'user', text: '/not a command' },
+    ],
+    (text: string) => {
+      const value = text.trim()
+      return value && !value.startsWith('/') && !value.startsWith('<command-') ? value : undefined
+    },
+  )
+  expect(prompts).toEqual([
+    { text: 'one', ordinal: 0 },
+    { text: 'two', ordinal: 3 },
+  ])
+})
+
+test('a user row carrying tool results is not a prompt', () => {
+  const prompts = promptsFromMessages(
+    [
+      { role: 'user', text: 'one' },
+      { role: 'user', text: 'tool output', toolResults: [{ tool_use_id: 't1', text: 'ok' }] },
+      { role: 'user', text: 'two' },
+    ],
+    (text: string) => text.trim() || undefined,
+  )
+  expect(prompts).toEqual([
+    { text: 'one', ordinal: 0 },
+    { text: 'two', ordinal: 2 },
+  ])
+})
+
+test('stored prompts match the engine list from the newest end, and older ones come back', () => {
+  const stored = [
+    { id: 'a', text: 'older than the engine cap' },
+    { id: 'b', text: 'one' },
+    { id: 'c', text: 'two' },
+  ]
+  const { ids, older } = matchStored([{ text: 'one', ordinal: 1 }, { text: 'two', ordinal: 3 }], stored)
+  expect(Object.fromEntries(ids)).toEqual({ 1: 'b', 3: 'c' })
+  expect(older).toEqual([{ id: 'a', text: 'older than the engine cap' }])
+})
+
+test('a queued prompt the engine list does not name is kept where the transcript has it', () => {
+  const stored = [
+    { id: 'u1', text: 'one' },
+    { id: 'q1', text: 'queued while the turn ran', queued: true },
+    { id: 'u2', text: 'two' },
+  ]
+  expect(mergePrompts([{ text: 'one', ordinal: 0 }, { text: 'two', ordinal: 4 }], stored)).toEqual([
+    { id: 'u1', text: 'one', ordinal: 0 },
+    { id: 'q1', text: 'queued while the turn ran' },
+    { id: 'u2', text: 'two', ordinal: 4 },
+  ])
+})
+
+test('an engine prompt with no stored row is kept in the engine order', () => {
+  expect(mergePrompts([{ text: 'one', ordinal: 0 }, { text: 'two', ordinal: 2 }], [{ id: 'u1', text: 'one' }])).toEqual([
+    { id: 'u1', text: 'one', ordinal: 0 },
+    { id: 'engine:2', text: 'two', ordinal: 2 },
+  ])
+})
+
+test('a new unstored prompt does not take the stored row of an older prompt with the same text', () => {
+  expect(
+    mergePrompts(
+      [{ text: 'continue', ordinal: 0 }, { text: 'one', ordinal: 1 }, { text: 'continue', ordinal: 2 }],
+      [{ id: 'u1', text: 'continue' }, { id: 'u2', text: 'one' }],
+    ),
+  ).toEqual([
+    { id: 'u1', text: 'continue', ordinal: 0 },
+    { id: 'u2', text: 'one', ordinal: 1 },
+    { id: 'engine:2', text: 'continue', ordinal: 2 },
+  ])
+})
+
+test('an engine prompt is listed under its stored uuid when the transcript matched it', () => {
+  expect(engineId({ text: 'one', ordinal: 1 }, 'uuid-1')).toBe('uuid-1')
+  expect(engineId({ text: 'one', ordinal: 1 }, undefined)).toBe('engine:1')
+})
+
+// A compaction whose boundary links forward into the new segment, as Claude
+// Code 2.1.270 wrote them: the summary's child carries logicalParentUuid.
+const FWD_COMPACTED = jsonl([
+  { type: 'user', uuid: 'p1', message: { role: 'user', content: 'before compact' } },
+  { type: 'assistant', uuid: 'q1', message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } },
+  { type: 'system', uuid: 'b1', parentUuid: null, logicalParentUuid: 'a1', subtype: 'compact_boundary' },
+  { type: 'user', uuid: 's1', isCompactSummary: true, message: { role: 'user', content: 'summary' } },
+  { type: 'attachment', uuid: 'a1', attachment: { type: 'total_tokens_reminder' } },
+  { type: 'user', uuid: 'p2', message: { role: 'user', content: 'after compact' } },
+])
+
+const FWD_COMPACT_ONLY = jsonl([
+  { type: 'user', uuid: 'p1', message: { role: 'user', content: 'before compact' } },
+  { type: 'assistant', uuid: 'q1', message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } },
+  { type: 'system', uuid: 'b1', parentUuid: null, logicalParentUuid: 'a1', subtype: 'compact_boundary' },
+  { type: 'user', uuid: 's1', isCompactSummary: true, message: { role: 'user', content: 'summary' } },
+  { type: 'attachment', uuid: 'a1', attachment: { type: 'total_tokens_reminder' } },
+])
+
+test('a compaction boundary that links forward keeps the prompts before it', async ($, on) => {
+  world(on, {}, FWD_COMPACTED)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['before compact', 'after compact'])
+})
+
+const FWD_COMPACT_TAIL = jsonl([
+  { type: 'system', uuid: 'tb1', parentUuid: null, logicalParentUuid: 'ta1', subtype: 'compact_boundary' },
+  { type: 'user', uuid: 'ts1', isCompactSummary: true, message: { role: 'user', content: 'summary' } },
+  { type: 'attachment', uuid: 'ta1', attachment: { type: 'total_tokens_reminder' } },
+])
+
+test('right after such a compaction the rail keeps the prompts before it', async ($, on) => {
+  const disk = beneath(TRANSCRIPT)
+  world(on, {}, TRANSCRIPT, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect((await railLabels($)).length).toBe(4)
+  disk.transcript = `${TRANSCRIPT}\n${FWD_COMPACT_TAIL}`
+  disk.mtimeMs = 2
+  await stop($)
+  expect(await railLabels($)).toEqual(['first stored prompt', '<div> why does this overflow?', 'continue', 'continue'])
+})
+
+test('the engine list lists prompts even when no transcript can be read', async ($, on) => {
+  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
+  const store = world(on, {}, TRANSCRIPT, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'from engine one' },
+    { role: 'assistant', text: 'ok' },
+    { role: 'user', text: 'from engine two' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['from engine one', 'from engine two'])
+})
+
+test('the engine list is the source when the transcript is readable too', async ($, on) => {
+  const store = world(on, {})
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'first stored prompt' },
+    { role: 'assistant', text: 'ok' },
+    { role: 'user', text: 'continue' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['first stored prompt', 'continue'])
+})
+
+test('an older prompt the engine list no longer holds is put back before it', async ($, on) => {
+  const older = { type: 'user', uuid: 'old', timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'ancient' } }
+  const disk = beneath(jsonl([older, { type: 'user', uuid: 'u2', message: { role: 'user', content: 'recent' } }]))
+  const store = world(on, {}, disk.transcript, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'recent' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['ancient', 'recent'])
+})
+
+test('a prompt delivered into a running turn is listed even when the engine list leaves it out', async ($, on) => {
+  const transcript = jsonl([
+    { type: 'user', uuid: 'u1', message: { role: 'user', content: 'one' } },
+    { type: 'assistant', uuid: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } },
+    { type: 'attachment', uuid: 'q1', attachment: { type: 'queued_command', prompt: 'queued while the turn ran' } },
+    { type: 'user', uuid: 'u2', message: { role: 'user', content: 'two' } },
+  ])
+  const store = world(on, {}, transcript)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'one' },
+    { role: 'assistant', text: 'ok' },
+    { role: 'user', text: 'two' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['one', 'queued while the turn ran', 'two'])
+})
+
+test('after a compaction the engine list adds the prompts it still holds to the older stored ones', async ($, on) => {
+  const store = world(on, {}, FWD_COMPACTED)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. Primary Request' },
+    { role: 'assistant', text: 'ok' },
+    { role: 'user', text: 'after compact' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  // The summary is the engine's, not the person's; the prompts on both sides
+  // of the boundary are listed.
+  expect(await railLabels($)).toEqual(['before compact', 'after compact'])
+})
+
+test('a background read finishing after /clear lists no prompt of the old conversation', async ($, on) => {
+  const { clock } = bigWorld(on)
+  on('session.end', ($: any, e: any) => ({ sessionId: e.session_id ?? 's1' }))
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.session.end({ reason: 'clear', session_id: 's1' })
+  await clock.settle()
+  expect(await railLabels($)).toEqual([])
 })

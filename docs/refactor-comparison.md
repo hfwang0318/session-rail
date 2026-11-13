@@ -1,0 +1,102 @@
+# 重构对比：prompt-rail → claude-navigator
+
+本文记录 fork 的重构范围、基线对比、验证方式和已知限制。基线是 `oikon48/prompt-rail`（下称“原项目”），新项目是 `claude-navigator`。原项目保持未改动。
+
+## 1. 结论
+
+原项目的历史列表只有一个数据源：会话的 transcript `.jsonl` 文件。文件读不到、路径猜错、读取晚于 `/clear`、或压缩边界链接方向不符合预期时，列表会缺项甚至整条为空。这些是**架构缺陷**，不是单个解析 bug：transcript 是 Claude Code 的落盘产物，不是稳定的会话历史接口。
+
+重构后，历史列表以引擎自己的会话投影 `$.session.messages()` 为主源，transcript 降级为可选的增强源。transcript 只负责补充 uuid、回合详情和超出引擎 4096 条窗口的旧历史，读不到时只会让列表“少细节”，不会让列表“变空”。
+
+## 2. 测试基线
+
+| 项 | 原项目 | 重构后 |
+| --- | --- | --- |
+| 测试命令 | `claude plugin test plugins/prompt-rail` | `claude plugin test plugins/claude-navigator` |
+| 结果 | 142 pass / 0 fail | 157 pass / 0 fail |
+| 耗时 | 4.46s | 4.9s |
+| 新增测试 | — | 15（8 个集成场景 + 7 个纯函数/对齐场景） |
+
+原项目的 142 个测试全部保留并通过，因此 UI、布局、命令、转场、轨道绘制的行为没有回退。
+
+## 3. 架构对比
+
+| 维度 | 原项目 | 重构后 |
+| --- | --- | --- |
+| 主数据源 | transcript `.jsonl` | `$.session.messages()` |
+| transcript 的角色 | 唯一来源 | 可选增强（uuid、回合详情、旧历史） |
+| 文件缺失 | 列表为空 | 引擎列表照常显示 |
+| 路径猜错 | 只在启动时猜一次 | 每次回合边界重新查找，并提示一次 |
+| `/compact` | 依赖边界行与父链 | 过滤摘要行；边界前提示词由 transcript 补回 |
+| 4096 条上限 | 无此概念 | 超出部分由 transcript 补回 |
+| `/clear` 竞态 | 迟到的读可能回填旧会话 | 会话 id/path 校验 + `seen` 对象换代 |
+| 行 id | 全部来自 transcript uuid | uuid 优先；无 transcript 时用稳定引擎 id + 已渲染行 id |
+| 读失败 | 静默 | 提示一次 |
+
+核心新模块：`plugins/claude-navigator/hooks/history.ts`（约 130 行），把消息过滤、双源对齐、旧历史恢复做成纯函数，便于单测。
+
+## 4. 已修复的故障模式
+
+| 故障 | 触发条件 | 修复 | 测试 |
+| --- | --- | --- | --- |
+| 压缩边界前的提示词整段消失 | 边界 `logicalParentUuid` 指向新段（2.1.270 一类构建） | `liveBranch` 在边界处并入文件中的上一行，并逐段回溯 | `a compaction boundary that links forward keeps the prompts before it` |
+| 压缩后列表只剩摘要/最新几条 | 引擎用摘要替换内存消息列表 | 过滤压缩摘要；把 transcript 中早于首个匹配项的提示词放回列表头部 | `after a compaction the engine list adds the prompts it still holds to the older stored ones` |
+| 摘要被当成用户提示词 | `messages()` 的摘要行也是 `role: "user"` | `COMPACT_SUMMARY` 固定文案过滤 | 同上 |
+| 无 transcript 时列表为空 | 托管设置、Team/Enterprise、`--plugin-dir`、路径变更 | 引擎列表作为主源 | `the engine list lists prompts even when no transcript can be read` |
+| 迟到的 transcript 读回填旧会话 | `/clear` 或 resume 与异步读交错 | `seen` 换代；回调校验 session id/path；引擎刷新也校验会话 | `a background read finishing after /clear lists no prompt of the old conversation` |
+| 队列中的提示词丢失 | 引擎投影不包含 `queued_command` 附件 | 双源合并时按 transcript 位置补回队列提示词 | `a prompt delivered into a running turn is listed even when the engine list leaves it out` |
+| 新提示词顶掉同文旧提示词的 uuid | 新提示词尚未落盘、文本重复（如两次 `continue`） | 从新到旧双指针 + 单步前瞻；平局时跳过引擎项 | `a new unstored prompt does not take the stored row of an older prompt with the same text` |
+| 工具结果被当成提示词 | `messages()` 的用户行可能携带 `toolResults` | 纯函数过滤 | `a user row carrying tool results is not a prompt` |
+| 引擎列表顶部被上限截断 | 超过 4096 条消息 | `older` 恢复 + 稳定的引擎 id | `an older prompt the engine list no longer holds is put back before it` |
+| 读失败无提示 | 权限、文件被删、流式读取失败 | 每个路径提示一次 | 原项目既有测试 + 新提示逻辑 |
+
+## 5. 真实运行验证（不是仅测试替身）
+
+测试框架 `claude-code/testing` 的 `$.session` 确实没有 `messages()`。为此新增了一个**注入缝**：测试把消息列表写进插件自己的 store（键 `__claude-navigator-engine-test__`），`engineMessagesOf` 优先读取它。生产环境从不写这个键。上述 5 个注入引擎列表的集成测试走的是同一条 `refreshEngine` 代码路径，不是 transcript 回退路径。
+
+为了验证真实运行时 `$.session.messages()` 的形状，另用临时探针插件在 **Claude Code 2.1.308 真实会话** 中采样（`--plugin-dir` + `claude -p`）：
+
+- 首轮：返回 3 行 `[user 提示词, assistant "", assistant 回复]`。
+- `--resume` 后：返回 6 行，完整保留旧提示词。
+- 执行 `/compact` 后再开一轮：返回 8 行，关键片段如下：
+
+```text
+0 user  "This session is being continued from a previous conversation that ran ..."
+1 assistant ""
+2 assistant "done-again"
+3 user  "<command-name>/compact</command-name>..."
+4 user  "<local-command-stdout>Compacted..."
+5 user  "Reply with just: probe-three"
+6 assistant ""
+7 assistant "probe-three"
+```
+
+这段实测同时证明了三点：
+
+1. 压缩后引擎列表**只保留摘要和最近消息**，压缩前的提示词确实不在引擎列表里——必须靠 transcript 补回。
+2. 摘要行确实是 `role: "user"` 且不带 `isCompactSummary` 标记——必须按固定文案过滤，否则会被列成一条提示词。
+3. `/compact` 自身的命令行与输出行也是用户行，现有的 `WRAPPER` 过滤能正确排除。
+
+另外用真实插件（`--plugin-dir .../plugins/claude-navigator`）跑了一轮无头会话，插件加载、hook 注册与执行无报错。
+
+> 说明：`claude plugin test` 全部通过只能证明“回退路径 + 可注入的引擎主路径”通过；真实引擎路径由上面的探针会话单独验证。两者结论一致。
+
+## 6. 已知限制
+
+- `messages()` 只返回 `{role, text, toolUses, toolResults?}`，**没有 uuid、时间戳、origin、isCompactSummary 标记**。摘要只能按固定文案识别；非人类来源的提示词只能靠 transcript 的 origin 字段过滤。
+- `messages()` 最多返回 4096 条投影消息，超出部分依赖 transcript。
+- 没有 transcript 时，跳转只能指向已经渲染过一次的行（引擎列表没有行 id）。
+- `claude plugin validate` 会拒绝 `claude-` 前缀的插件名（Anthropic 公共目录保留）。本地 `--plugin-dir` 与本地 marketplace 安装已验证可用；若要提交公共目录，需要改 manifest 名称。
+- 未做交互式 TUI 的人工验收；布局与交互由原项目的 142 个测试覆盖。
+
+## 7. 复现
+
+```bash
+cd /path/to/claude-navigator
+claude plugin test plugins/claude-navigator
+claude --plugin-dir plugins/claude-navigator
+
+# 基线（原项目，未改动）
+cd /path/to/prompt-rail
+claude plugin test plugins/prompt-rail
+```

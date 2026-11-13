@@ -13,9 +13,9 @@
 | 项 | 原项目 | 重构后 |
 | --- | --- | --- |
 | 测试命令 | `claude plugin test plugins/prompt-rail` | `claude plugin test plugins/claude-navigator` |
-| 结果 | 142 pass / 0 fail | 157 pass / 0 fail |
+| 结果 | 142 pass / 0 fail | 169 pass / 0 fail |
 | 耗时 | 4.46s | 4.9s |
-| 新增测试 | — | 15（8 个集成场景 + 7 个纯函数/对齐场景） |
+| 新增测试 | — | 27（12 个注入引擎列表场景 + 15 个纯函数/压缩/竞态场景） |
 
 原项目的 142 个测试全部保留并通过，因此 UI、布局、命令、转场、轨道绘制的行为没有回退。
 
@@ -52,7 +52,7 @@
 
 ## 5. 真实运行验证（不是仅测试替身）
 
-测试框架 `claude-code/testing` 的 `$.session` 确实没有 `messages()`。为此新增了一个**注入缝**：测试把消息列表写进插件自己的 store（键 `__claude-navigator-engine-test__`），`engineMessagesOf` 优先读取它。生产环境从不写这个键。上述 5 个注入引擎列表的集成测试走的是同一条 `refreshEngine` 代码路径，不是 transcript 回退路径。
+测试框架 `claude-code/testing` 的 `$.session` 确实没有 `messages()`。为此新增了一个**注入缝**：测试把消息列表写进插件自己的 store（键 `__claude-navigator-engine-test__`），`engineMessagesOf` 优先读取它。生产环境从不写这个键，并且只有在 `$.session.messages()` 调用失败时才会读它。上述 12 个集成测试走的是同一条 `refreshEngine` 代码路径，不是 transcript 回退路径；其中 4 个测试在没有 transcript 的情况下也能通过，证明主路径确实被使用。
 
 为了验证真实运行时 `$.session.messages()` 的形状，另用临时探针插件在 **Claude Code 2.1.308 真实会话** 中采样（`--plugin-dir` + `claude -p`）：
 
@@ -81,7 +81,26 @@
 
 > 说明：`claude plugin test` 全部通过只能证明“回退路径 + 可注入的引擎主路径”通过；真实引擎路径由上面的探针会话单独验证。两者结论一致。
 
-## 6. 已知限制
+## 6. 子 agent 审查与修复
+
+重构完成后，分别以架构/正确性、异步竞态、测试覆盖、安全隐私、TypeScript/可维护性五个维度做了独立审查。没有 CRITICAL 发现；已修复的高/中风险项：
+
+- **异步竞态（HIGH）**：`engineMessagesOf` 的 await 之后、`refreshEngine` 之前重新校验会话 id 与代际计数；`/clear` 中途发生时，旧的刷新不会再回填新会话。
+- **读取互斥（HIGH）**：`readTranscript` 在第一个 await 之前就抢占 `Seen`，避免 `session.start` 与 `classic.SessionStart`（以及 `classic.Stop` 与 `turn.complete`）同时流式读入同一个对象。
+- **会话绑定竞态（MEDIUM）**：`transcriptOf`/`reconsiderTranscript` 的 await 之后，只有在会话仍未绑定、且代际未变时才写入路径；路径变更时清空 `lastIndex`。
+- **turn.complete 时序（MEDIUM）**：在 `next(e)` 之前捕获回合与提示词；`next` 期间发生 `/clear` 或新回合时，不再把旧回合的时长/中断状态写到新提示词上。
+- **同文新提示词被吞（MEDIUM）**：`held` 尾部改为按 id 判断，不再按文本；重复的 "continue" 不会因为文本相同而被当成已列出。
+- **重命名迁移（MEDIUM）**：引擎 id 升级为 uuid 时，`rowEntry`、`starter`、`reading`、`unreachable`、`aliases`、`pending` 一并迁移。
+- **类型错误（HIGH）**：`TranscriptIndex.prompts` 的 `queued` 字段用 `IndexedPrompt` 类型承载（此前会被 tsconfig 的 excess-property 检查拒绝）。
+- **读取失败语义（HIGH）**：引擎读取失败不再把 `engineMode` 翻回 transcript 模式，避免一次瞬时失败让旧列表被 transcript 覆盖。
+- **重复文本配对（HIGH）**：双源对齐改为从最旧一端开始，相邻的同文提示词按“旧配旧”配对；新发出的同文提示词不会再抢占旧提示词的 uuid 与回合详情。
+- **`/rewind` 残留（HIGH）**：引擎列表会记录上一轮列出的 id；被引擎丢弃（如 `/rewind` 分支）的提示词不会因为处于列表尾部而被保留，而刚发出、引擎尚未列出的提示词仍会保留。
+- **无匹配时的顺序（MEDIUM）**：压缩后新提示词已进入引擎列表、而它的 transcript 行尚未落盘时，旧历史作为更早的提示词放在它前面，而不是倒序追加。
+- **队列尾部顺序（LOW）**：引擎新提示词之前的 queued 提示词先于它列出。
+- **命令注入面收紧**：`tail` 的参数加上 `--`，路径不可能被解释为选项。
+- **隐私文案校正**：首次读取大文件会流式读完整个文件；PowerShell 子进程会收到两个临时环境变量；网络共享上的 transcript 会走 SMB。
+
+## 7. 已知限制
 
 - `messages()` 只返回 `{role, text, toolUses, toolResults?}`，**没有 uuid、时间戳、origin、isCompactSummary 标记**。摘要只能按固定文案识别；非人类来源的提示词只能靠 transcript 的 origin 字段过滤。
 - `messages()` 最多返回 4096 条投影消息，超出部分依赖 transcript。
@@ -89,7 +108,7 @@
 - `claude plugin validate` 会拒绝 `claude-` 前缀的插件名（Anthropic 公共目录保留）。本地 `--plugin-dir` 与本地 marketplace 安装已验证可用；若要提交公共目录，需要改 manifest 名称。
 - 未做交互式 TUI 的人工验收；布局与交互由原项目的 142 个测试覆盖。
 
-## 7. 复现
+## 8. 复现
 
 ```bash
 cd /path/to/claude-navigator

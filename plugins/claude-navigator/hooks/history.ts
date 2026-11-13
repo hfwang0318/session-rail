@@ -53,44 +53,51 @@ export const promptsFromMessages = (messages: readonly EngineMessage[], prepare:
   return prompts
 }
 
-// Which engine prompt each stored prompt is, matched from the newest end so a
-// list cut at the top (the engine's cap) still aligns at the bottom. Either
-// side may hold a prompt the other does not: the engine one just sent and not
-// stored yet, the transcript one delivered into a running turn, or an older
-// one the engine's cap dropped. A one-step lookahead finds the pair to skip;
-// on a tie the engine's prompt is skipped, so a new one does not take the
-// stored row of an older prompt with the same text. Returns the uuid each
-// engine ordinal is stored under, and the stored prompts older than the oldest
-// match, which the engine's list no longer holds.
+// Which engine prompt each stored prompt is. The engine's list is a window
+// over the same conversation: the transcript may hold prompts older than it,
+// and the engine may hold prompts whose stored row is not written yet. The
+// walk starts at the oldest end, so a repeated text pairs the older engine
+// prompt with the older stored row; a new copy the transcript does not have
+// yet is left at the end. A stored prompt with no engine prompt at that point
+// is passed (it is older than the engine's window, or one delivered into a
+// running turn), and an engine prompt with no stored row is passed too (sent
+// and not stored yet). Returns the uuid each engine ordinal is stored under,
+// and the stored prompts older than the oldest match, which the engine's list
+// no longer holds. With no match at all, every stored prompt is such history.
 export const matchStored = (prompts: readonly EnginePrompt[], stored: readonly StoredPrompt[]) => {
   const ids = new Map<number, string>()
-  const same = (a: string | undefined, b: string | undefined) => a !== undefined && b !== undefined && matchText(a) === matchText(b)
-  let first = stored.length
-  let i = prompts.length - 1
-  let j = stored.length - 1
-  while (i >= 0 && j >= 0) {
-    if (same(prompts[i]!.text, stored[j]!.text)) {
+  const left = prompts.map(prompt => matchText(prompt.text))
+  const right = stored.map(prompt => matchText(prompt.text))
+  const same = (i: number, j: number) => left[i] !== undefined && left[i] === right[j]
+  let first = -1
+  let i = 0
+  let j = 0
+  while (i < prompts.length && j < stored.length) {
+    if (same(i, j)) {
+      if (first < 0) first = j
       ids.set(prompts[i]!.ordinal, stored[j]!.id)
-      first = j
-      i--
-      j--
+      i++
+      j++
       continue
     }
-    const skipStored = j > 0 && same(prompts[i]!.text, stored[j - 1]!.text)
-    const skipEngine = i > 0 && same(prompts[i - 1]!.text, stored[j]!.text)
-    if (skipStored && !skipEngine) {
-      j--
+    const storedAhead = j + 1 < stored.length && same(i, j + 1)
+    const engineAhead = i + 1 < prompts.length && same(i + 1, j)
+    if (storedAhead) {
+      // The stored row here is one the engine's list leaves out.
+      j++
       continue
     }
-    if (skipEngine) {
-      i--
+    if (engineAhead) {
+      // The engine prompt here is newer than the stored row; its own row is
+      // not written yet.
+      i++
       continue
     }
-    // No adjacent pair matches: the stored row is a prompt the engine's list
-    // leaves out (a queued one, or one no longer current), so pass it.
-    j--
+    // Neither the next stored nor the next engine prompt lines up here. Pass
+    // the stored row: the engine's list is the source of what is current.
+    j++
   }
-  return { ids, older: ids.size === 0 ? [] : stored.slice(0, first) }
+  return { ids, older: stored.slice(0, first >= 0 ? first : stored.length) }
 }
 
 // The entry id an engine prompt is listed under: its stored uuid when the
@@ -110,6 +117,12 @@ export const mergePrompts = (prompts: readonly EnginePrompt[], stored: readonly 
   for (const prompt of prompts) {
     const id = ids.get(prompt.ordinal)
     if (id === undefined) {
+      // Queued prompts the transcript placed before this engine prompt are
+      // older than it, even though neither has a stored row of its own.
+      for (; cursor < stored.length; cursor++) {
+        const queued = stored[cursor]!
+        if (queued.queued) merged.push({ id: queued.id, text: queued.text })
+      }
       merged.push({ id: engineId(prompt, undefined), text: prompt.text, ordinal: prompt.ordinal })
       continue
     }
@@ -119,7 +132,7 @@ export const mergePrompts = (prompts: readonly EnginePrompt[], stored: readonly 
         const queued = stored[cursor]!
         if (queued.queued) merged.push({ id: queued.id, text: queued.text })
       }
-      cursor = matchedAt + 1
+      cursor = Math.max(cursor, matchedAt + 1)
     }
     merged.push({ id, text: prompt.text, ordinal: prompt.ordinal })
   }

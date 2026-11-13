@@ -433,7 +433,8 @@ const COMPACTED = jsonl([
   { type: 'user', uuid: 'p1', message: { role: 'user', content: 'before compact' } },
   { type: 'assistant', uuid: 'q1', message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } },
   { type: 'system', uuid: 'b1', parentUuid: null, logicalParentUuid: 'q1', subtype: 'compact_boundary' },
-  { type: 'user', uuid: 'p2', message: { role: 'user', content: 'after compact' } },
+  { type: 'user', uuid: 's1', parentUuid: 'q1', isCompactSummary: true, message: { role: 'user', content: 'summary' } },
+  { type: 'user', uuid: 'p2', parentUuid: 's1', message: { role: 'user', content: 'after compact' } },
 ])
 
 // What the world beneath the plugin holds and counts: the transcript file's
@@ -612,7 +613,7 @@ test('a transcript over 4 MiB is listed in its order, with turn details, without
   await clock.settle()
   expect(await railLabels($)).toEqual(['first', '二番目のプロンプト'])
   expect(disk.reads).toBe(0)
-  expect(disk.spawns).toEqual([['tail', '-c', '+1', '/t/s1.jsonl']])
+  expect(disk.spawns).toEqual([['tail', '-c', '+1', '--', '/t/s1.jsonl']])
   await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
   await drawRow($, 'p1', 'first', { first: 0, last: 1, of: 2 })
   const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
@@ -631,7 +632,7 @@ test('a later read of a large transcript asks only for the bytes after the last 
   await clock.settle()
   expect(await railLabels($)).toEqual(['first', '二番目のプロンプト', 'third'])
   // It starts at the last row read, to check the file still holds it there.
-  expect(disk.spawns[1]).toEqual(['tail', '-c', `+${before - lastRow + 1}`, '/t/s1.jsonl'])
+  expect(disk.spawns[1]).toEqual(['tail', '-c', `+${before - lastRow + 1}`, '--', '/t/s1.jsonl'])
 })
 
 test('a row torn at the end of a large transcript is listed once it is whole', async ($, on) => {
@@ -695,11 +696,11 @@ test('where no process can run, a large transcript leaves the drawn list and say
 })
 
 test('a large transcript is read with tail, and on Windows, where tail is not a given, PowerShell stands by', () => {
-  expect(streamRequests('/t/s1.jsonl', 0)).toEqual([{ argv: ['tail', '-c', '+1', '/t/s1.jsonl'] }])
-  expect(streamRequests('/t/s1.jsonl', 4096)).toEqual([{ argv: ['tail', '-c', '+4097', '/t/s1.jsonl'] }])
+  expect(streamRequests('/t/s1.jsonl', 0)).toEqual([{ argv: ['tail', '-c', '+1', '--', '/t/s1.jsonl'] }])
+  expect(streamRequests('/t/s1.jsonl', 4096)).toEqual([{ argv: ['tail', '-c', '+4097', '--', '/t/s1.jsonl'] }])
   const path = "C:\\Users\\o'brien\\.claude\\projects\\s1.jsonl"
   const [tail, powershell] = streamRequests(path, 4096)
-  expect(tail).toEqual({ argv: ['tail', '-c', '+4097', path] })
+  expect(tail).toEqual({ argv: ['tail', '-c', '+4097', '--', path] })
   expect(powershell?.argv.slice(0, 4)).toEqual(['powershell', '-NoProfile', '-NonInteractive', '-Command'])
   // The path and the position reach the script through its environment, not
   // its text: a quote in a directory's name, curly or straight, cannot end
@@ -2446,6 +2447,54 @@ test('a new unstored prompt does not take the stored row of an older prompt with
   ])
 })
 
+test('text that differs only in whitespace still matches between the two sources', () => {
+  expect(mergePrompts([{ text: 'first line\nsecond line', ordinal: 0 }], [{ id: 'u1', text: 'first line second line' }])).toEqual([
+    { id: 'u1', text: 'first line\nsecond line', ordinal: 0 },
+  ])
+})
+
+test('when the engine window starts after the stored history, all of it comes back', () => {
+  const { ids, older } = matchStored([{ text: 'x', ordinal: 0 }], [{ id: 'a', text: 'y' }, { id: 'b', text: 'z' }])
+  expect(ids.size).toBe(0)
+  expect(older).toEqual([{ id: 'a', text: 'y' }, { id: 'b', text: 'z' }])
+})
+
+test('adjacent copies pair oldest to oldest, so a new copy does not steal a uuid', () => {
+  expect(matchStored([{ text: 'continue', ordinal: 0 }, { text: 'continue', ordinal: 1 }], [{ id: 'u1', text: 'continue' }]).ids).toEqual(new Map([[0, 'u1']]))
+  expect(
+    mergePrompts(
+      [{ text: 'continue', ordinal: 0 }, { text: 'continue', ordinal: 1 }, { text: 'continue', ordinal: 2 }],
+      [{ id: 'u1', text: 'continue' }, { id: 'u2', text: 'continue' }],
+    ),
+  ).toEqual([
+    { id: 'u1', text: 'continue', ordinal: 0 },
+    { id: 'u2', text: 'continue', ordinal: 1 },
+    { id: 'engine:2', text: 'continue', ordinal: 2 },
+  ])
+})
+
+test('a queued copy of the same text pairs with its own stored row', () => {
+  expect(mergePrompts([{ text: 'continue', ordinal: 0 }], [{ id: 'u1', text: 'continue' }, { id: 'q1', text: 'continue', queued: true }])).toEqual([
+    { id: 'u1', text: 'continue', ordinal: 0 },
+    { id: 'q1', text: 'continue' },
+  ])
+})
+
+test('a queued prompt before a new engine prompt stays before it', () => {
+  expect(mergePrompts([{ text: 'one', ordinal: 0 }, { text: 'brand new', ordinal: 4 }], [{ id: 'u0', text: 'one' }, { id: 'q1', text: 'queued', queued: true }])).toEqual([
+    { id: 'u0', text: 'one', ordinal: 0 },
+    { id: 'q1', text: 'queued' },
+    { id: 'engine:4', text: 'brand new', ordinal: 4 },
+  ])
+})
+
+test('a queued prompt sent after the newest engine prompt stays after it', () => {
+  expect(mergePrompts([{ text: 'one', ordinal: 0 }], [{ id: 'u1', text: 'one' }, { id: 'q', text: 'next', queued: true }])).toEqual([
+    { id: 'u1', text: 'one', ordinal: 0 },
+    { id: 'q', text: 'next' },
+  ])
+})
+
 test('an engine prompt is listed under its stored uuid when the transcript matched it', () => {
   expect(engineId({ text: 'one', ordinal: 1 }, 'uuid-1')).toBe('uuid-1')
   expect(engineId({ text: 'one', ordinal: 1 }, undefined)).toBe('engine:1')
@@ -2520,9 +2569,14 @@ test('an older prompt the engine list no longer holds is put back before it', as
   const older = { type: 'user', uuid: 'old', timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'ancient' } }
   const disk = beneath(jsonl([older, { type: 'user', uuid: 'u2', message: { role: 'user', content: 'recent' } }]))
   const store = world(on, {}, disk.transcript, disk)
-  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'recent' }])
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'recent' },
+    { role: 'user', text: 'engine only' },
+  ])
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  expect(await railLabels($)).toEqual(['ancient', 'recent'])
+  // Both the stored prompt older than the engine's list and the engine's own
+  // prompt the transcript does not have yet are listed.
+  expect(await railLabels($)).toEqual(['ancient', 'recent', 'engine only'])
 })
 
 test('a prompt delivered into a running turn is listed even when the engine list leaves it out', async ($, on) => {
@@ -2537,9 +2591,10 @@ test('a prompt delivered into a running turn is listed even when the engine list
     { role: 'user', text: 'one' },
     { role: 'assistant', text: 'ok' },
     { role: 'user', text: 'two' },
+    { role: 'user', text: 'engine only' },
   ])
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  expect(await railLabels($)).toEqual(['one', 'queued while the turn ran', 'two'])
+  expect(await railLabels($)).toEqual(['one', 'queued while the turn ran', 'two', 'engine only'])
 })
 
 test('after a compaction the engine list adds the prompts it still holds to the older stored ones', async ($, on) => {
@@ -2548,11 +2603,77 @@ test('after a compaction the engine list adds the prompts it still holds to the 
     { role: 'user', text: 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. Primary Request' },
     { role: 'assistant', text: 'ok' },
     { role: 'user', text: 'after compact' },
+    { role: 'user', text: 'engine only' },
   ])
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   // The summary is the engine's, not the person's; the prompts on both sides
-  // of the boundary are listed.
+  // of the boundary are listed, and so is one only the engine has.
+  expect(await railLabels($)).toEqual(['before compact', 'after compact', 'engine only'])
+})
+
+test('a prompt drawn before the engine lists it stays after the list', async ($, on) => {
+  const store = world(on, {}, jsonl([]))
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'one' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await drawRow($, 'r2', 'just typed')
+  await stop($)
+  expect(await railLabels($)).toEqual(['one', 'just typed'])
+})
+
+test('with no transcript, a prompt row on screen places the reader under its engine prompt', async ($, on) => {
+  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
+  const store = world(on, {}, TRANSCRIPT, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'engine one' },
+    { role: 'assistant', text: 'ok' },
+    { role: 'user', text: 'engine two' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await drawRow($, 'r2', 'engine two', { first: 0, last: 1, of: 2 })
+  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect((await band.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual(['│', '┃'])
+})
+
+test('a post-compaction prompt whose row the transcript has not written yet comes after the old history', async ($, on) => {
+  const old = { type: 'user', uuid: 'p1', message: { role: 'user', content: 'before compact' } }
+  const store = world(on, {}, jsonl([old]))
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'after compact' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   expect(await railLabels($)).toEqual(['before compact', 'after compact'])
+})
+
+test('a prompt the engine drops with a /rewind leaves the engine-sourced list', async ($, on) => {
+  const store = world(on, {}, FORKED)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'alpha' }, { role: 'user', text: 'beta' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['alpha', 'beta'])
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'alpha' }, { role: 'user', text: 'delta' }])
+  await stop($)
+  expect(await railLabels($)).toEqual(['alpha', 'delta'])
+})
+
+test('a transcript read that arrives late cannot replace the engine list', async ($, on) => {
+  const disk = beneath(bigFile(bigRows()))
+  const store = world(on, {}, disk.transcript, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'engine only' }])
+  const clock = mock.clock(on)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await clock.settle()
+  expect(await railLabels($)).toEqual(['engine only'])
+})
+
+test('the engine list keeps the uuid each prompt was stored under, with its turn details', async ($, on) => {
+  const store = world(on, {}, TURNS)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'first' },
+    { role: 'assistant', text: '' },
+    { role: 'user', text: 'second' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ type: 'Text', text: /^#1 first · 1m 23s · 4 tools · app\.ts, README\.md\s*$/ })).toBeDefined()
 })
 
 test('a background read finishing after /clear lists no prompt of the old conversation', async ($, on) => {

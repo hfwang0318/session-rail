@@ -7,6 +7,8 @@
 - Fixed the rail losing prompts before a compaction once the engine replaced its list with the summary, and listing that summary as a prompt
 - Fixed a transcript read still in flight when `/clear` or a resume starts over repopulating the old conversation's rail
 - Fixed a resumed session whose transcript is in another directory never being looked for again, and a failed transcript read being silent
+- Fixed a new prompt with the same text as an older one taking over the older prompt's stored uuid, turn details and jump target
+- Fixed a prompt dropped by `/rewind` staying in an engine-sourced list, and a post-compaction prompt whose row is not written yet being listed before the history it follows
 
 - Added a "Classic hooks" row to `/config` (#69): on a machine with managed settings or in a Team or Enterprise organization, Claude Code notes each session that the security default skipped claude-navigator's `classic.SessionStart` and `classic.Stop` hooks; turning the row off registers neither hook, which silences those notes and changes nothing else there, since the rail finds the transcript on its own. It stays on by default: without the classic hooks, a session resumed from another directory, or an install loaded with `--plugin-dir`, leaves the rail no transcript to read
 

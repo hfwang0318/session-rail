@@ -302,8 +302,10 @@ export const turnLine = (turn: Turn | undefined, maxCells = Infinity) => {
   return withFiles(0)
 }
 
+type IndexedPrompt = Entry & { queued?: boolean }
+
 type TranscriptIndex = {
-  prompts: (Entry & { queued?: boolean })[]
+  prompts: IndexedPrompt[]
   // The turn each prompt started, in the same order.
   turns: Turn[]
   // Reply row uuid or tool_use id -> index into prompts of the prompt it answers.
@@ -317,10 +319,11 @@ type TranscriptIndex = {
 // ancestors of the last row, so they stay out. A /compact boundary starts a
 // new chain; its logicalParentUuid usually links back to the rows before it,
 // but some builds (2.1.270 among them) point it forward into the new segment,
-// which would cut every older prompt away. A boundary is therefore also
-// joined to the row immediately before it in the file, and each segment it
-// joins is walked in turn: compacted-away history is live, a rewound branch
-// still is not.
+// which would cut every older prompt away. When it links forward, or has no
+// link at all, a boundary is also joined to the row immediately before it in
+// the file, and each segment it joins is walked in turn: compacted-away
+// history is live, a rewound branch still is not. A boundary whose link
+// points back is left to its parent chain, which already reaches those rows.
 const liveBranch = (rows: any[]) => {
   const byId = new Map<string, any>()
   const at = new Map<string, number>()
@@ -343,7 +346,10 @@ const liveBranch = (rows: any[]) => {
     while (row && !live.has(row.uuid)) {
       live.add(row.uuid)
       if (row.subtype === 'compact_boundary') {
-        const previous = before(row)
+        const linksForward = typeof row.logicalParentUuid === 'string' && (at.get(row.logicalParentUuid) ?? -1) > (at.get(row.uuid) ?? -1)
+        const hasParent = typeof row.parentUuid === 'string'
+        const hasLink = typeof row.logicalParentUuid === 'string'
+        const previous = linksForward || (!hasParent && !hasLink) ? before(row) : undefined
         if (previous) pending.push(previous)
       }
       const parent = row.parentUuid ?? row.logicalParentUuid
@@ -412,7 +418,7 @@ const parseRows = (jsonl: string) => jsonl.split('\n').flatMap(line => (line.tri
 // sidechains and the engine's wrapper rows are not prompts.
 const indexRows = (rows: any[]): TranscriptIndex => {
   const live = liveBranch(rows)
-  const prompts: Entry[] = []
+  const prompts: IndexedPrompt[] = []
   const owners: [string, number][] = []
   const turns: Turn[] = []
   // When each turn started and when its latest reply was written.
@@ -479,7 +485,9 @@ const indexRows = (rows: any[]): TranscriptIndex => {
     if (Array.isArray(content) && content.some((block: any) => block?.type === 'tool_result')) continue
     // A slash command's own row is not a prompt: the render hook skips it too,
     // so it is never drawn and could not be scrolled to.
-    if (!text || WRAPPER.test(text) || text.startsWith('/')) continue
+    // Some builds wrote a compaction summary without the flag that names it;
+    // its fixed wording still tells the engine's.
+    if (!text || WRAPPER.test(text) || COMPACT_SUMMARY.test(text) || text.startsWith('/')) continue
     prompts.push({ id: row.uuid, text })
     turns.push({ tools: 0, files: [] })
     started = prompts.length - 1
@@ -571,7 +579,7 @@ const isWindowsPath = (path: string) => /^([a-zA-Z]:[\\/]|\\\\)/.test(path)
 // shared for the engine to write, rename or delete; a read that fails ends
 // the script with a non-zero code instead of passing as a short file.
 export const streamRequests = (path: string, at: number): { argv: string[]; env?: Record<string, string> }[] => {
-  const tail = { argv: ['tail', '-c', `+${at + 1}`, path] }
+  const tail = { argv: ['tail', '-c', `+${at + 1}`, '--', path] }
   if (!isWindowsPath(path)) return [tail]
   const script = [
     "$ErrorActionPreference = 'Stop'",
@@ -674,24 +682,33 @@ const tellNotice = ($: EngineInterface, seen: Seen, isBound: boolean) => {
 // index once it is done, or undefined when it could not be read.
 async function readTranscript($: EngineInterface, path: string, seen: Seen, whenLate: (index: TranscriptIndex | undefined) => void) {
   if (seen.isReading) return undefined
-  let stat: { size: number; mtimeMs: number }
+  // Claim the read before the first await. The hooks for one boundary fire
+  // together (session.start and classic.SessionStart; classic.Stop and
+  // turn.complete), and both would otherwise stream into the same Seen.
+  seen.isReading = true
+  let isStreaming = false
   try {
-    stat = await $.fs.stat(path)
-  } catch (err) {
-    seen.isReading = false
-    const message = (err as Error)?.message ?? String(err)
-    seen.isMissing = /ENOENT|no such file|not found/i.test(message)
-    if (!seen.isMissing && seen.warned !== path) {
-      seen.warned = path
-      seen.notice = `the transcript could not be read (${message}); prompts are listed as they are drawn`
+    let stat: { size: number; mtimeMs: number }
+    try {
+      stat = await $.fs.stat(path)
+    } catch (err) {
+      const message = (err as Error)?.message ?? String(err)
+      const code = (err as { code?: unknown })?.code
+      seen.isMissing = code === 'ENOENT' || /ENOENT|no such file|not found/i.test(message)
+      if (!seen.isMissing && seen.warned !== path) {
+        seen.warned = path
+        seen.notice = `the transcript could not be read (${message}); prompts are listed as they are drawn`
+      }
+      return undefined
     }
-    return undefined
-  }
-  const { size, mtimeMs } = stat
-  seen.isMissing = false
-  try {
+    const { size, mtimeMs } = stat
+    seen.isMissing = false
     if (seen.path === path && seen.size === size && seen.mtimeMs === mtimeMs) return undefined
-    if (seen.path !== path || size < seen.offset) Object.assign(seen, { ...unseen(), warned: seen.warned, notice: seen.notice })
+    if (seen.path !== path || size < seen.offset) {
+      Object.assign(seen, { ...unseen(), warned: seen.warned, notice: seen.notice })
+      // unseen() clears the flag; this read still owns Seen.
+      seen.isReading = true
+    }
     if (size <= READ_CAP) {
       const text = await $.fs.read(path)
       Object.assign(seen, { rows: [], lastStart: 0, lastUuid: undefined })
@@ -699,7 +716,7 @@ async function readTranscript($: EngineInterface, path: string, seen: Seen, when
       Object.assign(seen, { path, size, mtimeMs })
       return indexSeen(seen, rest)
     }
-    seen.isReading = true
+    isStreaming = true
     const reading = readLarge($, path, seen, size, mtimeMs).finally(() => {
       seen.isReading = false
     })
@@ -707,12 +724,15 @@ async function readTranscript($: EngineInterface, path: string, seen: Seen, when
     void reading.then(whenLate)
     return undefined
   } catch (err) {
-    seen.isReading = false
     if (seen.warned !== path) {
       seen.warned = path
       seen.notice = `the transcript could not be read (${(err as Error)?.message ?? String(err)}); prompts are listed as they are drawn`
     }
     return undefined
+  } finally {
+    // A streamed read that returned before it finished keeps the claim; its
+    // own finally releases it.
+    if (!isStreaming) seen.isReading = false
   }
 }
 
@@ -922,24 +942,29 @@ async function reconsiderTranscript(
   return { shouldToast: found === undefined || hasEntries }
 }
 
-// The session's messages as the engine holds them, through the mods API's
-// `$.session.messages()`. Undefined where the running engine (or the test
-// harness) does not offer that service, in which case the transcript alone
-// lists the prompts, as earlier versions did.
+// What one read of the engine's list yielded: the messages, or a read that
+// failed. A failure keeps the list and the mode the rail already has.
+export type EngineRead = { kind: 'messages'; messages: readonly EngineMessage[] } | { kind: 'failed' }
+
 // The mods testing harness carries an older `$.session` (no `messages`), so a
-// test stages the engine's list in the plugin's own store under this key. It
-// is read first, so a test can drive the engine source without the service;
-// production never writes it.
+// test stages the engine's list in the plugin's own store under this key. The
+// key is consulted only when the service call fails: a real session that
+// answers never reads it, and a test can drive the engine source without the
+// service.
 export const ENGINE_MESSAGES_TEST_KEY = '__claude-navigator-engine-test__'
 
-async function engineMessagesOf($: EngineInterface): Promise<readonly EngineMessage[] | undefined> {
+async function engineMessagesOf($: EngineInterface): Promise<EngineRead> {
   try {
-    const staged = await $.store.get(ENGINE_MESSAGES_TEST_KEY)
-    if (Array.isArray(staged)) return staged as readonly EngineMessage[]
     const messages = await ($.session as unknown as { messages: () => Promise<unknown> }).messages()
-    return Array.isArray(messages) ? (messages as readonly EngineMessage[]) : undefined
+    return Array.isArray(messages) ? { kind: 'messages', messages: messages as readonly EngineMessage[] } : { kind: 'failed' }
   } catch {
-    return undefined
+    try {
+      const staged = await $.store.get(ENGINE_MESSAGES_TEST_KEY)
+      if (Array.isArray(staged)) return { kind: 'messages', messages: staged as readonly EngineMessage[] }
+    } catch {
+      // No store either: the engine simply has no list to offer.
+    }
+    return { kind: 'failed' }
   }
 }
 
@@ -1040,6 +1065,17 @@ export const register: Register = (on, options) => {
   // Whether the engine's message list is the source of the prompts. When it
   // is, a transcript read only enriches the list and can never empty it.
   let engineMode = false
+  // The ids the engine's last list held, with the prior ids base claimed in
+  // their place. An entry it holds now was current then; one that is neither
+  // in the new list nor here was drawn since and is kept until the list names
+  // it, so a /rewind's dropped prompt leaves and a just-sent one stays.
+  let listedEngine = new Set<string>()
+  // Bumped whenever the conversation is forgotten. An async handler that
+  // started before a /clear or resume checks it against the value it captured
+  // before touching the new conversation's state.
+  let generation = 0
+  // The id of the main-loop turn running now, from turn.start.
+  let activeTurn: string | undefined
 
   const addPrompt = (id: string, text: string) => {
     // A new prompt is drawn under a provisional id before it is stored, then
@@ -1146,6 +1182,19 @@ export const register: Register = (on, options) => {
       }
       pending.add(id)
       return addPrompt(id, text)
+    }
+    // The engine's list names prompts without uuids. A row drawn for one of
+    // them takes the place of its entry rather than adding a duplicate; rows
+    // of a repeated text pair with the entries in order.
+    if (engineMode) {
+      const wanted = matchText(text)
+      const listed = entries.find(entry => entry.rowId === undefined && matchText(entry.text) === wanted)
+      if (listed !== undefined) {
+        rowEntry.set(key, listed.id)
+        drawn.set(rowKey(listed.id), id)
+        entries = entries.map(entry => (entry === listed ? { ...entry, rowId: id } : entry))
+        return true
+      }
     }
     const isAdded = addPrompt(id, text)
     if (isAdded) lately = [...lately, { id, at: Date.now() }]
@@ -1353,6 +1402,7 @@ export const register: Register = (on, options) => {
     filed = new Set()
     lastIndex = undefined
     engineMode = false
+    listedEngine = new Set()
     pending.clear()
     aliases.clear()
     waiting.clear()
@@ -1367,6 +1417,8 @@ export const register: Register = (on, options) => {
     seen = unseen()
     listedAtRest = 0
     session = undefined
+    activeTurn = undefined
+    generation++
   }
 
   // Whether the session is in another conversation than the list is of (a
@@ -1378,6 +1430,7 @@ export const register: Register = (on, options) => {
   }
 
   on('session.start', async ($, e, next) => {
+    let at = generation
     await $.command.register({
       // Named after the plugin: a plugin's commands share one namespace with
       // every other plugin's and the built-ins, so a generic name would collide.
@@ -1417,9 +1470,20 @@ export const register: Register = (on, options) => {
     // the classic hooks passed over, the one found on disk.
     launchCwd = e.cwd
     const id = await $.session.id()
-    if (isElsewhere(id)) await redrawRail($)
-    if (session?.path === undefined) session = { id, path: await transcriptOf($, id, launchCwd) }
-    const transcriptPath = session.path
+    if (isElsewhere(id)) {
+      await redrawRail($)
+      // isElsewhere started the list over; this handler owns the new one.
+      at = generation
+    }
+    const before = generation
+    if (session?.path === undefined) {
+      const found = await transcriptOf($, id, launchCwd)
+      if (generation === before && (session === undefined || session.id === id) && session?.path === undefined) session = { id, path: found }
+    }
+    // A /clear or resume during the lookup owns the conversation now.
+    if (generation !== before || session?.id !== id) return next(e)
+    at = generation
+    const transcriptPath = session?.path
     const isCurrent = () => session?.id === id && session?.path === transcriptPath
     const index = transcriptPath === undefined ? undefined : await readTranscript($, transcriptPath, seen, index => {
       if (!isCurrent()) return
@@ -1429,22 +1493,22 @@ export const register: Register = (on, options) => {
     if (index && isCurrent() && merge(index)) await redrawRail($)
     tellNotice($, seen, isBound)
     // A session that started or cleared while the read ran owns none of this.
-    if (session?.id === id) {
+    if (generation === at && session?.id === id) {
       const recheck = await reconsiderTranscript($, id, launchCwd, session.path, seen.isMissing, entries.length > 0)
-      if (recheck.path !== undefined) session = { id, path: recheck.path }
-      if (recheck.shouldToast && unfoundFor !== id) {
+      if (generation === at && session?.id === id && recheck.path !== undefined) {
+        session = { id, path: recheck.path }
+        lastIndex = undefined
+      }
+      if (generation === at && recheck.shouldToast && unfoundFor !== id) {
         unfoundFor = id
         $.ui.toast(UNFOUND)
       }
     }
     // The engine's list is the session's own, whatever path its transcript
     // settled at; a conversation that ended meanwhile has no list to keep.
-    if (session?.id === id) {
-      const messages = await engineMessagesOf($)
-      if (messages === undefined) engineMode = false
-      else if (refreshEngine(messages)) await redrawRail($)
-    }
-    if (!isRunning) listedAtRest = entries.length
+    const read = await engineMessagesOf($)
+    if (applyEngineRead(read, id, at)) await redrawRail($)
+    if (generation === at && !isRunning) listedAtRest = entries.length
     // Unasked, the engine seats a pane only from 144 columns (110 once the
     // person has opened it with /claude-navigator); below that it waits undrawn.
     await seatRail($, mode, isTerminal)
@@ -1569,9 +1633,13 @@ export const register: Register = (on, options) => {
       const key = matchText(entry.text)
       priorByText.set(key, [...(priorByText.get(key) ?? []), entry])
     }
+    // The prior entries base has claimed, by id: the rows a new prompt may
+    // still follow, whatever its text.
+    const taken = new Set<string>()
     const takePrior = (entry: Entry) => {
       const prior = priorById.get(rowKey(entry.id)) ?? priorByText.get(matchText(entry.text))?.shift()
       if (prior === undefined) return undefined
+      taken.add(rowKey(prior.id))
       priorById.delete(rowKey(prior.id))
       const sameText = priorByText.get(matchText(prior.text))
       const at = sameText?.indexOf(prior) ?? -1
@@ -1602,26 +1670,48 @@ export const register: Register = (on, options) => {
           ended.set(newKey, outcome)
           ended.delete(oldKey)
         }
+        // The rest of the module's id-keyed state follows the rename too.
+        for (const [name, value] of rowEntry) if (value === prior.id) rowEntry.set(name, id)
+        if (starter === prior.id) starter = id
+        if (reading === oldKey) reading = newKey
+        if (unreachable.delete(oldKey)) unreachable.add(newKey)
+        for (const [name, value] of aliases) if (value === prior.id) aliases.set(name, id)
+        if (pending.delete(prior.id)) pending.add(id)
       }
       const named = id === entry.id ? entry : { ...entry, id }
       return prior?.rowId === undefined ? named : { ...named, rowId: prior.rowId }
     })
     engineMode = true
+    // A row is kept when neither this list nor the last one named it: it was
+    // drawn since, sent but not yet stored or drawn before the list caught up.
+    // Rows an earlier list named and this one does not were dropped by the
+    // engine (a /rewind), so they leave. The comparison is by id, not text: a
+    // second "continue" is a prompt of its own even while the engine names
+    // only the first.
     const baseIds = new Set(base.map(entry => rowKey(entry.id)))
-    const baseTexts = new Set(base.map(entry => matchText(entry.text)))
-    const holds = (entry: Entry) => baseIds.has(rowKey(entry.id)) || baseTexts.has(matchText(entry.text))
-    // Only rows after the last one the engine holds can be a prompt it has not
-    // listed yet: sent but not stored, or drawn before the list caught up.
-    // Rows between matched prompts are the transcript's own, not the engine's
-    // list, so the engine stays the source and they drop.
-    let cut = -1
-    for (let i = entries.length - 1; i >= 0; i--) if (holds(entries[i]!)) { cut = i; break }
-    const held = cut < 0 ? entries : entries.slice(cut + 1).filter(entry => !holds(entry))
+    const listed = new Set([...baseIds, ...taken])
+    // A prompt the transcript listed and the engine omits is not current (the
+    // engine is the source); one no read listed was drawn since.
+    const filedKeys = new Set([...filed].map(rowKey))
+    const held = entries.filter(entry => {
+      const key = rowKey(entry.id)
+      return !listed.has(key) && !listedEngine.has(key) && !filedKeys.has(key)
+    })
     entries = [...base, ...held]
+    listedEngine = listed
     const idsNow = new Set(entries.map(entry => entry.id))
     for (const id of pending) if (!idsNow.has(id)) pending.delete(id)
     for (const [name, id] of aliases) if (!idsNow.has(id)) aliases.delete(name)
     return listSignature(entries) !== before.list || currentIndex() !== before.current
+  }
+
+  // Apply one engine read to the list, unless the conversation it belongs to
+  // ended while the read ran. A failed read keeps the list and the mode the
+  // rail already has; only an engine without the service falls back to the
+  // transcript alone.
+  const applyEngineRead = (read: EngineRead, id: string, at: number) => {
+    if (generation !== at || session?.id !== id) return false
+    return read.kind === 'messages' && refreshEngine(read.messages)
   }
 
   // Rebuild the list from the transcript file, whose uuids are the ids the
@@ -1634,9 +1724,16 @@ export const register: Register = (on, options) => {
     // ended would look the same before and after.
     const before = { list: listSignature(entries), current: currentIndex() }
     applyIndex(index)
+    // This read's prompts. In engine mode they are the last filed list; the
+    // transcript-only rebuild below compares against the previous read's.
+    const listed = new Set(index.prompts.map(prompt => prompt.id))
     // With the engine's own list in hand, the transcript only enriched it: it
-    // cannot empty a list the engine still holds.
-    if (engineMode) return false
+    // cannot empty a list the engine still holds. The read may still have
+    // changed a turn's details, so say whether the drawing is stale.
+    if (engineMode) {
+      filed = listed
+      return listSignature(entries) !== before.list || currentIndex() !== before.current
+    }
     // An entry whose row, or another name of it, the file holds is listed
     // from the file.
     const known = new Set([...index.known].map(rowKey))
@@ -1644,7 +1741,7 @@ export const register: Register = (on, options) => {
     // An entry the last read listed and this one does not is gone from the
     // file (replaced under the rail), not a row drawn before it was stored.
     entries = [...index.prompts, ...entries.filter(entry => !known.has(rowKey(entry.id)) && !filed.has(entry.id))]
-    filed = new Set(index.prompts.map(entry => entry.id))
+    filed = listed
     const ids = new Set(entries.map(entry => entry.id))
     for (const id of pending) if (!ids.has(id) || known.has(rowKey(id))) pending.delete(id)
     for (const [name, id] of aliases) if (!ids.has(id)) aliases.delete(name)
@@ -1661,7 +1758,8 @@ export const register: Register = (on, options) => {
   // which silences those notes and changes nothing else there.
   if (options.classicHooks !== false) {
     on('classic.SessionStart', async ($, e, next) => {
-      const isCurrent = () => session?.id === e.session_id && session?.path === e.transcript_path
+      const at = generation
+      const isCurrent = () => generation === at && session?.id === e.session_id && session?.path === e.transcript_path
       if (e.source === 'clear') {
         forget()
         session = { id: e.session_id, path: e.transcript_path }
@@ -1677,18 +1775,16 @@ export const register: Register = (on, options) => {
         if (index && isCurrent() && merge(index)) await redrawRail($)
         tellNotice($, seen, isBound)
       }
-      if (session?.id === e.session_id) {
-        const messages = await engineMessagesOf($)
-        if (messages === undefined) engineMode = false
-        else if (refreshEngine(messages)) await redrawRail($)
-      }
-      listedAtRest = entries.length
+      const read = await engineMessagesOf($)
+      if (applyEngineRead(read, e.session_id, at)) await redrawRail($)
+      if (generation === at) listedAtRest = entries.length
       await rememberTranscript($, e.session_id, e.transcript_path)
       return next(e)
     })
 
     on('classic.Stop', async ($, e, next) => {
-      const isCurrent = () => session?.id === e.session_id && session?.path === e.transcript_path
+      const at = generation
+      const isCurrent = () => generation === at && session?.id === e.session_id && session?.path === e.transcript_path
       const index = await readTranscript($, e.transcript_path, seen, index => {
         if (!isCurrent()) return
         if (index && merge(index)) void redrawRail($)
@@ -1696,11 +1792,8 @@ export const register: Register = (on, options) => {
       })
       if (index && isCurrent() && merge(index)) await redrawRail($)
       tellNotice($, seen, isBound)
-      if (session?.id === e.session_id) {
-        const messages = await engineMessagesOf($)
-        if (messages === undefined) engineMode = false
-        else if (refreshEngine(messages)) await redrawRail($)
-      }
+      const read = await engineMessagesOf($)
+      if (applyEngineRead(read, e.session_id, at)) await redrawRail($)
       return next(e)
     })
   }
@@ -1708,16 +1801,30 @@ export const register: Register = (on, options) => {
   // A main-loop turn starts (a subagent's run raises none): the newest
   // prompt's turn is running.
   on('turn.start', async ($, e, next) => {
+    let at = generation
     // First, as it may start the list over: the conversation this turn is in.
     const id = await $.session.id()
-    if (isElsewhere(id)) await redrawRail($)
-    if (session?.path === undefined) session = { id, path: await transcriptOf($, id, launchCwd) }
-    const path = session.path
+    if (isElsewhere(id)) {
+      await redrawRail($)
+      // isElsewhere started the list over; this turn belongs to the new one.
+      at = generation
+    }
+    const before = generation
+    if (session?.path === undefined) {
+      const found = await transcriptOf($, id, launchCwd)
+      // A classic SessionStart may have named the path while this looked.
+      if (generation === before && (session === undefined || session.id === id) && session?.path === undefined) session = { id, path: found }
+    }
+    // A /clear or resume during the lookup owns the conversation now.
+    if (generation !== before || session?.id !== id) return next(e)
+    at = generation
+    const path = session?.path
     if (path === undefined && unfoundFor !== id) {
       unfoundFor = id
       $.ui.toast(UNFOUND)
     }
     isRunning = true
+    activeTurn = e.turnId
     // The transcript follows the new turn down from the prompt jumped to.
     landed = undefined
     isContinuation = e.text.trim() === ''
@@ -1741,17 +1848,19 @@ export const register: Register = (on, options) => {
       // count as this turn's.
       for (const [name, row] of onScreen) if (!isKnownRow(row.key)) onScreen.delete(name)
     }
-    if (session?.id === id) {
+    if (generation === at && session?.id === id) {
       const recheck = await reconsiderTranscript($, id, launchCwd, session.path, seen.isMissing, entries.length > 0)
-      if (recheck.path !== undefined) session = { id, path: recheck.path }
-      if (recheck.shouldToast && unfoundFor !== id) {
+      if (generation === at && session?.id === id && recheck.path !== undefined) {
+        session = { id, path: recheck.path }
+        lastIndex = undefined
+      }
+      if (generation === at && recheck.shouldToast && unfoundFor !== id) {
         unfoundFor = id
         $.ui.toast(UNFOUND)
       }
-      const messages = await engineMessagesOf($)
-      if (messages === undefined) engineMode = false
-      else if (refreshEngine(messages)) await redrawRail($)
     }
+    const read = await engineMessagesOf($)
+    if (applyEngineRead(read, id, at)) await redrawRail($)
     await redrawRail($)
     return next(e)
   })
@@ -1761,18 +1870,26 @@ export const register: Register = (on, options) => {
   // turn_duration row is written after the Stop hook reads the file, so keep
   // the engine's figure and how the turn ended until a later read has them.
   on('turn.complete', async ($, e, next) => {
+    const at = generation
+    const id = await $.session.id()
+    // Captured before next(): another hook's turn may start while it runs.
+    const entry = generation === at ? turnEntry() : undefined
     const result = await next(e)
-    const entry = turnEntry()
-    if (e.agentId === undefined) {
+    // A /clear or resume during next() owns none of this turn's bookkeeping.
+    if (e.agentId !== undefined || generation !== at || session?.id !== id) return result
+    if (activeTurn === e.turnId) {
+      activeTurn = undefined
       isRunning = false
       // A prompt still waiting now is queued behind this turn; its rows to
       // come follow its provisional row.
       waiting.clear()
       notifiedAt.clear()
-      for (const id of delivered) pending.delete(id)
+      for (const name of delivered) pending.delete(name)
       delivered.clear()
       lately = []
       listedAtRest = entries.length
+    }
+    {
       if (entry) {
         // By row key: a prompt drawn under a derived id is listed under its
         // stored uuid once the transcript is read.
@@ -1783,7 +1900,6 @@ export const register: Register = (on, options) => {
       }
       // The turn's rows are stored by now: read them, as classic.Stop does
       // where the classic hooks are not passed over.
-      const id = await $.session.id()
       const path = session?.path
       const isCurrent = () => session?.id === id && session?.path === path
       const index = path
@@ -1795,17 +1911,19 @@ export const register: Register = (on, options) => {
         : undefined
       tellNotice($, seen, isBound)
       if (index && isCurrent()) merge(index)
-      if (session?.id === id) {
+      if (generation === at && session?.id === id) {
         const recheck = await reconsiderTranscript($, id, launchCwd, session.path, seen.isMissing, entries.length > 0)
-        if (recheck.path !== undefined) session = { id, path: recheck.path }
-        if (recheck.shouldToast && unfoundFor !== id) {
+        if (generation === at && session?.id === id && recheck.path !== undefined) {
+          session = { id, path: recheck.path }
+          lastIndex = undefined
+        }
+        if (generation === at && recheck.shouldToast && unfoundFor !== id) {
           unfoundFor = id
           $.ui.toast(UNFOUND)
         }
-        const messages = await engineMessagesOf($)
-        if (messages === undefined) engineMode = false
-        else refreshEngine(messages)
       }
+      const read = await engineMessagesOf($)
+      applyEngineRead(read, id, at)
       await redrawRail($)
     }
     return result

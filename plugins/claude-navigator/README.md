@@ -1,0 +1,72 @@
+# claude-navigator
+
+A rail of your prompts for Claude Code. Hover to read one, click to jump back to it.
+
+claude-navigator is a mod: it draws a row of bars above or below the prompt input, or a pane beside the transcript, with one tick for each prompt you sent in the session. Hovering a tick shows the prompt and a short summary of its turn, and clicking it scrolls the transcript to that prompt. Commands step through the prompts from the keyboard.
+
+It needs Claude Code v2.1.287 or later, in the terminal or in the Code tab of the Claude desktop app. Mouse works best with `"tui": "fullscreen"`.
+
+## Install
+
+From the Claude directory, or from the plugin's own marketplace:
+
+```bash
+claude plugin marketplace add oikon48/claude-navigator
+claude plugin install claude-navigator@oikon48
+```
+
+Start a new session and the rail opens on its own.
+
+## Commands
+
+| Command | |
+| --- | --- |
+| `/claude-navigator horizontal` | Bars above the prompt input (the default) |
+| `/claude-navigator vertical` | A pane beside the transcript |
+| `/claude-navigator below` | Bars under the hint line below the prompt input (terminal; the desktop app draws them above) |
+| `/claude-navigator off` | Hide the rail |
+| `/claude-navigator next`, `prev` | Jump to the next or previous prompt |
+| `/claude-navigator first`, `last` | Jump to the first or the newest prompt |
+| `/claude-navigator 12`, `#12` | Jump to prompt #12 |
+| `/claude-navigator find <words>` | Jump to the newest prompt that holds the words |
+| `/claude-navigator-next`, `/claude-navigator-prev` | Jump to the next or previous prompt, for a keybinding |
+| `/claude-navigator-toggle` | Hide the rail, or bring it back, for a keybinding |
+| `/claude-navigator` | Reopen the rail in the current layout |
+
+The layout is also the "Rail mode" row in `/config`, and it is kept across sessions.
+
+The "Classic hooks" row in `/config` keeps `classic.SessionStart` and `classic.Stop` registered (the default). On a machine with managed settings, or in a Team or Enterprise organization, Claude Code's security default passes the classic events over installed plugins and notes the skipped hooks each session; turning the row off registers neither hook, which silences those notes and changes nothing else there, since the rail finds the transcript on its own. Leave it on elsewhere: without the classic hooks, a session resumed from another directory than it started in, and an install loaded with `--plugin-dir`, leave the rail no transcript to read.
+
+In the horizontal layout, `ctrl+x tab` moves the focus to the bars: `←` `→` move across them, `Enter` jumps to the prompt, `Esc` returns to the prompt input.
+
+## Privacy
+
+This section is claude-navigator's privacy policy: what it reads, runs, and stores.
+
+claude-navigator makes no network requests and sends nothing anywhere, neither the transcript it reads nor your prompts. It collects no analytics, and its author receives no data from it. Everything it does stays on your machine:
+
+- It reads the current session's transcript file (the `.jsonl` file Claude Code writes for the session) to list your prompts and their turns.
+- Where no hook names that file, as on a machine with managed settings or in a Team or Enterprise organization, where Claude Code's security default keeps the classic hooks from installed plugins, it looks for the file where Claude Code keeps it: `projects/<folder>/<session id>.jsonl` under the config folder the mod is installed in, the folder named after the session's working directory. It checks whether that file exists, and for a working directory whose folder name Claude Code shortens, it lists the folder names under `projects` to find the one that matches. It reads no other file there.
+- When a transcript is too large to read in one call, it streams the file with `tail -c +N <transcript>`, which writes the file from byte N on to the mod, so the rail reads only what is new. On a Windows path where `tail` cannot start, it runs `powershell -NoProfile -NonInteractive` with a short script that copies the same file from that position. The output of either goes to the mod alone. It runs no other program.
+- It writes one setting, its own `claude-navigator.mode` (the "Rail mode" row in `/config`), when you pick a layout. It sets no other setting and no environment variable.
+- In the mod's own store it keeps the layout last on and the transcript paths of the most recent sessions, so a resumed session can find its rail again.
+
+Its hooks watch and do not change what passes through them:
+
+- `command.run` answers only its own commands (`/claude-navigator`, `/claude-navigator-next`, `/claude-navigator-prev`, `/claude-navigator-toggle`) and passes every other command on unchanged.
+- `classic.SessionStart` and `classic.Stop` read the transcript path from the event to refresh the rail, and pass the event on unchanged; the rail adds no context or instructions. The "Classic hooks" row in `/config` can turn their registration off.
+- `session.end` notes that a `/clear` or a resume has started another conversation, so the rail starts its list over, and passes the event on unchanged.
+- `prompt.submit` and `session.receive` note that a prompt was sent, and pass it on unchanged.
+- `turn.start`, `turn.complete`, and `ui.render` on transcript rows note which prompt is on screen and which turn is running, read the transcript again as a turn starts and ends, and draw those rows as Claude Code does. `ui.render`, `ui.focus`, and `ui.press` on the rail's own pane and band draw the rail and take its clicks and keys. In the below layout, `ui.render` on the hint line under the prompt draws Claude Code's own line unchanged and adds the rail's row under it.
+
+## Limitations
+
+- The Claude desktop app draws the horizontal rail, but a click cannot jump there, since the app gives a plugin no way to scroll its transcript.
+- A `/compact` command's own row cannot be jumped to.
+- Near the end of the transcript, `next` cannot scroll further.
+
+## Source and license
+
+Source, issues, and the full README with screenshots: https://github.com/oikon48/claude-navigator
+
+[MIT](https://github.com/oikon48/claude-navigator/blob/main/LICENSE)

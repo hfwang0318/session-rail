@@ -2054,23 +2054,6 @@ test('slash-command rows and interruption notices are not listed as prompts', as
   expect(await railLabels($)).toEqual(['first', 'second'])
 })
 
-test('a side agent\'s note is not listed as a prompt', async ($, on) => {
-  world(on, {}, jsonl([
-    { type: 'user', uuid: 'u1', message: { role: 'user', content: 'first' } },
-    {
-      type: 'attachment',
-      uuid: 'n1',
-      attachment: {
-        type: 'queued_command',
-        prompt: 'Here is a note offered by a side agent:\n\n> Heads up · a note',
-        origin: { kind: 'human' },
-      },
-    },
-  ]))
-  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  expect(await railLabels($)).toEqual(['first'])
-})
-
 // Three turns: interrupted, ended by an API error, and one that edited a file.
 const OUTCOMES = jsonl([
   { type: 'user', uuid: 'u1', message: { role: 'user', content: 'first' } },

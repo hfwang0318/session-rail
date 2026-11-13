@@ -41,7 +41,7 @@ const PROVISIONAL_ID = 'placeholder'
 // prompts. Builds up to 2.1.304 stored some of the messages with no origin,
 // so only this framing tells them apart.
 const WRAPPER =
-  /^(<(command-|local-command-|bash-|system-reminder|task-notification|user-prompt-submit-hook|cross-session-message|agent-message|teammate-message|relay\b)|Another Claude session sent a message|Here is a note offered by a side agent)/
+  /^(<(command-|local-command-|bash-|system-reminder|task-notification|user-prompt-submit-hook|cross-session-message|agent-message|teammate-message|relay\b)|Another Claude session sent a message)/
 // Origins the transcript stores on a row no person typed: another session or
 // agent, a background task or relay, the engine's own follow-up, a plugin's
 // prompt. The file names them apart from the hooks (a typed prompt is

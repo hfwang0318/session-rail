@@ -23,6 +23,7 @@
 - Fixed a message the engine draws as several rows being listed twice when no transcript can be read
 - Fixed history older than the engine's window appearing only after the next turn when a large transcript was read in the background
 - Fixed a turn that ends after the conversation was replaced writing its duration and outcome onto the new conversation's prompt, even after that conversation started a turn of its own
+- Changed the README's pictures to drawings made by `docs/make-assets.py` instead of the upstream project's screenshots: the vertical, horizontal and below layouts, and two short demos of hovering a prompt and jumping to it. They can be regenerated after a UI change
 - Added a "Classic hooks" row to `/config` (#69): on a machine with managed settings or in a Team or Enterprise organization, Claude Code notes each session that the security default skipped session-rail's `classic.SessionStart` and `classic.Stop` hooks; turning the row off registers neither hook, which silences those notes and changes nothing else there, since the rail finds the transcript on its own. It stays on by default: without the classic hooks, a session resumed from another directory, or an install loaded with `--plugin-dir`, leaves the rail no transcript to read
 
 ## 0.9.0

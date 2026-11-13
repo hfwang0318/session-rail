@@ -9,7 +9,7 @@ A rail of your prompts for Claude Code. Hover to read one, click to jump back to
 ![Mod](https://img.shields.io/badge/mod-TypeScript-3178C6)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
-<img src="docs/demo.gif" alt="session-rail demo: hovering the rail previews a prompt and its turn, clicking jumps the transcript to it" width="800">
+<img src="docs/demo.gif" alt="session-rail demo: hovering a prompt in the vertical rail opens its whole text and sent time, and clicking scrolls the transcript to it" width="800">
 
 </div>
 
@@ -47,22 +47,22 @@ Mouse works best with `"tui": "fullscreen"`.
 
 ### Horizontal, above the prompt
 
-<img src="docs/horizontal.png" alt="The horizontal rail: a text line with the hovered prompt and its turn summary over a row of bars" width="800">
+<img src="docs/horizontal.png" alt="The horizontal rail: the hovered prompt and its stats on the line over a row of bars, with the prompt being read marked heavy" width="800">
 
 ### Vertical, beside the transcript (default)
 
-<img src="docs/vertical.png" alt="The vertical rail: one row per prompt in a pane beside the transcript, the prompt being read marked with a thick tick" width="480">
+<img src="docs/vertical.png" alt="The vertical rail: one row per prompt in a pane beside the transcript; hovering a cut row expands its whole prompt, sent time, duration and files" width="800">
 
 ### Below, under the prompt
 
 The bars sit on a row of their own under the hint line below the prompt input, next to the status line, with the prompt being read beside them. `‹` and `›` step to the previous or next prompt. The hint line above them is Claude Code's own, so its mode label and hints stay as they are.
 
-<img src="docs/below.png" alt="The below rail: Claude Code's hint line, and under it a row of bars with the hovered prompt and its turn summary beside them" width="800">
+<img src="docs/below.png" alt="The below rail: Claude Code's hint line, and under it a row of bars with the hovered prompt and its stats beside them" width="800">
 
 <details>
 <summary>The below layout in motion</summary>
 
-<img src="docs/below.gif" alt="session-rail 0.9.0: hovering a bar under the prompt previews a prompt, clicking jumps to it, the arrows step, and /config picks the layout" width="800">
+<img src="docs/below.gif" alt="session-rail 0.11.0: hovering a bar under the prompt shows its whole text and stats, and clicking jumps the transcript to it" width="800">
 
 </details>
 
@@ -171,6 +171,12 @@ claude plugin test plugins/session-rail
 ```
 
 Run `/plugin-types .claude/types` in a session here for type declarations. Bump the version in `plugins/session-rail/.claude-plugin/plugin.json` with each release, since installed copies update only when it changes.
+
+The pictures in this README are drawn by `docs/make-assets.py` (Pillow), not captured from a terminal, so they can be regenerated after a UI change:
+
+```bash
+python3 docs/make-assets.py
+```
 
 The Claude directory listing tracks the `release` branch rather than `main`, so merged changes reach it only when a release is pushed there. After a Release PR merges, publish it with:
 

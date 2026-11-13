@@ -1576,23 +1576,24 @@ test('a mode the setting cannot keep is kept for the session', async ($, on) => 
 
 test('the mode no longer lives in the store: an earlier version\'s moves to the setting', async ($, on) => {
   const disk = beneath()
-  const store = world(on, { mode: 'vertical' }, TRANSCRIPT, disk)
+  // A mode other than the default, so writing the setting can be told apart.
+  const store = world(on, { mode: 'horizontal' }, TRANSCRIPT, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
+  expect(disk.settings.get('session-rail.mode')).toBe('horizontal')
   expect(store.has('mode')).toBe(false)
-  expect(disk.panes).toEqual(['open session-rail'])
+  expect(disk.panes).toEqual(['close session-rail'])
 })
 
-test('a session starts in the mode the setting holds, horizontal by default', async ($, on) => {
+test('a session starts in the mode the setting holds, vertical by default', async ($, on) => {
   const disk = beneath()
   world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   expect(disk.settings.size).toBe(0)
-  // The band carries the rail on the terminal, at any width: no pane opens.
-  expect(disk.panes).toEqual(['close session-rail'])
-  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect((await band.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
+  // The vertical layout is the pane beside the transcript.
+  expect(disk.panes).toEqual(['open session-rail'])
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  expect((await rail.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
 })
 
 test('/session-rail off hides the rail until a mode turns it back on', async ($, on) => {
@@ -1637,22 +1638,21 @@ test('/session-rail-toggle hides the rail and brings back the mode last on', asy
   expect(store.get('last-on')).toBe('vertical')
 })
 
-test('/session-rail-toggle from a mode goes off, and from off with nothing remembered comes back horizontal', async ($, on) => {
+test('/session-rail-toggle from a mode goes off, and from off with nothing remembered comes back vertical', async ($, on) => {
   const disk = beneath()
   world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  // The default mode is horizontal: the toggle takes it off.
+  // The default mode is vertical: the toggle takes it off.
   await $.command.run({ command: 'session-rail-toggle' })
   expect(disk.settings.get('session-rail.mode')).toBe('off')
-  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.findAll({ type: 'Button' })).toEqual([])
-  // Nothing but horizontal was ever on, so it is what comes back.
+  expect(disk.panes.at(-1)).toBe('close session-rail')
+  // Nothing but vertical was ever on, so it is what comes back.
   await $.command.run({ command: 'session-rail-toggle' })
-  expect(disk.settings.get('session-rail.mode')).toBe('horizontal')
-  await band.unmount()
-  const onBand = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect((await onBand.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
+  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
+  expect(disk.panes.at(-1)).toBe('open session-rail')
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  expect((await rail.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
 })
 
 // A mode this module never wrote (one set in /config, or kept from before the
@@ -1674,7 +1674,7 @@ test('/session-rail-toggle ignores a remembered mode that is not one to come bac
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'session-rail-toggle' })
-  expect(disk.settings.get('session-rail.mode')).toBe('horizontal')
+  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
 })
 
 // The kit loads the module with its default options, so the session starts

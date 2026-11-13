@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Changed the default layout to `vertical`: the rail opens as a pane beside the transcript. A mode already chosen in `/config` stays as it is
 - Changed the plugin's name from claude-navigator to session-rail: the `claude-` prefix is reserved for Anthropic's public plugin directory, so the old name failed `claude plugin validate`. The `/session-rail` commands, pane id, state key, setting keys and marketplace entry take the new name
 - Rebuilt the history source: the engine's own message list (`$.session.messages()`) is the primary list, and the transcript file enriches it with uuids, turn details and older history. A transcript that is missing, renamed, still being written or read after a `/clear` can no longer empty the rail
 - Fixed the rail losing every prompt before a `/compact` whose boundary links forward into the new segment

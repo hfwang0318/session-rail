@@ -21,8 +21,8 @@ Start a new session and the rail opens on its own.
 
 | Command | |
 | --- | --- |
-| `/session-rail horizontal` | Bars above the prompt input (the default) |
-| `/session-rail vertical` | A pane beside the transcript |
+| `/session-rail horizontal` | Bars above the prompt input |
+| `/session-rail vertical` | A pane beside the transcript (the default) |
 | `/session-rail below` | Bars under the hint line below the prompt input (terminal; the desktop app draws them above) |
 | `/session-rail off` | Hide the rail |
 | `/session-rail next`, `prev` | Jump to the next or previous prompt |

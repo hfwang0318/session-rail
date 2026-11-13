@@ -22,7 +22,7 @@ const LEGACY_MODE_KEY = 'mode'
 // starts in it again. Keyed by session, so a later session starts clean.
 const SESSION_MODE_KEY_PREFIX = 'session-mode:'
 // The mode last on (vertical, horizontal or below), so `session-rail-toggle` turned
-// off has a mode to come back to; horizontal until another was written.
+// off has a mode to come back to; vertical until another was written.
 const LAST_ON_KEY = 'last-on'
 // `transcript:<session id>` -> { path, at }, so a hot-reloaded module (whose
 // session.start carries no path) can rebuild its list. One key per session, so
@@ -1394,7 +1394,7 @@ export const register: Register = (on, options) => {
   }
 
   // A change of the setting reloads this module with the new value.
-  let mode: Mode = isMode(options.mode) ? options.mode : 'horizontal'
+  let mode: Mode = isMode(options.mode) ? options.mode : 'vertical'
   // The subagent whose transcript is in view, as the rail's sites last drew;
   // undefined for the main conversation, whose rows alone the rail lists.
   let viewAgent: string | undefined
@@ -1588,7 +1588,7 @@ export const register: Register = (on, options) => {
     if (e.command === 'session-rail-toggle') {
       if (mode === 'off') {
         const lastOn = await $.store.get(LAST_ON_KEY)
-        mode = isMode(lastOn) && lastOn !== 'off' ? lastOn : 'horizontal'
+        mode = isMode(lastOn) && lastOn !== 'off' ? lastOn : 'vertical'
       } else {
         // Remembered here too: the mode may have come from /config or an
         // earlier version, neither of which went through writeMode.

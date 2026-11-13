@@ -1062,6 +1062,29 @@ test('a prompt row stored before origin stamps places the reader, without listin
   expect((await rail.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual([' ━ first', ' ─ second'])
 })
 
+test('a restored row with no transcript maps to the engine list by its text', async ($, on) => {
+  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
+  const store = world(on, {}, TRANSCRIPT, disk)
+  const clock = mock.clock(on)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'first' },
+    { role: 'user', text: 'second' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  // A resumed session draws its stored prompts under ids of its own, and a
+  // message stored before origin stamps arrives unclassified.
+  await $.ui.mount({
+    plugin: 'session-rail',
+    surface: 'terminal',
+    component: 'UserMessage',
+    requestId: 'restored-first',
+    props: { ...prompt('first', { first: 0, last: 1, of: 2 }), origin: { kind: 'unclassified' } },
+  })
+  await clock.settle()
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  expect((await rail.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual([' ━ first', ' ─ second'])
+})
+
 test('a jump to a stored prompt scrolls to the id its row was drawn under', () => {
   const drawn = new Map([[rowKey(SPLIT_IDS.firstRow), SPLIT_IDS.firstRow]])
   expect(scrollTargetOf({ id: SPLIT_IDS.first }, drawn)).toBe(SPLIT_IDS.firstRow)

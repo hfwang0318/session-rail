@@ -2128,15 +2128,19 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     // A message stored before the engine stamped origins draws as
-    // `unclassified`, as does a message no ingress could place. The transcript
-    // lists the person's prompts under their stored uuids, so a row drawn under
-    // one of those is theirs: remember where it is drawn, so a jump lands on it
-    // and scrolling to it places the reader. List nothing new from it; a
-    // message that is not a prompt matches no uuid the list holds.
-    const listed = entries.find(entry => rowKey(entry.id) === rowKey(e.requestId))
+    // `unclassified`, as does a message no ingress could place. It is a
+    // prompt, not someone else's message, when the list already holds it: by
+    // the stored uuid its row is drawn under, or, with no transcript to name
+    // uuids (the engine's own list), by a text exactly one prompt has.
+    // Remember where it is drawn, so a jump lands on it and scrolling to it
+    // places the reader. List nothing new from it.
+    const wanted = matchText(text)
+    const same = engineMode && wanted ? entries.filter(entry => entry.id.startsWith('engine:') && matchText(entry.text) === wanted) : []
+    const listed = entries.find(entry => rowKey(entry.id) === rowKey(e.requestId)) ?? (same.length === 1 ? same[0] : undefined)
     if (listed !== undefined) {
       rowEntry.set(rowKey(e.requestId), listed.id)
-      drawn.set(rowKey(e.requestId), e.requestId)
+      drawn.set(rowKey(listed.id), e.requestId)
+      if (listed.rowId !== e.requestId) entries = entries.map(item => (item === listed ? { ...item, rowId: e.requestId } : item))
       if (e.props.onScreen !== undefined) {
         afterReport($, settle, see(e.component, e.requestId, e.props.onScreen), dropAbove, isDrawnStale)
       }

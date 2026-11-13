@@ -2739,11 +2739,42 @@ test('a classic start under a new id does not carry the old transcript history',
   const store = world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   expect((await railLabels($)).length).toBe(4)
+  // A prompt drawn and not stored is in neither source; only starting the
+  // module's state over keeps it from carrying into the new conversation.
+  await drawRow($, 'n1', 'drawn not stored')
   disk.transcript = jsonl([])
   disk.mtimeMs = 2
   store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'new conversation' }])
   await $.classic.SessionStart({ source: 'resume', session_id: 's2', transcript_path: '/t/s1.jsonl' })
   expect(await railLabels($)).toEqual(['new conversation'])
+})
+
+test('a classic /clear starts over with the new conversation\'s engine list', async ($, on) => {
+  const store = world(on, {}, TRANSCRIPT)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'after clear' }])
+  await $.classic.SessionStart({ source: 'clear', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['after clear'])
+})
+
+test('a turn that ends keeps its prompt when a newer turn starts while it ends', async ($, on) => {
+  const disk = beneath(jsonl([{ type: 'user', uuid: 'u1', message: { role: 'user', content: 'first' } }]))
+  world(on, {}, disk.transcript, disk)
+  on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
+  on('turn.complete', async (_: any, e: any) => {
+    // The next turn starts while this one waits on the next handler.
+    await $.turn.start({ text: 'second', turnId: 't2' })
+    return { text: e.answer }
+  })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.turn.start({ text: 'first', turnId: 't1' })
+  // A prompt delivered into the running turn, listed before it ends.
+  await drawRow($, 'n2', 'second')
+  await $.turn.complete({ answer: 'done', durationMs: 4000, isAborted: false, turnId: 't1', reason: 'answer' })
+  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  // The engine's figure is the prompt that started the turn, not the one
+  // that started meanwhile.
+  expect(await band.find({ type: 'Text', text: /^#1 first · 4s\s*$/ })).toBeDefined()
 })
 
 test('a delayed end of an older conversation does not clear the new one', async ($, on) => {
@@ -2890,6 +2921,7 @@ test('a transcript that cannot be read says so once', async ($, on) => {
   const disk = unclassicWorld(on)
   disk.statError = 'EACCES: permission denied'
   await startSession($)
+  await stop($)
   expect(disk.toasts.filter(text => text.includes('could not be read'))).toHaveLength(1)
 })
 
@@ -2897,6 +2929,7 @@ test('a transcript whose read fails says so once', async ($, on) => {
   const disk = unclassicWorld(on)
   disk.readError = 'EIO: input/output error'
   await startSession($)
+  await stop($)
   expect(disk.toasts.filter(text => text.includes('could not be read'))).toHaveLength(1)
 })
 

@@ -13,9 +13,9 @@
 | 项 | 原项目 | 重构后 |
 | --- | --- | --- |
 | 测试命令 | `claude plugin test plugins/prompt-rail` | `claude plugin test plugins/claude-navigator` |
-| 结果 | 142 pass / 0 fail | 186 pass / 0 fail |
+| 结果 | 142 pass / 0 fail | 188 pass / 0 fail |
 | 耗时 | 4.46s | 5.4s |
-| 新增测试 | — | 44（15 个注入引擎列表场景 + 29 个纯函数/压缩/竞态场景） |
+| 新增测试 | — | 46（15 个注入引擎列表场景 + 31 个纯函数/压缩/竞态场景） |
 
 原项目的 142 个测试全部保留并通过，因此 UI、布局、命令、转场、轨道绘制的行为没有回退。
 
@@ -99,6 +99,7 @@
 - **队列尾部顺序（LOW）**：引擎新提示词之前的 queued 提示词先于它列出。
 - **命令注入面收紧**：`tail` 的参数加上 `--`，路径不可能被解释为选项。
 - **隐私文案校正**：首次读取大文件会流式读完整个文件；PowerShell 子进程会收到两个临时环境变量；网络共享上的 transcript 会走 SMB。
+- **终审测试加固**：第三轮以变异测试逐条验证新增用例的区分度，补上了“新会话 id 重置”“classic `/clear` 重基线”“读取失败只提示一次”“新回合在 `next()` 内开始时旧回合仍记在原提示词上”四个此前会漏过的守卫，并新增 `scrollTargetOf`、`reconsiderDecision` 的纯函数测试。
 
 ## 7. 已知限制
 
@@ -106,6 +107,7 @@
 - `messages()` 最多返回 4096 条投影消息，超出部分依赖 transcript。
 - 没有 transcript 时，跳转只能指向已经渲染过一次的行（引擎列表没有行 id）。
 - `claude plugin validate` 会拒绝 `claude-` 前缀的插件名（Anthropic 公共目录保留）。本地 `--plugin-dir` 与本地 marketplace 安装已验证可用；若要提交公共目录，需要改 manifest 名称。
+- 测试框架的 `$.plugin.root` 不是 marketplace 形状，`reconsiderTranscript` 找到新路径后的“采纳并重读”分支无法在单测里走到；其决策逻辑有纯函数测试，真实路径需在 marketplace 安装环境下验证。
 - 未做交互式 TUI 的人工验收；布局与交互由原项目的 142 个测试覆盖。
 
 ## 8. 复现

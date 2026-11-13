@@ -32,22 +32,22 @@ test('the terminal dock draws a tick per prompt, other seats draw the text, pres
     return <Text>{e.props.text}</Text>
   })
 
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', null) })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: prompt('second prompt', { first: 0, last: 3, of: 4 }) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', null) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: prompt('second prompt', { first: 0, last: 3, of: 4 }) })
 
-  const rail = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: pane('dock') })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock') })
   expect((await rail.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual([' ─ ', ' ━ '])
   expect((await rail.press({ key: 'jump-1' }))?.element).toBe('jump-1')
   await rail.unmount()
 
   // The desktop has no band to reveal a card in, so its dock lists the text.
-  const desktopDock = await $.ui.mount({ plugin: 'claude-navigator', surface: 'desktop', component: 'Pane', requestId: 'claude-navigator', props: pane('dock', 40) })
+  const desktopDock = await $.ui.mount({ plugin: 'session-rail', surface: 'desktop', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   expect((await desktopDock.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['─ first prompt', '━ second prompt'])
   expect((await desktopDock.press({ key: 'jump-1' }))?.element).toBe('jump-1')
   await desktopDock.unmount()
 
   for (const surface of SURFACES) {
-    const list = await $.ui.mount({ plugin: 'claude-navigator', surface, component: 'Pane', requestId: 'claude-navigator', props: pane('inline') })
+    const list = await $.ui.mount({ plugin: 'session-rail', surface, component: 'Pane', requestId: 'session-rail', props: pane('inline') })
     expect((await list.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['─ first prompt', '━ second prompt'])
     await list.unmount()
   }
@@ -76,42 +76,42 @@ const drawPrompts = async ($: any, on: any, below?: string) => {
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', null) })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: prompt('second prompt', { first: 0, last: 3, of: 4 }) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', null) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: prompt('second prompt', { first: 0, last: 3, of: 4 }) })
 }
 
 const HINT = { isDraft: false, isWorking: false, hint: '(shift+tab to cycle)' }
 const hintLine = ($: any, surface: 'terminal' | 'desktop' = 'terminal', columns = 80) =>
-  $.ui.mount({ plugin: 'claude-navigator', surface, component: 'PromptHint', viewport: { columns, rows: 40 }, props: HINT })
+  $.ui.mount({ plugin: 'session-rail', surface, component: 'PromptHint', viewport: { columns, rows: 40 }, props: HINT })
 
 test('a narrow vertical rail leaves the prompt text to hidden cards in the band', async ($, on) => {
   await drawPrompts($, on)
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: pane('dock', 4) })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 4) })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await band.find({ key: 'card-0' }))?.props.display).toBe('none')
   expect(await band.find({ type: 'Text', text: /first prompt/ })).toBeDefined()
 })
 
 test('a wide vertical rail shows each prompt beside its tick and keeps the band empty', async ($, on) => {
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
-  const rail = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: pane('dock', 37) })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 37) })
   expect((await rail.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual([' ─ first prompt', ' ━ second prompt'])
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ key: 'card-0' })).toBeUndefined()
 })
 
 test('wide characters are cut by the cells they take', async ($, on) => {
   await drawPrompts($, on)
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'm3', props: prompt('日本語のプロンプト', null) })
-  const rail = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: pane('dock', 12) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm3', props: prompt('日本語のプロンプト', null) })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 12) })
   expect((await rail.findAll({ type: 'Button' })).map(b => b.props.label)[2]).toBe(' ─ 日本語…')
 })
 
-test('/claude-navigator horizontal draws a text line over one row of bars, heavy where being read', async ($, on) => {
+test('/session-rail horizontal draws a text line over one row of bars, heavy where being read', async ($, on) => {
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   // One bar per prompt, the one on screen heavy.
   expect((await band.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['│', '┃'])
   // The text line, above the bars, shows the prompt on screen until a bar is hovered.
@@ -123,9 +123,9 @@ test('/claude-navigator horizontal draws a text line over one row of bars, heavy
   expect((await band.press({ key: 'jump-0' }))?.element).toBe('jump-0')
 })
 
-test('/claude-navigator below keeps the engine\'s hint line and draws a row of bars under it', async ($, on) => {
+test('/session-rail below keeps the engine\'s hint line and draws a row of bars under it', async ($, on) => {
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'below' })
+  await $.command.run({ command: 'session-rail', args: 'below' })
   const line = await hintLine($)
   // The engine's line first, as the engine draws it, then the rail's own row.
   const drawn = await line.findAll({})
@@ -147,25 +147,25 @@ test('/claude-navigator below keeps the engine\'s hint line and draws a row of b
 
 test('below leaves the band above the prompt to the other mods on the terminal', async ($, on) => {
   await drawPrompts($, on, 'another mod')
-  await $.command.run({ command: 'claude-navigator', args: 'below' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'below' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.findAll({ type: 'Button' })).toEqual([])
   expect(await band.find({ type: 'Text', text: 'another mod' })).toBeDefined()
 })
 
 test('on the desktop below keeps the rail in the band and the hint line as the engine has it', async ($, on) => {
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'below' })
+  await $.command.run({ command: 'session-rail', args: 'below' })
   const line = await hintLine($, 'desktop')
   expect(await line.findAll({ type: 'Button' })).toEqual([])
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'desktop', component: 'AbovePrompt', props: BAND })
   expect((await band.findAll({ type: 'Button' })).map((b: any) => b.props.key)).toEqual(['jump-0', 'jump-1'])
 })
 
 test('the hint line is the engine\'s alone in the other modes', async ($, on) => {
   await drawPrompts($, on)
   for (const mode of ['horizontal', 'vertical', 'off']) {
-    await $.command.run({ command: 'claude-navigator', args: mode })
+    await $.command.run({ command: 'session-rail', args: mode })
     const line = await hintLine($)
     expect(await line.findAll({ type: 'Button' })).toEqual([])
     expect(await line.find({ type: 'Text', text: '(shift+tab to cycle)' })).toBeDefined()
@@ -176,9 +176,9 @@ test('the hint line is the engine\'s alone in the other modes', async ($, on) =>
 test('a narrow hint line keeps a window of bars around the prompt being read', async ($, on) => {
   await drawPrompts($, on)
   for (let i = 3; i <= 12; i++) {
-    await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: `m${i}`, props: prompt(`prompt ${i}`, null) })
+    await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: `m${i}`, props: prompt(`prompt ${i}`, null) })
   }
-  await $.command.run({ command: 'claude-navigator', args: 'below' })
+  await $.command.run({ command: 'session-rail', args: 'below' })
   const line = await hintLine($, 'terminal', 20)
   const keys = (await line.findAll({ type: 'Button' })).map((b: any) => String(b.props.key))
   // Prompt 2 is on screen: the window starts at the first, a step either way.
@@ -193,19 +193,19 @@ test('a narrow hint line keeps a window of bars around the prompt being read', a
 test("below, the rail's row leaves the hint line once a subagent's transcript is in view", async ($, on) => {
   const clock = mock.clock(on)
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'below' })
+  await $.command.run({ command: 'session-rail', args: 'below' })
   const line = await hintLine($)
   expect((await line.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
   // The band is drawn again as the view switches; the hint line has no view of its own.
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, view: { agentId: 'ag1' } } })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, view: { agentId: 'ag1' } } })
   await clock.advance(0)
   expect(await line.findAll({ type: 'Button' })).toEqual([])
   expect(await line.find({ type: 'Text', text: '(shift+tab to cycle)' })).toBeDefined()
 })
 
-test('/claude-navigator <mode> answers with a picture of where the rail sits by the prompt', async ($, on) => {
+test('/session-rail <mode> answers with a picture of where the rail sits by the prompt', async ($, on) => {
   await drawPrompts($, on)
-  const picture = async (mode: string) => String((await $.command.run({ command: 'claude-navigator', args: mode }))?.text ?? '').split('\n')
+  const picture = async (mode: string) => String((await $.command.run({ command: 'session-rail', args: mode }))?.text ?? '').split('\n')
   const at = (lines: string[], pattern: RegExp) => lines.findIndex(line => pattern.test(line))
   const below = await picture('below')
   expect(at(below, /❯/)).toBeGreaterThanOrEqual(0)
@@ -230,10 +230,10 @@ test('with no prompt on screen the text line shows the newest one and no bar is 
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({}))
   on('ui.toast', () => ({ value: undefined }))
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', null) })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: prompt('second prompt', null) })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', null) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: prompt('second prompt', null) })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   // An empty line reads as a broken rail; the heavy bar still means "being read".
   expect(await band.find({ type: 'Text', text: /^#2 second prompt$/ })).toBeDefined()
   expect((await band.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['│', '│'])
@@ -250,11 +250,11 @@ test('the horizontal band rings its bars, starting on the one being read, and sh
   await drawPrompts($, on)
   const focus = (plugin: string, element: string) =>
     $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin, element, origin: { kind: 'person' } })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   // The ring starts on the bar of the prompt being read.
   expect((await band.findAll({ type: 'Button' })).map(b => b.props.autoFocus)).toEqual([undefined, true])
-  expect((await focus('claude-navigator', 'jump-0')).deny).toBeUndefined()
+  expect((await focus('session-rail', 'jump-0')).deny).toBeUndefined()
   expect(moves).toEqual(['jump-0'])
   // The text line follows the ring, not the prompt being read.
   expect(await band.find({ type: 'Text', text: /^#1 first prompt/ })).toBeDefined()
@@ -274,8 +274,8 @@ const isDimLabel = (node: any, text: RegExp) => node.type === 'Text' && node.pro
 
 test('the desktop band reveals a hovered card on a line with nothing beneath it, and names the prompt being read beside the bars', async ($, on) => {
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'desktop', component: 'AbovePrompt', props: BAND })
   const drawn = await band.findAll({})
   expect(drawn.filter((node: any) => node.props?.position === 'absolute')).toEqual([])
   expect((await band.find({ key: 'card-0' }))?.props.display).toBe('none')
@@ -291,9 +291,9 @@ test('on the desktop a ringed bar paints no card over the line a hovered one rev
   mock.clock(on)
   on('ui.focus', () => ({}))
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'desktop', component: 'AbovePrompt', props: BAND })
-  await $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin: 'claude-navigator', element: 'jump-0', origin: { kind: 'person' } })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+  await $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin: 'session-rail', element: 'jump-0', origin: { kind: 'person' } })
   // The hidden card of the first prompt alone holds its text.
   expect((await band.findAll({ type: 'Text', text: /^#1 first prompt/ })).length).toBe(1)
   expect((await band.findAll({})).some((node: any) => isDimLabel(node, /^#2 second prompt$/))).toBe(true)
@@ -307,9 +307,9 @@ test('on the desktop the band keeps the focus ring off its bars, so a clicked ba
     return {}
   })
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'desktop', component: 'AbovePrompt', props: BAND })
-  const ringed = await $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin: 'claude-navigator', element: 'jump-0', origin: { kind: 'person' } })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'desktop', component: 'AbovePrompt', props: BAND })
+  const ringed = await $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin: 'session-rail', element: 'jump-0', origin: { kind: 'person' } })
   expect(ringed.deny).toBeDefined()
   expect(moves).toEqual([])
 })
@@ -318,11 +318,11 @@ test('on the desktop the bars leave room beside them for the prompt being read',
   mock.clock(on)
   await drawPrompts($, on)
   for (let n = 3; n <= 25; n++) {
-    await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: `m${n}`, props: prompt(`prompt number ${n}`, null) })
+    await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: `m${n}`, props: prompt(`prompt number ${n}`, null) })
   }
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const bodyColumns = 30
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND, bodyColumns } })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'desktop', component: 'AbovePrompt', props: { ...BAND, bodyColumns } })
   const drawn = await band.findAll({})
   const bars = drawn.filter((node: any) => node.type === 'Button').length
   const marks = drawn.filter((node: any) => node.type === 'Text' && (node.text === '‹' || node.text === '›' || node.text === ' ')).length
@@ -343,16 +343,16 @@ test('the band keeps what the mods after it draw, above the rail', async ($, on)
     expect(drawn.findIndex(isBelow)).toBeGreaterThanOrEqual(0)
     expect(drawn.findIndex(isBelow)).toBeLessThan(drawn.findIndex(isRail))
   }
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   for (const surface of SURFACES) {
-    const band = await $.ui.mount({ plugin: 'claude-navigator', surface, component: 'AbovePrompt', props: BAND })
+    const band = await $.ui.mount({ plugin: 'session-rail', surface, component: 'AbovePrompt', props: BAND })
     await expectBelowAboveRail(band)
     await band.unmount()
   }
   // A vertical rail too narrow to reveal beside its ticks keeps hidden cards in the band.
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: pane('dock', 4) })
-  await expectBelowAboveRail(await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND }))
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 4) })
+  await expectBelowAboveRail(await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND }))
 })
 
 test('a command names a prompt by number, first, last or the words it holds', () => {
@@ -372,22 +372,22 @@ test('the vertical pane keeps the focus ring off its rows, the engine\'s own sto
     return {}
   })
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // A ringed row beside the row under the pointer lights two rows at once;
   // a click still presses, and next and prev are the keyboard route.
-  const ringed = await $.ui.focus({ component: 'Pane', requestId: 'claude-navigator', plugin: 'claude-navigator', element: 'jump-0', origin: { kind: 'person' } })
+  const ringed = await $.ui.focus({ component: 'Pane', requestId: 'session-rail', plugin: 'session-rail', element: 'jump-0', origin: { kind: 'person' } })
   expect(ringed.deny).toBeDefined()
   expect(moves).toEqual([])
   // The pane's close mark is the engine's, so the ring still reaches it.
-  await $.ui.focus({ component: 'Pane', requestId: 'claude-navigator', origin: { kind: 'person' } })
+  await $.ui.focus({ component: 'Pane', requestId: 'session-rail', origin: { kind: 'person' } })
   expect(moves).toEqual(['engine stop'])
 })
 
 test('with several prompts on screen only the topmost one is heavy', async ($, on) => {
   await drawPrompts($, on)
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'm3', props: prompt('third prompt', { first: 0, last: 1, of: 2 }) })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm3', props: prompt('third prompt', { first: 0, last: 1, of: 2 }) })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   // m2 and m3 both show; m2 is the one being read.
   expect((await band.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['│', '┃', '│'])
   expect(await band.find({ type: 'Text', text: /^#2 second prompt$/ })).toBeDefined()
@@ -409,7 +409,7 @@ const TRANSCRIPT = jsonl([
   },
   { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } },
   { type: 'user', uuid: 'u2', message: { role: 'user', content: '<div> why does this overflow?' } },
-  { type: 'user', uuid: 'c1', message: { role: 'user', content: '<command-name>/claude-navigator</command-name>' } },
+  { type: 'user', uuid: 'c1', message: { role: 'user', content: '<command-name>/session-rail</command-name>' } },
   { type: 'user', uuid: 'u3', message: { role: 'user', content: 'continue' } },
   { type: 'user', uuid: 'u4', message: { role: 'user', content: 'continue' } },
 ])
@@ -588,7 +588,7 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
 }
 
 const railLabels = async ($: any) => {
-  const rail = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: pane('dock', 40) })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const labels = (await rail.findAll({ type: 'Button' })).map((b: any) => String(b.props.label).slice(3))
   await rail.unmount()
   return labels
@@ -622,9 +622,9 @@ test('a transcript over 4 MiB is listed in its order, with turn details, without
   expect(await railLabels($)).toEqual(['first', '二番目のプロンプト'])
   expect(disk.reads).toBe(0)
   expect(disk.spawns).toEqual([['tail', '-c', '+1', '--', '/t/s1.jsonl']])
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await drawRow($, 'p1', 'first', { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first · 20s · 1 tool\s*$/ })).toBeDefined()
 })
 
@@ -756,8 +756,8 @@ test('a reload lists the prompts again from the remembered transcript', async ($
   // A reloaded module has no list; session.start fires again and rebuilds it.
   world(on, { 'transcript:s1': { path: '/t/s1.jsonl', at: 1 } })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await band.findAll({ type: 'Button' })).length).toBe(4)
 })
 
@@ -766,12 +766,12 @@ test('a reload lists the prompts again from the remembered transcript', async ($
 // file where the engine files it, under the config folder its own install
 // sits in.
 test('the config folder is the one a marketplace install sits under, in its own spelling', () => {
-  expect(configDirOf('/Users/me/.claude/plugins/cache/oikon48/claude-navigator/0.8.2')).toEqual({ dir: '/Users/me/.claude', sep: '/' })
+  expect(configDirOf('/Users/me/.claude/plugins/cache/oikon48/session-rail/0.8.2')).toEqual({ dir: '/Users/me/.claude', sep: '/' })
   // CLAUDE_CONFIG_DIR moves the plugins with it.
-  expect(configDirOf('/opt/cc/plugins/cache/oikon48/claude-navigator/0.8.2')).toEqual({ dir: '/opt/cc', sep: '/' })
-  expect(configDirOf('C:\\Users\\me\\.claude\\plugins\\cache\\oikon48\\claude-navigator\\0.8.2')).toEqual({ dir: 'C:\\Users\\me\\.claude', sep: '\\' })
+  expect(configDirOf('/opt/cc/plugins/cache/oikon48/session-rail/0.8.2')).toEqual({ dir: '/opt/cc', sep: '/' })
+  expect(configDirOf('C:\\Users\\me\\.claude\\plugins\\cache\\oikon48\\session-rail\\0.8.2')).toEqual({ dir: 'C:\\Users\\me\\.claude', sep: '\\' })
   // Loaded from a folder of its own (--plugin-dir): no config folder to look under.
-  expect(configDirOf('/Users/me/src/claude-navigator/plugins/claude-navigator')).toBeUndefined()
+  expect(configDirOf('/Users/me/src/session-rail/plugins/session-rail')).toBeUndefined()
 })
 
 test('a transcript is looked for under the project folder named after the working directory', () => {
@@ -796,7 +796,7 @@ test('a project folder name over 200 characters is matched by its cut, the engin
 // The disk findTranscript probes: the session's directories, the files that
 // exist, and the folders under the config folder's `projects`. Each probe of
 // a file is recorded.
-const CONFIG_ROOT = '/h/.claude/plugins/cache/oikon48/claude-navigator/0.8.2'
+const CONFIG_ROOT = '/h/.claude/plugins/cache/oikon48/session-rail/0.8.2'
 const PROJECTS = '/h/.claude/projects'
 type ProbeDisk = { files?: string[]; folders?: string[]; cwd?: string; root?: string }
 const probeOf = ({ files = [], folders = [], cwd = '/w/app', root = cwd }: ProbeDisk = {}) => {
@@ -850,7 +850,7 @@ test('a session whose directories cannot be read is looked for under the one it 
 
 test('a plugin not installed from a marketplace looks for no transcript', async () => {
   const { probe, probes } = probeOf({ files: [`${PROJECTS}/-w-app/s1.jsonl`] })
-  expect(await findTranscript(probe, '/w/src/claude-navigator/plugins/claude-navigator', 's1', '/w/app')).toBeUndefined()
+  expect(await findTranscript(probe, '/w/src/session-rail/plugins/session-rail', 's1', '/w/app')).toBeUndefined()
   expect(probes).toEqual([])
 })
 
@@ -952,14 +952,14 @@ test('the artifact view context ahead of a stored prompt is left out of its text
 
 test('the artifact view context ahead of a drawn prompt is left out of its text', async ($, on) => {
   world(on, {}, jsonl([]))
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'v1', props: prompt(VIEWED, null) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'v1', props: prompt(VIEWED, null) })
   expect(await railLabels($)).toEqual(['swap the image'])
 })
 
 test('a typed artifact view context tag is kept, since it is not the viewer\'s state', async ($, on) => {
   world(on, {}, jsonl([]))
   const typed = '<artifact-view-context artifact="demo">example</artifact-view-context> explain this'
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'v1', props: prompt(typed, null) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'v1', props: prompt(typed, null) })
   const labels = await railLabels($)
   expect(labels.length).toBe(1)
   expect(labels[0]).toMatch(/^<artifact-view-context artifact="de/)
@@ -968,7 +968,7 @@ test('a typed artifact view context tag is kept, since it is not the viewer\'s s
 test('a repeated prompt gets its own entry; the provisional row is not listed', async ($, on) => {
   world(on)
   const draw = async (requestId: string, text: string) => {
-    const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId, props: prompt(text, null) })
+    const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId, props: prompt(text, null) })
     await row.unmount()
   }
   await draw('placeholder', 'continue')
@@ -994,7 +994,7 @@ const SPLIT = jsonl([
 ])
 const drawSplit = ($: any, component: 'UserMessage' | 'AssistantMessage', requestId: string, onScreen: { first: number; last: number; of: number } | null) =>
   $.ui.mount({
-    plugin: 'claude-navigator',
+    plugin: 'session-rail',
     surface: 'terminal',
     component,
     requestId,
@@ -1018,18 +1018,18 @@ test('a prompt drawn under an id derived from its stored uuid is listed once, re
 test('a prompt row on screen under a derived id places the reader under that prompt', async ($, on) => {
   world(on, {}, SPLIT)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await drawSplit($, 'UserMessage', SPLIT_IDS.firstRow, { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await band.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['┃', '│'])
 })
 
 test('a reply row on screen under a derived id places the reader under its prompt', async ($, on) => {
   world(on, {}, SPLIT)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await drawSplit($, 'AssistantMessage', SPLIT_IDS.replyRow, { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await band.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['┃', '│'])
 })
 
@@ -1050,7 +1050,7 @@ test('a jump to a stored prompt scrolls to the id its row was drawn under', () =
 // - sent from Remote Control, even at rest: session.receive, one row it never
 //   stores, the provisional row, prompt.submit, then the stored row.
 const drawRow = async ($: any, requestId: string, text: string, onScreen: { first: number; last: number; of: number } | null = null) => {
-  const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId, props: prompt(text, onScreen) })
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId, props: prompt(text, onScreen) })
   await row.unmount()
 }
 const submit = ($: any, text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
@@ -1159,7 +1159,7 @@ test('a prompt sent from Remote Control at rest is listed once', async ($, on) =
 
 test('a prompt delivered into the running turn is listed once and read on its own row', async ($, on) => {
   queueWorld(on)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await sendFirst($, 'first', 's1')
   await drawRow($, 'q1', 'mid')
   await submit($, 'mid')
@@ -1167,7 +1167,7 @@ test('a prompt delivered into the running turn is listed once and read on its ow
   // The attachment row is the one left on screen once the turn reads it.
   await drawRow($, 'a1', 'mid', { first: 0, last: 1, of: 2 })
   expect(await railLabels($)).toEqual(['first', 'mid'])
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await band.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['│', '┃'])
 })
 
@@ -1183,13 +1183,13 @@ const deliver = async ($: any, text: string, ids: [string, string, string]) => {
 
 test('a turn keeps its details when a prompt with its text is delivered into it', async ($, on) => {
   queueWorld(on)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await sendFirst($, 'continue', 's1')
   await deliver($, 'continue', ['q1', 'q2', 'a1'])
   await $.turn.complete({ answer: 'done', durationMs: 12500, isAborted: true, turnId: 't-s1', reason: 'aborted' })
   expect(await railLabels($)).toEqual(['continue', 'continue'])
   await drawRow($, 's1', 'continue', { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 continue · 12s · interrupted\s*$/ })).toBeDefined()
 })
 
@@ -1222,10 +1222,10 @@ const DELIVERED = [
 test('a prompt delivered into a turn is listed from the transcript, the turn staying with its first prompt', async ($, on) => {
   queueWorld(on, jsonl(DELIVERED))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   expect(await railLabels($)).toEqual(['first', 'mid'])
   await drawRow($, 's1', 'first', { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first · 14s · 1 tool\s*$/ })).toBeDefined()
 })
 
@@ -1307,31 +1307,31 @@ test('messages from other sessions stored with no origin are told apart by their
 
 test('what the engine reported of a turn goes to the prompt that started it, not one delivered into it', async ($, on) => {
   queueWorld(on)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await sendFirst($, 'first', 's1')
   await drawRow($, 'q1', 'mid')
   await submit($, 'mid')
   await drawRow($, 'a1', 'mid')
   await $.turn.complete({ answer: 'done', durationMs: 12500, isAborted: true, turnId: 't-s1', reason: 'aborted' })
   await drawRow($, 's1', 'first', { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first · 12s · interrupted\s*$/ })).toBeDefined()
 })
 
 test('a tool row at the top of the viewport places the reader under its prompt', async ($, on) => {
   world(on)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await $.ui.mount({
-    plugin: 'claude-navigator',
+    plugin: 'session-rail',
     surface: 'terminal',
     component: 'ToolUse',
     requestId: 't1',
     props: { tool_use_id: 't1', tool: 'Bash', input: {}, isRunning: false, isErrored: false, isInterrupted: false, onScreen: { first: 0, last: 1, of: 2 } },
   })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u3', props: prompt('continue', { first: 0, last: 1, of: 2 }) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u3', props: prompt('continue', { first: 0, last: 1, of: 2 }) })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first stored prompt$/ })).toBeDefined()
 })
 
@@ -1343,7 +1343,7 @@ test('after /rewind only the live branch is listed', async ($, on) => {
 
 test('a drawn row from an abandoned branch drops out once the transcript is read', async ($, on) => {
   world(on, {}, FORKED)
-  const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'p2', props: prompt('beta', null) })
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'p2', props: prompt('beta', null) })
   await row.unmount()
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   expect(await railLabels($)).toEqual(['alpha', 'delta'])
@@ -1357,15 +1357,15 @@ test('prompts before a compaction stay listed', async ($, on) => {
 
 test("while a subagent's transcript is in view the pane holds a note, not the rail", async ($, on) => {
   await drawPrompts($, on)
-  const rail = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: { ...pane('dock', 37), view: { agentId: 'ag1' } } })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: { ...pane('dock', 37), view: { agentId: 'ag1' } } })
   expect(await rail.findAll({ type: 'Button' })).toEqual([])
   expect(await rail.find({ type: 'Text', text: /main conversation/ })).toBeDefined()
 })
 
 test("while a subagent's transcript is in view the band stays empty", async ($, on) => {
   await drawPrompts($, on)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, view: { agentId: 'ag1' } } })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, view: { agentId: 'ag1' } } })
   expect(await band.findAll({ type: 'Button' })).toEqual([])
 })
 
@@ -1374,12 +1374,12 @@ test("while a subagent's transcript is in view the band stays empty", async ($, 
 const overflowBand = async ($: any, on: any, reading: number) => {
   world(on)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   for (let i = 0; i < 12; i++) {
     const onScreen = i === reading ? { first: 0, last: 1, of: 2 } : null
-    await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: `p${i}`, props: prompt(`prompt ${i}`, onScreen) })
+    await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: `p${i}`, props: prompt(`prompt ${i}`, onScreen) })
   }
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 14 } })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 14 } })
   const lower = (await band.findAll({ type: 'Button' })).map((b: any) => String(b.props.key)).filter((key: string) => /^jump-\d+$/.test(key))
   const marks = (await band.findAll({ type: 'Text' })).map((t: any) => t.text).filter((text: string) => text === '‹' || text === '›')
   return { lower, marks }
@@ -1471,11 +1471,11 @@ test('a scroll redraws the rail only when the prompt being read changes, and nev
   world(on, {}, TRANSCRIPT, disk)
   const clock = mock.clock(on)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const shown = { first: 0, last: 1, of: 2 }
-  const u1 = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('first stored prompt', shown) })
-  const u2 = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u2', props: prompt('<div> why does this overflow?', shown) })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const u1 = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('first stored prompt', shown) })
+  const u2 = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u2', props: prompt('<div> why does this overflow?', shown) })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   const heavy = async () => (await band.findAll({ type: 'Button' })).map((b: any) => b.props.label).indexOf('┃')
   await clock.settle()
   expect(await heavy()).toBe(0)
@@ -1496,28 +1496,28 @@ test('a scroll redraws the rail only when the prompt being read changes, and nev
   expect(disk.invalidations).toBe(before.invalidations)
 })
 
-test('/claude-navigator <mode> writes the mode setting and switches at once', async ($, on) => {
+test('/session-rail <mode> writes the mode setting and switches at once', async ($, on) => {
   const disk = beneath()
   world(on, {}, TRANSCRIPT, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('horizontal')
-  expect(disk.panes.at(-1)).toBe('close claude-navigator')
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  expect(disk.settings.get('session-rail.mode')).toBe('horizontal')
+  expect(disk.panes.at(-1)).toBe('close session-rail')
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await band.findAll({ type: 'Button' })).length).toBe(4)
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('vertical')
-  expect(disk.panes.at(-1)).toBe('open claude-navigator')
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
+  expect(disk.panes.at(-1)).toBe('open session-rail')
   // Below the prompt the terminal's hint line carries the rail: no pane.
-  await $.command.run({ command: 'claude-navigator', args: 'below' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('below')
-  expect(disk.panes.at(-1)).toBe('close claude-navigator')
+  await $.command.run({ command: 'session-rail', args: 'below' })
+  expect(disk.settings.get('session-rail.mode')).toBe('below')
+  expect(disk.panes.at(-1)).toBe('close session-rail')
 })
 
 // A session with no /config row for the plugin's fields (the desktop app's
 // SDK sessions) makes $.config.set throw rather than deny.
-test('/claude-navigator <mode> still switches when the setting has no /config row', async ($, on) => {
+test('/session-rail <mode> still switches when the setting has no /config row', async ($, on) => {
   const toasts: string[] = []
   on('ui.render', { component: 'UserMessage' }, ($: any, e: any) => {
     const { Text } = $.ui.resolve(e)
@@ -1528,7 +1528,7 @@ test('/claude-navigator <mode> still switches when the setting has no /config ro
   mock.store(on)
   on('session.id', () => ({ value: 's1' }))
   on('config.set', () => {
-    throw new Error('$.config.set: no /config row with key claude-navigator.mode ($.config.list names them)')
+    throw new Error('$.config.set: no /config row with key session-rail.mode ($.config.list names them)')
   })
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({}))
@@ -1536,11 +1536,11 @@ test('/claude-navigator <mode> still switches when the setting has no /config ro
     toasts.push(e.text)
     return { value: undefined }
   })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', { first: 0, last: 1, of: 2 }) })
-  const answer = await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', { first: 0, last: 1, of: 2 }) })
+  const answer = await $.command.run({ command: 'session-rail', args: 'horizontal' })
   expect(answer).toBeDefined()
   // The mode applies to this session even though it could not be kept.
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await band.findAll({ type: 'Button' })).length).toBe(1)
   expect(toasts.at(-1)).toMatch(/not saved/)
 })
@@ -1551,7 +1551,7 @@ test('a mode kept for the session only survives a reload of the module', async (
   const disk = beneath()
   world(on, { 'session-mode:s1': 'off' }, TRANSCRIPT, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  expect(disk.panes).toEqual(['close claude-navigator'])
+  expect(disk.panes).toEqual(['close session-rail'])
 })
 
 test('a mode the setting cannot keep is kept for the session', async ($, on) => {
@@ -1565,12 +1565,12 @@ test('a mode the setting cannot keep is kept for the session', async ($, on) => 
   on('store.delete', () => ({ value: undefined }))
   on('session.id', () => ({ value: 's1' }))
   on('config.set', () => {
-    throw new Error('$.config.set: no /config row with key claude-navigator.mode')
+    throw new Error('$.config.set: no /config row with key session-rail.mode')
   })
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
-  await $.command.run({ command: 'claude-navigator', args: 'off' })
+  await $.command.run({ command: 'session-rail', args: 'off' })
   expect(store.get('session-mode:s1')).toBe('off')
 })
 
@@ -1578,9 +1578,9 @@ test('the mode no longer lives in the store: an earlier version\'s moves to the 
   const disk = beneath()
   const store = world(on, { mode: 'vertical' }, TRANSCRIPT, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('vertical')
+  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
   expect(store.has('mode')).toBe(false)
-  expect(disk.panes).toEqual(['open claude-navigator'])
+  expect(disk.panes).toEqual(['open session-rail'])
 })
 
 test('a session starts in the mode the setting holds, horizontal by default', async ($, on) => {
@@ -1590,91 +1590,91 @@ test('a session starts in the mode the setting holds, horizontal by default', as
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   expect(disk.settings.size).toBe(0)
   // The band carries the rail on the terminal, at any width: no pane opens.
-  expect(disk.panes).toEqual(['close claude-navigator'])
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(disk.panes).toEqual(['close session-rail'])
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await band.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
 })
 
-test('/claude-navigator off hides the rail until a mode turns it back on', async ($, on) => {
+test('/session-rail off hides the rail until a mode turns it back on', async ($, on) => {
   const disk = beneath()
   world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'claude-navigator', args: 'off' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('off')
-  expect(disk.panes.at(-1)).toBe('close claude-navigator')
+  await $.command.run({ command: 'session-rail', args: 'off' })
+  expect(disk.settings.get('session-rail.mode')).toBe('off')
+  expect(disk.panes.at(-1)).toBe('close session-rail')
   // No pane and no band.
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.findAll({ type: 'Button' })).toEqual([])
-  // Bare /claude-navigator says how to turn it on instead of opening anything.
+  // Bare /session-rail says how to turn it on instead of opening anything.
   const panes = disk.panes.length
-  await $.command.run({ command: 'claude-navigator', args: '' })
+  await $.command.run({ command: 'session-rail', args: '' })
   expect(disk.panes.length).toBe(panes)
   expect(disk.toasts.at(-1)).toMatch(/off/)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('horizontal')
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  expect(disk.settings.get('session-rail.mode')).toBe('horizontal')
   await band.unmount()
-  const onBand = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const onBand = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await onBand.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
 })
 
 // One bare command behind a key: off ↔ the mode last on, so the person never
 // types a mode to bring the rail back.
-test('/claude-navigator-toggle hides the rail and brings back the mode last on', async ($, on) => {
+test('/session-rail-toggle hides the rail and brings back the mode last on', async ($, on) => {
   const disk = beneath()
   const store = world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  // Registered bare, so a keybinding can name it (`command:claude-navigator-toggle`).
-  expect(disk.commands.map(command => command.name)).toContain('claude-navigator-toggle')
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
-  await $.command.run({ command: 'claude-navigator-toggle' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('off')
-  expect(disk.panes.at(-1)).toBe('close claude-navigator')
-  await $.command.run({ command: 'claude-navigator-toggle' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('vertical')
-  expect(disk.panes.at(-1)).toBe('open claude-navigator')
+  // Registered bare, so a keybinding can name it (`command:session-rail-toggle`).
+  expect(disk.commands.map(command => command.name)).toContain('session-rail-toggle')
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  await $.command.run({ command: 'session-rail-toggle' })
+  expect(disk.settings.get('session-rail.mode')).toBe('off')
+  expect(disk.panes.at(-1)).toBe('close session-rail')
+  await $.command.run({ command: 'session-rail-toggle' })
+  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
+  expect(disk.panes.at(-1)).toBe('open session-rail')
   expect(store.get('last-on')).toBe('vertical')
 })
 
-test('/claude-navigator-toggle from a mode goes off, and from off with nothing remembered comes back horizontal', async ($, on) => {
+test('/session-rail-toggle from a mode goes off, and from off with nothing remembered comes back horizontal', async ($, on) => {
   const disk = beneath()
   world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   // The default mode is horizontal: the toggle takes it off.
-  await $.command.run({ command: 'claude-navigator-toggle' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('off')
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail-toggle' })
+  expect(disk.settings.get('session-rail.mode')).toBe('off')
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.findAll({ type: 'Button' })).toEqual([])
   // Nothing but horizontal was ever on, so it is what comes back.
-  await $.command.run({ command: 'claude-navigator-toggle' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('horizontal')
+  await $.command.run({ command: 'session-rail-toggle' })
+  expect(disk.settings.get('session-rail.mode')).toBe('horizontal')
   await band.unmount()
-  const onBand = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const onBand = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await onBand.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
 })
 
 // A mode this module never wrote (one set in /config, or kept from before the
 // toggle existed) is still the one the toggle brings back.
-test('/claude-navigator-toggle brings back a mode it did not write itself', async ($, on) => {
+test('/session-rail-toggle brings back a mode it did not write itself', async ($, on) => {
   const disk = beneath()
   world(on, { 'session-mode:s1': 'vertical' }, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'claude-navigator-toggle' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('off')
-  await $.command.run({ command: 'claude-navigator-toggle' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('vertical')
+  await $.command.run({ command: 'session-rail-toggle' })
+  expect(disk.settings.get('session-rail.mode')).toBe('off')
+  await $.command.run({ command: 'session-rail-toggle' })
+  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
 })
 
-test('/claude-navigator-toggle ignores a remembered mode that is not one to come back to', async ($, on) => {
+test('/session-rail-toggle ignores a remembered mode that is not one to come back to', async ($, on) => {
   const disk = beneath()
   world(on, { 'session-mode:s1': 'off', 'last-on': 'sideways' }, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'claude-navigator-toggle' })
-  expect(disk.settings.get('claude-navigator.mode')).toBe('horizontal')
+  await $.command.run({ command: 'session-rail-toggle' })
+  expect(disk.settings.get('session-rail.mode')).toBe('horizontal')
 })
 
 // The kit loads the module with its default options, so the session starts
@@ -1683,11 +1683,11 @@ test('a session starts with no rail while the setting is off', async ($, on) => 
   const disk = beneath()
   world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'off' })
+  await $.command.run({ command: 'session-rail', args: 'off' })
   disk.panes.length = 0
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  expect(disk.panes).toEqual(['close claude-navigator'])
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(disk.panes).toEqual(['close session-rail'])
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.findAll({ type: 'Button' })).toEqual([])
 })
 
@@ -1703,35 +1703,35 @@ test('the next and previous prompts step over ones that cannot be scrolled to', 
   expect(stepFrom(-1, 0, 1, none)).toBe(-1)
 })
 
-test('/claude-navigator runs mid-turn and takes next and prev', async ($, on) => {
+test('/session-rail runs mid-turn and takes next and prev', async ($, on) => {
   const disk = beneath()
   world(on, {}, TRANSCRIPT, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   expect(disk.commands).toEqual([
-    expect.objectContaining({ name: 'claude-navigator', immediate: true, argumentHint: '[off|vertical|horizontal|below|next|prev|first|last|<n>|find <words>]' }),
+    expect.objectContaining({ name: 'session-rail', immediate: true, argumentHint: '[off|vertical|horizontal|below|next|prev|first|last|<n>|find <words>]' }),
     // Argument-free, for a keybinding to name.
-    expect.objectContaining({ name: 'claude-navigator-next', immediate: true }),
-    expect.objectContaining({ name: 'claude-navigator-prev', immediate: true }),
-    expect.objectContaining({ name: 'claude-navigator-toggle', immediate: true }),
+    expect.objectContaining({ name: 'session-rail-next', immediate: true }),
+    expect.objectContaining({ name: 'session-rail-prev', immediate: true }),
+    expect.objectContaining({ name: 'session-rail-toggle', immediate: true }),
   ])
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'next' })
-  await $.command.run({ command: 'claude-navigator', args: 'prev' })
+  await $.command.run({ command: 'session-rail', args: 'next' })
+  await $.command.run({ command: 'session-rail', args: 'prev' })
   // Neither is taken for a bad argument, and neither changes the mode.
-  expect(disk.toasts.filter(text => text.includes('/claude-navigator ['))).toEqual([])
+  expect(disk.toasts.filter(text => text.includes('/session-rail ['))).toEqual([])
   expect(disk.settings.size).toBe(0)
 })
 
 test('a focused pane draws the same rows as an unfocused one, with no hotkeys', async ($, on) => {
   world(on)
   for (let i = 0; i < 10; i++) {
-    const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: `p${i}`, props: prompt(`a long prompt number ${i} that would not fit`, null) })
+    const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: `p${i}`, props: prompt(`a long prompt number ${i} that would not fit`, null) })
     await row.unmount()
   }
   // A click focuses the pane as ctrl+x tab does, so a row that changed with the
   // focus would shift under the pointer that just pressed it.
   const rows = async (surface: 'terminal' | 'desktop', placement: 'dock' | 'inline', bodyColumns: number, isFocused: boolean) => {
-    const site = await $.ui.mount({ plugin: 'claude-navigator', surface, component: 'Pane', requestId: 'claude-navigator', props: { ...pane(placement, bodyColumns), isFocused } })
+    const site = await $.ui.mount({ plugin: 'session-rail', surface, component: 'Pane', requestId: 'session-rail', props: { ...pane(placement, bodyColumns), isFocused } })
     const drawn = (await site.findAll({ type: 'Button' })).map((b: any) => ({ label: b.props.label, hotkey: b.props.hotkey }))
     await site.unmount()
     return drawn
@@ -1788,8 +1788,8 @@ test('a turn is summed up as its duration, tool calls and edited files', () => {
 test('the hover card in the horizontal rail carries the turn\'s details', async ($, on) => {
   world(on, {}, TURNS)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first · 1m 23s · 4 tools · app\.ts, README\.md\s*$/ })).toBeDefined()
   // No turn_duration row: the time from the prompt to the turn's last row.
   expect(await band.find({ type: 'Text', text: /^#2 second · 7s\s*$/ })).toBeDefined()
@@ -1801,8 +1801,8 @@ test('a narrow band keeps room for the details by cutting the prompt first', asy
     { type: 'system', uuid: 'd1', subtype: 'turn_duration', durationMs: 9000 },
   ]))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 40 } })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 40 } })
   // Thirty-six cells: `#1 `, the text cut to 28, then ` · 9s`.
   const card = await band.find({ type: 'Text', text: /^#1 a prompt far too long to fi… · 9s\s*$/ })
   expect(card).toBeDefined()
@@ -1812,9 +1812,9 @@ test('a narrow band keeps room for the details by cutting the prompt first', asy
 test('the hover card of a narrow vertical rail carries the turn\'s details', async ($, on) => {
   world(on, {}, TURNS)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: pane('dock', 4) })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 4) })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^first · 1m 23s · 4 tools · app\.ts, README\.md$/ })).toBeDefined()
 })
 
@@ -1844,16 +1844,16 @@ test('nothing the rail learns draws the transcript rows again', async ($, on) =>
   on('ui.scroll', () => ({ value: { deny: NOT_DRAWN } }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // A new prompt is drawn, its turn runs and ends, and the transcript has it.
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u2', props: prompt('second', null) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u2', props: prompt('second', null) })
   await $.turn.start({ text: 'second', turnId: 't1' })
   await $.turn.complete({ answer: 'done', durationMs: 3000, isAborted: false, turnId: 't1', reason: 'answer' })
   disk.transcript = jsonl([first, { type: 'user', uuid: 'u2', message: { role: 'user', content: 'second' } }])
   disk.mtimeMs = 2
   await $.classic.Stop({ session_id: 's1', transcript_path: '/t/s1.jsonl', stop_hook_active: false })
   // The pane narrows, and a jump is refused for want of a drawn row.
-  const rail = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: pane('dock', 40) })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   await rail.redraw(pane('dock', 4))
   await rail.press({ key: 'jump-0' })
   await clock.settle()
@@ -1867,11 +1867,11 @@ test('a turn that just ended shows the duration the engine reported before the t
   world(on, {}, TURNS)
   on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   // A subagent's turn is not the prompt's.
   await $.turn.complete({ answer: '', durationMs: 99000, isAborted: false, turnId: 'sub', agentId: 'ag1', reason: 'answer' })
   await $.turn.complete({ answer: 'done', durationMs: 12500, isAborted: false, turnId: 'main', reason: 'answer' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#2 second · 12s\s*$/ })).toBeDefined()
   // The turn_duration row the transcript records wins where it has one.
   expect(await band.find({ type: 'Text', text: /^#1 first · 1m 23s · 4 tools · app\.ts, README\.md\s*$/ })).toBeDefined()
@@ -1882,13 +1882,13 @@ test('what the engine reported of a turn stays with its prompt once the stored r
   world(on, {}, disk.transcript, disk)
   on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await drawSplit($, 'UserMessage', SPLIT_IDS.firstRow, null)
   await $.turn.complete({ answer: 'done', durationMs: 12500, isAborted: true, turnId: 'main', reason: 'aborted' })
   disk.transcript = jsonl([{ type: 'user', uuid: SPLIT_IDS.first, message: { role: 'user', content: 'first' } }])
   disk.mtimeMs = 2
   await $.classic.Stop({ session_id: 's1', transcript_path: '/t/s1.jsonl', stop_hook_active: false })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first · 12s · interrupted\s*$/ })).toBeDefined()
 })
 
@@ -1896,16 +1896,16 @@ test('next and prev wait while a subagent transcript is in view', async ($, on) 
   const disk = beneath()
   world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  const sub = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: { ...pane('dock', 40), view: { agentId: 'ag1' } } })
-  await $.command.run({ command: 'claude-navigator', args: 'next' })
+  const sub = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: { ...pane('dock', 40), view: { agentId: 'ag1' } } })
+  await $.command.run({ command: 'session-rail', args: 'next' })
   // No jump is tried there, so no refusal can dot a main-conversation prompt.
   // The engine names the plugin ahead of each toast.
   expect(disk.toasts).toEqual(['jumps move through the main conversation; switch back to it first'])
   await sub.unmount()
   expect((await railLabels($)).length).toBe(4)
-  const main = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const main = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await main.unmount()
-  await $.command.run({ command: 'claude-navigator', args: 'prev' })
+  await $.command.run({ command: 'session-rail', args: 'prev' })
   expect(disk.toasts.filter(text => text.includes('switch back'))).toHaveLength(1)
 })
 
@@ -1938,8 +1938,8 @@ test('files that share a name are told apart by their folder', async ($, on) => 
     },
   ]))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first · 3 tools · web\/index\.ts, api\/index\.ts\s*$/ })).toBeDefined()
 })
 
@@ -1967,8 +1967,8 @@ test('a long turn summary keeps its end in the card', async ($, on) => {
     { type: 'system', uuid: 'd1', subtype: 'turn_duration', durationMs: 9000 },
   ]))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 50 } })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 50 } })
   // Forty-six cells: the file count stays whole at the end.
   const card = await band.find({ type: 'Text', text: /· 9s · 2 tools · 2 files\s*$/ })
   expect(card).toBeDefined()
@@ -2001,8 +2001,8 @@ const OUTCOMES = jsonl([
 
 // The turn details each hidden card of a narrow vertical rail carries.
 const cardDetails = async ($: any) => {
-  const site = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'Pane', requestId: 'claude-navigator', props: pane('dock', 4) })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const site = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 4) })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   const details = (await band.findAll({ type: 'Text' })).map((t: any) => String(t.text)).filter((text: string) => !/^#\d+ $/.test(text))
   await band.unmount()
   await site.unmount()
@@ -2018,19 +2018,19 @@ test('a turn is summed up with how it ended', () => {
 test('no rail draws a colored mark; how a turn went is left to its card', async ($, on) => {
   world(on, {}, OUTCOMES)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
   for (const [surface, placement] of [['terminal', 'dock'], ['desktop', 'inline']] as const) {
-    const site = await $.ui.mount({ plugin: 'claude-navigator', surface, component: 'Pane', requestId: 'claude-navigator', props: pane(placement, 40) })
+    const site = await $.ui.mount({ plugin: 'session-rail', surface, component: 'Pane', requestId: 'session-rail', props: pane(placement, 40) })
     expect(await site.findAll({ type: 'Text' })).toEqual([])
     await site.unmount()
   }
   expect(await cardDetails($)).toEqual(['first · interrupted', 'second · API error', 'third · 1 tool · a.ts', 'fourth'])
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   const texts = await band.findAll({ type: 'Text' })
   expect(texts.filter((t: any) => t.props.color !== undefined || ['×', '•'].includes(t.text))).toEqual([])
   await band.unmount()
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
   expect(await railLabels($)).toEqual(['first', 'second', 'third', 'fourth'])
 })
 
@@ -2039,9 +2039,9 @@ test('the running turn\'s card says so until it ends, then how it ended', async 
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   await $.classic.SessionStart({ source: 'startup', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // The prompt's row is stored and drawn, then its turn starts.
-  const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('first', null) })
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('first', null) })
   await row.unmount()
   await $.turn.start({ text: 'first', turnId: 't1' })
   expect(await cardDetails($)).toEqual(['first · running'])
@@ -2056,9 +2056,9 @@ test('the rail never pins a status line', async ($, on) => {
   world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u3', props: prompt('continue', { first: 0, last: 1, of: 2 }) })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u3', props: prompt('continue', { first: 0, last: 1, of: 2 }) })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.classic.Stop({ session_id: 's1', transcript_path: '/t/s1.jsonl', stop_hook_active: false })
   expect(disk.status).toEqual([])
 })
@@ -2066,27 +2066,27 @@ test('the rail never pins a status line', async ($, on) => {
 test('a reply the transcript read has not seen yet counts as the newest prompt\'s', async ($, on) => {
   world(on)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   // The Stop hook read the file before the turn's last reply was written, so
   // the index does not know this row; only the newest turn can own it.
   await $.ui.mount({
-    plugin: 'claude-navigator',
+    plugin: 'session-rail',
     surface: 'terminal',
     component: 'AssistantMessage',
     requestId: 'late-reply',
     props: { text: 'done', onScreen: { first: 0, last: 1, of: 2 } },
   })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#4 continue$/ })).toBeDefined()
 })
 
 test('a prompt still drawn under its provisional id places no one', async ($, on) => {
   world(on)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('first stored prompt', { first: 0, last: 1, of: 2 }) })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'placeholder', props: prompt('fifth', { first: 0, last: 1, of: 2 }) })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('first stored prompt', { first: 0, last: 1, of: 2 }) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'placeholder', props: prompt('fifth', { first: 0, last: 1, of: 2 }) })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first stored prompt$/ })).toBeDefined()
 })
 
@@ -2095,11 +2095,11 @@ test('a new prompt\'s turn runs under that prompt, not the one before it', async
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // The turn for "second" starts before its row is stored under its uuid.
   await $.turn.start({ text: 'second', turnId: 't2' })
   expect(await cardDetails($)).toEqual(['first'])
-  const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u2', props: prompt('second', null) })
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u2', props: prompt('second', null) })
   await row.unmount()
   expect(await cardDetails($)).toEqual(['first', 'second · running'])
   await $.turn.complete({ answer: 'ok', durationMs: 1000, isAborted: false, turnId: 't2', reason: 'answer' })
@@ -2112,12 +2112,12 @@ test('a repeated prompt\'s turn does not run under the earlier one with the same
   world(on)
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'vertical' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // The transcript ends in "continue"; the person sends "continue" again.
   await $.turn.start({ text: 'continue', turnId: 't5' })
   const isRunning = async () => (await cardDetails($)).map((details: string) => details.endsWith('running'))
   expect(await isRunning()).toEqual([false, false, false, false])
-  const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u5', props: prompt('continue', null) })
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u5', props: prompt('continue', null) })
   await row.unmount()
   expect(await isRunning()).toEqual([false, false, false, false, true])
 })
@@ -2127,15 +2127,15 @@ test('a late reply of the turn before stays with its prompt once a new one is se
   world(on, {}, TRANSCRIPT, disk)
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   // The last reply of u4's turn was stored after the Stop hook read the file.
   disk.transcript = `${TRANSCRIPT}\n${JSON.stringify({ type: 'assistant', uuid: 'late', parentUuid: 'u4', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } })}`
   disk.mtimeMs = 2
   await $.turn.start({ text: 'fifth', turnId: 't5' })
-  const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u5', props: prompt('fifth', null) })
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u5', props: prompt('fifth', null) })
   await row.unmount()
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AssistantMessage', requestId: 'late', props: { text: 'done', onScreen: { first: 0, last: 1, of: 2 } } })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AssistantMessage', requestId: 'late', props: { text: 'done', onScreen: { first: 0, last: 1, of: 2 } } })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#4 continue$/ })).toBeDefined()
 })
 
@@ -2161,9 +2161,9 @@ const runFifth = async ($: any, on: any) => {
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   const clock = mock.clock(on)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await $.turn.start({ text: 'fifth', turnId: 't5' })
-  const u5 = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u5', props: prompt('fifth', null) })
+  const u5 = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u5', props: prompt('fifth', null) })
   await u5.unmount()
   return clock
 }
@@ -2171,10 +2171,10 @@ const runFifth = async ($: any, on: any) => {
 test('a scroll that brings a whole row to the top keeps the reader under it, not the running turn', async ($, on) => {
   const clock = await runFifth($, on)
   // u3 at the top, u4 whole below it, the running turn's tool row at the bottom.
-  const u3 = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u3', props: prompt('continue', { first: 1, last: 1, of: 2 }) })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u4', props: prompt('continue', { first: 0, last: 1, of: 2 }) })
-  const tool = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 5 }) })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const u3 = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u3', props: prompt('continue', { first: 1, last: 1, of: 2 }) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u4', props: prompt('continue', { first: 0, last: 1, of: 2 }) })
+  const tool = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 5 }) })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   const heavy = async () => (await band.findAll({ type: 'Button' })).map((b: any) => b.props.label).indexOf('┃')
   await clock.settle()
   expect(await heavy()).toBe(2)
@@ -2189,21 +2189,21 @@ test('a scroll that brings a whole row to the top keeps the reader under it, not
 
 test('a running tool row first drawn at the bottom of the viewport does not take the reader to it', async ($, on) => {
   const clock = await runFifth($, on)
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'u4', props: prompt('continue', { first: 1, last: 1, of: 2 }) })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u4', props: prompt('continue', { first: 1, last: 1, of: 2 }) })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   const heavy = async () => (await band.findAll({ type: 'Button' })).map((b: any) => b.props.label).indexOf('┃')
   await clock.settle()
   expect(await heavy()).toBe(3)
   await quiet()
   // The turn calls a tool; its row is drawn under the viewport's bottom edge
   // before the layout moves the rows above it.
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 2 }) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 2 }) })
   await clock.settle()
   expect(await heavy()).toBe(3)
 })
 
 const mountRow = ($: any, requestId: string, text: string, onScreen: { first: number; last: number; of: number } | null) =>
-  $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId, props: prompt(text, onScreen) })
+  $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId, props: prompt(text, onScreen) })
 
 const heavyIn = async (band: any) => (await band.findAll({ type: 'Button' })).map((b: any) => b.props.label).indexOf('┃')
 
@@ -2213,7 +2213,7 @@ const horizontalWorld = async ($: any, on: any, transcript = TRANSCRIPT) => {
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   const clock = mock.clock(on)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   return { disk, clock }
 }
 
@@ -2222,7 +2222,7 @@ test('a row cut at the viewport top places the reader there, over rows that left
   // u1 was cut at the top, then left in a jump that never said so.
   await mountRow($, 'u1', 'first stored prompt', { first: 1, last: 1, of: 2 })
   await mountRow($, 'u4', 'continue', { first: 1, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(3)
 })
@@ -2231,7 +2231,7 @@ test('a row replayed on screen for a moment, then corrected, moves no one', asyn
   const { disk, clock } = await horizontalWorld($, on)
   await mountRow($, 'u2', '<div> why does this overflow?', { first: 0, last: 1, of: 2 })
   await mountRow($, 'u3', 'continue', { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(1)
   const before = disk.railRedraws
@@ -2247,7 +2247,7 @@ test('a row replayed on screen for a moment, then corrected, moves no one', asyn
 test('scrolling up places the reader at the row that entered at the top last', async ($, on) => {
   const { clock } = await horizontalWorld($, on)
   const u3 = await mountRow($, 'u3', 'continue', { first: 1, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(2)
   await u3.redraw(prompt('continue', { first: 0, last: 1, of: 2 }))
@@ -2259,21 +2259,21 @@ test('scrolling up places the reader at the row that entered at the top last', a
 test('a turn that starts while the person reads leaves the reader where they are', async ($, on) => {
   const { clock } = await horizontalWorld($, on)
   await mountRow($, 'u2', '<div> why does this overflow?', { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(1)
   await quiet()
   // A continuation moves nothing; its first tool row is drawn at the bottom.
   await $.turn.start({ text: '', turnId: 't5' })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 2 }) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 2 }) })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(1)
 })
 
 test("rows drawn while a subagent's transcript is in view do not place the reader", async ($, on) => {
   const { clock } = await horizontalWorld($, on)
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, view: { agentId: 'a1' } } })
-  await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_sub', props: { ...runningTool({ first: 3, last: 5, of: 9 }), tool_use_id: 'toolu_sub' } })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, view: { agentId: 'a1' } } })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_sub', props: { ...runningTool({ first: 3, last: 5, of: 9 }), tool_use_id: 'toolu_sub' } })
   await band.redraw(BAND)
   await mountRow($, 'u2', '<div> why does this overflow?', { first: 0, last: 1, of: 2 })
   await clock.advance(200)
@@ -2284,8 +2284,8 @@ test("rows drawn while a subagent's transcript is in view do not place the reade
 test('reports that never pause still redraw the rail within a bounded wait', async ($, on) => {
   const { clock } = await horizontalWorld($, on)
   const u2 = await mountRow($, 'u2', '<div> why does this overflow?', { first: 1, last: 1, of: 2 })
-  const tool = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 9 }) })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const tool = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 9 }) })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(1)
   await u2.redraw(prompt('<div> why does this overflow?', null))
@@ -2301,7 +2301,7 @@ test('reports that never pause still redraw the rail within a bounded wait', asy
 test('the prompt being read stays itself when a rewind drops an earlier one', async ($, on) => {
   const { disk, clock } = await horizontalWorld($, on)
   await mountRow($, 'u4', 'continue', { first: 1, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(3)
   disk.transcript = jsonl([
@@ -2319,7 +2319,7 @@ test('rows split from one message are seen apart', async ($, on) => {
   const { clock } = await horizontalWorld($, on, SPLIT)
   const top = await drawSplit($, 'UserMessage', SPLIT_IDS.firstRow, { first: 1, last: 1, of: 2 })
   await drawSplit($, 'UserMessage', 'dae2bfb1-3f75-4882-a3e4-000000000001', { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(0)
   await quiet()
@@ -2335,7 +2335,7 @@ test('rows that left untold stay gone once a row cut at the top has settled', as
   // u1 was cut at the top when the viewport jumped away without it saying so.
   await mountRow($, 'u1', 'first stored prompt', { first: 1, last: 1, of: 2 })
   const u4 = await mountRow($, 'u4', 'continue', { first: 1, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(3)
   // A scroll up brings u4 whole to the very top; no row is cut there now.
@@ -2348,7 +2348,7 @@ test('a row cut at the top that left untold does not hold the reader when the vi
   const { clock } = await horizontalWorld($, on)
   // u3 is cut at the top; a long scroll up unmounts it without it saying so.
   await mountRow($, 'u3', 'continue', { first: 1, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   await clock.advance(200)
   expect(await heavyIn(band)).toBe(2)
   // The rows drawn at the new place start whole at the very top.
@@ -2362,9 +2362,9 @@ test('rows that left untold are dropped even while reports never pause', async (
   const { clock } = await horizontalWorld($, on)
   // u1 was cut at the top when the viewport jumped away without it saying so.
   await mountRow($, 'u1', 'first stored prompt', { first: 1, last: 1, of: 2 })
-  const tool = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 9 }) })
+  const tool = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'ToolUse', requestId: 'toolu_running', props: runningTool({ first: 0, last: 1, of: 9 }) })
   const u3 = await mountRow($, 'u3', 'continue', { first: 1, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   // A running tool row keeps drawing every 30 ms; u3 turns whole at the top meanwhile.
   for (let at = 0; at < 300; at += 30) {
     await clock.advance(30)
@@ -2374,7 +2374,7 @@ test('rows that left untold are dropped even while reports never pause', async (
   expect(await heavyIn(band)).toBe(2)
 })
 
-// --- claude-navigator: engine-native history ---
+// --- session-rail: engine-native history ---
 
 test('the engine list keeps the person\'s prompts in order and leaves the rest out', () => {
   const prompts = promptsFromMessages(
@@ -2699,9 +2699,9 @@ test('with no transcript, a prompt row on screen places the reader under its eng
     { role: 'user', text: 'engine two' },
   ])
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await drawRow($, 'r2', 'engine two', { first: 0, last: 1, of: 2 })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect((await band.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual(['│', '┃'])
 })
 
@@ -2732,7 +2732,7 @@ test('a prompt row drawn again does not add a second entry', async ($, on) => {
     { role: 'user', text: 'engine two' },
   ])
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'r2', props: prompt('engine two', null) })
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'r2', props: prompt('engine two', null) })
   await row.redraw(prompt('engine two', null))
   expect(await railLabels($)).toEqual(['engine one', 'engine two'])
 })
@@ -2789,8 +2789,8 @@ test('a turn that ends keeps its prompt when a newer turn starts while it ends',
   // A prompt delivered into the running turn, listed before it ends.
   await drawRow($, 'n2', 'second')
   await $.turn.complete({ answer: 'done', durationMs: 4000, isAborted: false, turnId: 't1', reason: 'answer' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   // The engine's figure is the prompt that started the turn, not the one
   // that started meanwhile.
   expect(await band.find({ type: 'Text', text: /^#1 first · 4s\s*$/ })).toBeDefined()
@@ -2826,8 +2826,8 @@ test('the engine list keeps the uuid each prompt was stored under, with its turn
     { role: 'user', text: 'second' },
   ])
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first · 1m 23s · 4 tools · app\.ts, README\.md\s*$/ })).toBeDefined()
 })
 
@@ -2874,8 +2874,8 @@ test('the engine list gains the uuid each prompt was stored under when a late re
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await clock.settle()
   await stop($)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 first · 20s · 1 tool\s*$/ })).toBeDefined()
 })
 
@@ -2900,8 +2900,8 @@ test('two prompts with the same text keep their own turn details when the engine
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await clock.settle()
   await stop($)
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   // An oldest-to-oldest pairing keeps the stored uuids on the two prompts the
   // transcript has; the engine's newest copy is the one without details.
   expect(await band.find({ type: 'Text', text: /^#1 continue · 5s · 1 tool\s*$/ })).toBeDefined()
@@ -2992,8 +2992,8 @@ test('a turn that ends after the conversation changed says nothing about the new
   store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'new conversation' }])
   await $.classic.SessionStart({ source: 'resume', session_id: 's2', transcript_path: '/t/s1.jsonl' })
   await $.turn.complete({ answer: 'done', durationMs: 12000, isAborted: true, turnId: 't1', reason: 'aborted' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 new conversation\s*$/ })).toBeDefined()
   expect(await band.find({ type: 'Text', text: /12s|interrupted/ })).toBeUndefined()
 })
@@ -3011,8 +3011,8 @@ test('a stale turn completion is not written after the new conversation has rest
   await $.turn.start({ text: 'new conversation', turnId: 't2' })
   await $.turn.complete({ answer: 'done', durationMs: 1000, isAborted: false, turnId: 't2', reason: 'answer' })
   await $.turn.complete({ answer: 'done', durationMs: 12000, isAborted: true, turnId: 't1', reason: 'aborted' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 new conversation · 1s\s*$/ })).toBeDefined()
   expect(await band.find({ type: 'Text', text: /12s|interrupted/ })).toBeUndefined()
 })
@@ -3029,8 +3029,8 @@ test('a stale turn completion is not written onto a turn the new conversation st
   await $.classic.SessionStart({ source: 'resume', session_id: 's2', transcript_path: '/t/s1.jsonl' })
   await $.turn.start({ text: 'new conversation', turnId: 't2' })
   await $.turn.complete({ answer: 'done', durationMs: 12000, isAborted: true, turnId: 't1', reason: 'aborted' })
-  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: /^#1 new conversation\s*$/ })).toBeDefined()
   expect(await band.find({ type: 'Text', text: /12s|interrupted/ })).toBeUndefined()
 })

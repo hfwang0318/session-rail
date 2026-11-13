@@ -1,6 +1,6 @@
-# 重构对比：prompt-rail → claude-navigator
+# 重构对比：prompt-rail → session-rail
 
-本文记录 fork 的重构范围、基线对比、验证方式和已知限制。基线是 `oikon48/prompt-rail`（下称“原项目”），新项目是 `claude-navigator`。原项目保持未改动。
+本文记录 fork 的重构范围、基线对比、验证方式和已知限制。基线是 `oikon48/prompt-rail`（下称“原项目”），新项目是 `session-rail`。原项目保持未改动。
 
 ## 1. 结论
 
@@ -12,7 +12,7 @@
 
 | 项 | 原项目 | 重构后 |
 | --- | --- | --- |
-| 测试命令 | `claude plugin test plugins/prompt-rail` | `claude plugin test plugins/claude-navigator` |
+| 测试命令 | `claude plugin test plugins/prompt-rail` | `claude plugin test plugins/session-rail` |
 | 结果 | 142 pass / 0 fail | 193 pass / 0 fail |
 | 耗时 | 4.5s | 5.5s |
 | 新增测试 | — | 51（15 个注入引擎列表场景 + 36 个纯函数/压缩/竞态场景） |
@@ -33,7 +33,7 @@
 | 行 id | 全部来自 transcript uuid | uuid 优先；无 transcript 时用稳定引擎 id + 已渲染行 id |
 | 读失败 | 静默 | 提示一次 |
 
-核心新模块：`plugins/claude-navigator/hooks/history.ts`（约 210 行），把消息过滤、正向/反向双源对齐、旧历史恢复和对队列提示词的插入做成纯函数，便于单测。
+核心新模块：`plugins/session-rail/hooks/history.ts`（约 210 行），把消息过滤、正向/反向双源对齐、旧历史恢复和对队列提示词的插入做成纯函数，便于单测。
 
 ## 4. 已修复的故障模式
 
@@ -52,7 +52,7 @@
 
 ## 5. 真实运行验证（不是仅测试替身）
 
-测试框架 `claude-code/testing` 的 `$.session` 确实没有 `messages()`。为此新增了一个**注入缝**：测试把消息列表写进插件自己的 store（键 `__claude-navigator-engine-test__`），`engineMessagesOf` 优先读取它。生产环境从不写这个键，并且只有在 `$.session.messages()` 调用失败时才会读它。上述 15 个注入场景走的是同一条 `refreshEngine` 代码路径，不是 transcript 回退路径；其中多个测试在没有 transcript 的情况下也能通过，证明主路径确实被使用。
+测试框架 `claude-code/testing` 的 `$.session` 确实没有 `messages()`。为此新增了一个**注入缝**：测试把消息列表写进插件自己的 store（键 `__session-rail-engine-test__`），`engineMessagesOf` 优先读取它。生产环境从不写这个键，并且只有在 `$.session.messages()` 调用失败时才会读它。上述 15 个注入场景走的是同一条 `refreshEngine` 代码路径，不是 transcript 回退路径；其中多个测试在没有 transcript 的情况下也能通过，证明主路径确实被使用。
 
 为了验证真实运行时 `$.session.messages()` 的形状，另用临时探针插件在 **Claude Code 2.1.308 真实会话** 中采样（`--plugin-dir` + `claude -p`）：
 
@@ -77,7 +77,7 @@
 2. 摘要行确实是 `role: "user"` 且不带 `isCompactSummary` 标记——必须按固定文案过滤，否则会被列成一条提示词。
 3. `/compact` 自身的命令行与输出行也是用户行，现有的 `WRAPPER` 过滤能正确排除。
 
-另外用真实插件（`--plugin-dir .../plugins/claude-navigator`）跑了一轮无头会话，插件加载、hook 注册与执行无报错。
+另外用真实插件（`--plugin-dir .../plugins/session-rail`）跑了一轮无头会话，插件加载、hook 注册与执行无报错。
 
 > 说明：`claude plugin test` 全部通过只能证明“回退路径 + 可注入的引擎主路径”通过；真实引擎路径由上面的探针会话单独验证。两者结论一致。
 
@@ -104,13 +104,13 @@
 - **拆分行重复（MEDIUM）**：引擎把一条消息拆成多行时，按行键把第二行认作同一提示词；无 transcript 时不再多出一条。
 - **迟到读取的旧历史（MEDIUM）**：后台 transcript 读完成后，立即用最近的引擎列表再刷新一次，超出引擎窗口的旧历史不必等到下一个回合边界才出现。
 - **跨会话的完成事件（MEDIUM）**：`turn.start` 记录会话代际与最近启动的回合；切换会话后到达的 `turn.complete` 不再把时长/中断状态写到新会话的提示词上，无论新会话尚未开始、正在运行还是已经结束了自己的回合。
+- **命名（发布前）**：插件与仓库改名为 `session-rail`，避开 Anthropic 公共目录保留的 `claude-` 前缀；`claude plugin validate plugins/session-rail` 已通过，命令、pane id、设置键、state 键与 marketplace 条目一并更新。
 
 ## 7. 已知限制
 
 - `messages()` 只返回 `{role, text, toolUses, toolResults?}`，**没有 uuid、时间戳、origin、isCompactSummary 标记**。摘要只能按固定文案识别；非人类来源的提示词只能靠 transcript 的 origin 字段过滤。
 - `messages()` 最多返回 4096 条投影消息，超出部分依赖 transcript。
 - 没有 transcript 时，跳转只能指向已经渲染过一次的行（引擎列表没有行 id）。
-- `claude plugin validate` 会拒绝 `claude-` 前缀的插件名（Anthropic 公共目录保留）。本地 `--plugin-dir` 与本地 marketplace 安装已验证可用；若要提交公共目录，需要改 manifest 名称。
 - 测试框架的 `$.plugin.root` 不是 marketplace 形状，`reconsiderTranscript` 找到新路径后的“采纳并重读”分支无法在单测里走到；其决策逻辑有纯函数测试，真实路径需在 marketplace 安装环境下验证。
 - 若引擎异常地对同一 `turnId` 重复投递 `turn.complete`，且期间已列出新提示词，重复的时长仍会记到最新提示词。这是重构前就有的行为；正常引擎不会重复投递，本次未改动。
 - 未做交互式 TUI 的人工验收；布局与交互由原项目的 142 个测试覆盖。
@@ -118,9 +118,9 @@
 ## 8. 复现
 
 ```bash
-cd /path/to/claude-navigator
-claude plugin test plugins/claude-navigator
-claude --plugin-dir plugins/claude-navigator
+cd /path/to/session-rail
+claude plugin test plugins/session-rail
+claude --plugin-dir plugins/session-rail
 
 # 基线（原项目，未改动）
 cd /path/to/prompt-rail

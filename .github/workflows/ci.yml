@@ -30,6 +30,6 @@ jobs:
       - name: Validate the marketplace
         run: claude plugin validate .
       - name: Validate the plugin
-        run: claude plugin validate plugins/claude-navigator
+        run: claude plugin validate plugins/session-rail
       - name: Test the plugin
-        run: claude plugin test plugins/claude-navigator
+        run: claude plugin test plugins/session-rail

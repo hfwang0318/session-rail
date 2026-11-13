@@ -1,6 +1,6 @@
 <div align="center">
 
-# claude-navigator
+# session-rail
 
 A rail of your prompts for Claude Code. Hover to read one, click to jump back to it.
 
@@ -9,32 +9,32 @@ A rail of your prompts for Claude Code. Hover to read one, click to jump back to
 ![Mod](https://img.shields.io/badge/mod-TypeScript-3178C6)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
-<img src="docs/demo.gif" alt="claude-navigator demo: hovering the rail previews a prompt and its turn, clicking jumps the transcript to it" width="800">
+<img src="docs/demo.gif" alt="session-rail demo: hovering the rail previews a prompt and its turn, clicking jumps the transcript to it" width="800">
 
 </div>
 
-> **Fork.** claude-navigator is a fork of [prompt-rail](https://github.com/oikon48/prompt-rail) by oikon48, under the MIT license. The rail, layouts, commands and settings are prompt-rail's. The history source is rebuilt: the engine's own message list (`$.session.messages()`) now leads, and the transcript file enriches it with ids, turn details and history older than the engine keeps. See [docs/refactor-comparison.md](docs/refactor-comparison.md) for what changed and why.
+> **Fork.** session-rail is a fork of [prompt-rail](https://github.com/oikon48/prompt-rail) by oikon48, under the MIT license. The rail, layouts, commands and settings are prompt-rail's. The history source is rebuilt: the engine's own message list (`$.session.messages()`) now leads, and the transcript file enriches it with ids, turn details and history older than the engine keeps. See [docs/refactor-comparison.md](docs/refactor-comparison.md) for what changed and why.
 
 ## Quick start
 
-claude-navigator is a mod, so it needs Claude Code 2.1.287 or later, where mods are on by default. If you set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` during early access, you can remove it, since Claude Code now ignores it.
+session-rail is a mod, so it needs Claude Code 2.1.287 or later, where mods are on by default. If you set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` during early access, you can remove it, since Claude Code now ignores it.
 
 1. Install from this checkout, from your shell or inside a session:
 
    ```bash
-   claude plugin marketplace add /path/to/claude-navigator
-   claude plugin install claude-navigator@hfwang
+   claude plugin marketplace add /path/to/session-rail
+   claude plugin install session-rail@hfwang
    ```
 
    ```
-   /plugin marketplace add /path/to/claude-navigator
-   /plugin install claude-navigator@hfwang
+   /plugin marketplace add /path/to/session-rail
+   /plugin install session-rail@hfwang
    ```
 
    For development, load the plugin straight from the checkout instead:
 
    ```bash
-   claude --plugin-dir /path/to/claude-navigator/plugins/claude-navigator
+   claude --plugin-dir /path/to/session-rail/plugins/session-rail
    ```
 
 2. Start a new session. The rail opens on its own.
@@ -60,7 +60,7 @@ The bars sit on a row of their own under the hint line below the prompt input, n
 <details>
 <summary>The below layout in motion</summary>
 
-<img src="docs/below.gif" alt="claude-navigator 0.9.0: hovering a bar under the prompt previews a prompt, clicking jumps to it, the arrows step, and /config picks the layout" width="800">
+<img src="docs/below.gif" alt="session-rail 0.9.0: hovering a bar under the prompt previews a prompt, clicking jumps to it, the arrows step, and /config picks the layout" width="800">
 
 </details>
 
@@ -68,20 +68,20 @@ The bars sit on a row of their own under the hint line below the prompt input, n
 
 | Command | |
 | --- | --- |
-| `/claude-navigator horizontal` | Bars above the prompt input |
-| `/claude-navigator vertical` | A pane beside the transcript |
-| `/claude-navigator below` | Bars under the hint line below the prompt input |
-| `/claude-navigator off` | Hide the rail |
-| `/claude-navigator next` | Jump to the next prompt |
-| `/claude-navigator prev` | Jump to the previous prompt |
-| `/claude-navigator first`, `last` | Jump to the first or the newest prompt |
-| `/claude-navigator 12`, `#12` | Jump to prompt #12 |
-| `/claude-navigator find <words>` | Jump to the newest prompt that holds the words |
-| `/claude-navigator-next`, `/claude-navigator-prev` | Jump to the next or previous prompt, with no argument, for a keybinding |
-| `/claude-navigator-toggle` | Hide the rail, or bring it back in the layout last on, with no argument, for a keybinding |
-| `/claude-navigator` | Reopen the rail in the current layout |
+| `/session-rail horizontal` | Bars above the prompt input |
+| `/session-rail vertical` | A pane beside the transcript |
+| `/session-rail below` | Bars under the hint line below the prompt input |
+| `/session-rail off` | Hide the rail |
+| `/session-rail next` | Jump to the next prompt |
+| `/session-rail prev` | Jump to the previous prompt |
+| `/session-rail first`, `last` | Jump to the first or the newest prompt |
+| `/session-rail 12`, `#12` | Jump to prompt #12 |
+| `/session-rail find <words>` | Jump to the newest prompt that holds the words |
+| `/session-rail-next`, `/session-rail-prev` | Jump to the next or previous prompt, with no argument, for a keybinding |
+| `/session-rail-toggle` | Hide the rail, or bring it back in the layout last on, with no argument, for a keybinding |
+| `/session-rail` | Reopen the rail in the current layout |
 
-The layout is also the "Rail mode" row in `/config`, and it is kept across sessions. Switching it with `/claude-navigator <layout>` also draws where the rail now sits around the prompt input.
+The layout is also the "Rail mode" row in `/config`, and it is kept across sessions. Switching it with `/session-rail <layout>` also draws where the rail now sits around the prompt input.
 
 ### Keyboard
 
@@ -90,7 +90,7 @@ Bind the step commands in `~/.claude/keybindings.json`; they run mid-turn too:
 ```json
 {
   "bindings": [
-    { "context": "Chat", "bindings": { "ctrl+k": "command:claude-navigator-prev", "meta+j": "command:claude-navigator-next" } }
+    { "context": "Chat", "bindings": { "ctrl+k": "command:session-rail-prev", "meta+j": "command:session-rail-next" } }
   ]
 }
 ```
@@ -140,19 +140,18 @@ The prompt you are reading owns the topmost row on screen. The transcript is rea
 - Near the end of the transcript, `next` cannot scroll further.
 - After a compaction, the engine keeps only the summary and the most recent messages. Prompts before the boundary are listed from the transcript; where no transcript can be read at all, they cannot be listed in that session.
 - With no transcript to read, a prompt can be jumped to only after its row has been drawn once, since the engine's list carries no row id of its own.
-- Anthropic's public plugin directory reserves names beginning with `claude-`, so `claude plugin validate` rejects this plugin's manifest there. Local installs from this checkout work; rename the manifest if you publish it to that directory.
 
 </details>
 
 ## Development
 
 ```bash
-claude --plugin-dir plugins/claude-navigator        # load this checkout; saving reloads it
-claude plugin validate plugins/claude-navigator
-claude plugin test plugins/claude-navigator
+claude --plugin-dir plugins/session-rail        # load this checkout; saving reloads it
+claude plugin validate plugins/session-rail
+claude plugin test plugins/session-rail
 ```
 
-Run `/plugin-types .claude/types` in a session here for type declarations. Bump the version in `plugins/claude-navigator/.claude-plugin/plugin.json` with each release, since installed copies update only when it changes.
+Run `/plugin-types .claude/types` in a session here for type declarations. Bump the version in `plugins/session-rail/.claude-plugin/plugin.json` with each release, since installed copies update only when it changes.
 
 The Claude directory listing tracks the `release` branch rather than `main`, so merged changes reach it only when a release is pushed there. After a Release PR merges, publish it with:
 

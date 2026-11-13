@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Changed the plugin's name from claude-navigator to session-rail: the `claude-` prefix is reserved for Anthropic's public plugin directory, so the old name failed `claude plugin validate`. The `/session-rail` commands, pane id, state key, setting keys and marketplace entry take the new name
 - Rebuilt the history source: the engine's own message list (`$.session.messages()`) is the primary list, and the transcript file enriches it with uuids, turn details and older history. A transcript that is missing, renamed, still being written or read after a `/clear` can no longer empty the rail
 - Fixed the rail losing every prompt before a `/compact` whose boundary links forward into the new segment
 - Fixed the rail losing prompts before a compaction once the engine replaced its list with the summary, and listing that summary as a prompt
@@ -14,12 +15,12 @@
 - Fixed history older than the engine's window appearing only after the next turn when a large transcript was read in the background
 - Fixed a turn that ends after the conversation was replaced writing its duration and outcome onto the new conversation's prompt, even after that conversation started a turn of its own
 
-- Added a "Classic hooks" row to `/config` (#69): on a machine with managed settings or in a Team or Enterprise organization, Claude Code notes each session that the security default skipped claude-navigator's `classic.SessionStart` and `classic.Stop` hooks; turning the row off registers neither hook, which silences those notes and changes nothing else there, since the rail finds the transcript on its own. It stays on by default: without the classic hooks, a session resumed from another directory, or an install loaded with `--plugin-dir`, leaves the rail no transcript to read
+- Added a "Classic hooks" row to `/config` (#69): on a machine with managed settings or in a Team or Enterprise organization, Claude Code notes each session that the security default skipped session-rail's `classic.SessionStart` and `classic.Stop` hooks; turning the row off registers neither hook, which silences those notes and changes nothing else there, since the rail finds the transcript on its own. It stays on by default: without the classic hooks, a session resumed from another directory, or an install loaded with `--plugin-dir`, leaves the rail no transcript to read
 
 ## 0.9.0
 
-- Added the below layout (#70): `/claude-navigator below`, or `below` in the "Rail mode" row of `/config`, draws the bars on a row of their own under the hint line below the prompt input, next to the status line, with the prompt being read beside them and `‹` `›` to step to the previous or next one; hovering a bar shows its prompt and turn there, and Claude Code's own hint line stays as it draws it. It is the terminal's; the desktop app draws the rail above the prompt
-- Added a picture of where the rail sits around the prompt input to the answer of `/claude-navigator <layout>`, since `/config` shows a setting's help on one line
+- Added the below layout (#70): `/session-rail below`, or `below` in the "Rail mode" row of `/config`, draws the bars on a row of their own under the hint line below the prompt input, next to the status line, with the prompt being read beside them and `‹` `›` to step to the previous or next one; hovering a bar shows its prompt and turn there, and Claude Code's own hint line stays as it draws it. It is the terminal's; the desktop app draws the rail above the prompt
+- Added a picture of where the rail sits around the prompt input to the answer of `/session-rail <layout>`, since `/config` shows a setting's help on one line
 
 ## 0.8.2
 
@@ -34,19 +35,19 @@
 
 - Fixed the rail staying empty on Windows for a transcript over 4 MiB (#57): it streamed the file with `tail`, which most Windows sessions do not have on their PATH; where `tail` cannot start, a file on a Windows drive or share is now streamed by PowerShell
 - Fixed the warning that a large transcript could not be read going unseen when a resumed session raised it before the session was bound; it is now said once the session starts
-- Added `/claude-navigator-toggle`, a bare command for a keybinding (`command:claude-navigator-toggle` in `~/.claude/keybindings.json`): it hides the rail, or brings it back in the layout last on (horizontal until another was used)
+- Added `/session-rail-toggle`, a bare command for a keybinding (`command:session-rail-toggle` in `~/.claude/keybindings.json`): it hides the rail, or brings it back in the layout last on (horizontal until another was used)
 
 ## 0.7.1
 
 - Fixed the horizontal rail in the Claude desktop app drawing a hovered prompt's card over the dim line of the prompt being read, so both texts showed at once; there the line above the bars now shows the hovered card alone, and the prompt being read is named beside the bars, with room kept for it however many bars there are
 - Fixed the horizontal rail in the desktop app lighting two bars at once, the app's focus ring on one and the hover on another; the bars there take clicks, not the focus ring
 - Changed a jump the desktop app cannot make to say once a session, in plain words, that jumps cannot land there, instead of the engine's "transcript not scrollable here" on every click
-- Fixed every toast starting with "claude-navigator: claude-navigator:", since the engine already names the plugin
+- Fixed every toast starting with "session-rail: session-rail:", since the engine already names the plugin
 
 ## 0.7.0
 
-- Added `/claude-navigator-next` and `/claude-navigator-prev`, which take no argument, so a keybinding (`command:claude-navigator-next`) can step through the prompts, mid-turn too
-- Added `/claude-navigator <n>` (or `#<n>`), `first`, `last` and `find <words>` to jump to a prompt by its number, to the oldest or newest, or to the newest prompt that holds the words
+- Added `/session-rail-next` and `/session-rail-prev`, which take no argument, so a keybinding (`command:session-rail-next`) can step through the prompts, mid-turn too
+- Added `/session-rail <n>` (or `#<n>`), `first`, `last` and `find <words>` to jump to a prompt by its number, to the oldest or newest, or to the newest prompt that holds the words
 - Added keyboard selection to the horizontal rail: `ctrl+x tab` rings the bar of the prompt being read, `←` `→` move the ring across the bars on screen and show its prompt for a few seconds, `Enter` jumps there, `Esc` returns to the prompt input
 - Fixed a jump to one of the last prompts marking an earlier one as read: when its turn is too short to scroll to the top, the rail now stays on the prompt jumped to until you scroll or a new turn starts
 
@@ -56,7 +57,7 @@
 
 ## 0.6.0
 
-- Removed the digit hotkeys from the vertical pane: a click focuses the pane, so the first nine rows grew a `1:` prefix and shifted under the pointer, and the digits reached only the oldest nine prompts; a click and `/claude-navigator next` and `prev` jump to a prompt
+- Removed the digit hotkeys from the vertical pane: a click focuses the pane, so the first nine rows grew a `1:` prefix and shifted under the pointer, and the digits reached only the oldest nine prompts; a click and `/session-rail next` and `prev` jump to a prompt
 
 ## 0.5.3
 
@@ -81,7 +82,7 @@
 
 ## 0.4.0
 
-- Changed the plugin's name from turn-rail to claude-navigator: the `/claude-navigator` command, the pane id, the mode setting key and the marketplace entry take the new name, and the repository moves to oikon48/claude-navigator
+- Changed the plugin's name from turn-rail to session-rail: the `/session-rail` command, the pane id, the mode setting key and the marketplace entry take the new name, and the repository moves to oikon48/session-rail
 
 ## 0.3.1
 

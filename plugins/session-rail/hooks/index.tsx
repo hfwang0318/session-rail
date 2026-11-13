@@ -1,7 +1,7 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
 import { matchText, mergePrompts, promptsFromMessages, type EngineMessage, type StoredPrompt } from './history.ts'
 
-const PANE = 'claude-navigator'
+const PANE = 'session-rail'
 // Rows the person typed (terminal composer, desktop/remote bridge, SDK host).
 const PROMPT_KINDS = new Set(['composer', 'bridge', 'sdk'])
 // Columns the docked rail asks for: a tick and a little air.
@@ -21,7 +21,7 @@ const LEGACY_MODE_KEY = 'mode'
 // with no /config row for plugin fields), so a module reloaded mid-session
 // starts in it again. Keyed by session, so a later session starts clean.
 const SESSION_MODE_KEY_PREFIX = 'session-mode:'
-// The mode last on (vertical, horizontal or below), so `claude-navigator-toggle` turned
+// The mode last on (vertical, horizontal or below), so `session-rail-toggle` turned
 // off has a mode to come back to; horizontal until another was written.
 const LAST_ON_KEY = 'last-on'
 // `transcript:<session id>` -> { path, at }, so a hot-reloaded module (whose
@@ -92,15 +92,15 @@ const UNSCROLLABLE_TOAST = 'jumps cannot land here: this view does not let a plu
 // bumping it draws them again, and them alone. `$.ui.invalidate('ui.render')`
 // also draws every transcript row this module hooks, and rows drawn again
 // while the person scrolls just after a jump move the viewport a turn away.
-const MOVED = { plugin: 'claude-navigator', key: 'moved' } as const
+const MOVED = { plugin: 'session-rail', key: 'moved' } as const
 // How long the band's text line shows the card of the bar the focus ring is
 // on after the ring last moved: no event says the ring left the band.
 const RING_CARD_MS = 4000
 const USAGE = '[off|vertical|horizontal|below|next|prev|first|last|<n>|find <words>]'
 // Commands that step through the prompts, each with the way it steps.
 const STEP_COMMANDS = [
-  ['claude-navigator-next', 'next'],
-  ['claude-navigator-prev', 'previous'],
+  ['session-rail-next', 'next'],
+  ['session-rail-prev', 'previous'],
 ] as const
 
 // vertical: ticks in a docked pane; horizontal: ticks in a row above the
@@ -114,7 +114,7 @@ const isMode = (value: unknown): value is Mode => value === 'off' || value === '
 const isBandMode = (mode: Mode, isTerminal: boolean) => mode === 'horizontal' || (mode === 'below' && !isTerminal)
 
 // Where a mode puts the rail, drawn around the prompt input, for the answer
-// to `/claude-navigator <mode>`: /config draws a row's help on one line, so this
+// to `/session-rail <mode>`: /config draws a row's help on one line, so this
 // is where a picture of the choice can be shown. The engine heads a command's
 // answer with the plugin's name, so the picture does not.
 const PROMPT_BOX = ['  ────────────────────────────────', '  ❯', '  ────────────────────────────────']
@@ -232,7 +232,7 @@ export const stepFrom = (current: number, count: number, dir: 1 | -1, isSkipped:
   return -1
 }
 
-// The prompt `/claude-navigator <asked>` names among `texts`: `n` or `#n` by its
+// The prompt `/session-rail <asked>` names among `texts`: `n` or `#n` by its
 // number, `first`, `last`, or with `find <words>` the newest whose text holds
 // them (case aside). -1 when none does; undefined when `asked` names none.
 export const pickPrompt = (asked: string, texts: string[]) => {
@@ -803,7 +803,7 @@ async function seatRail($: EngineInterface, mode: Mode, isTerminal: boolean) {
 async function writeMode($: EngineInterface, mode: Mode) {
   if (mode !== 'off') await $.store.set(LAST_ON_KEY, mode)
   try {
-    const result = await $.config.set({ key: 'claude-navigator.mode', value: mode })
+    const result = await $.config.set({ key: 'session-rail.mode', value: mode })
     if (result.deny) $.ui.toast(`the mode was not saved: ${result.deny}`)
   } catch (err) {
     await $.store.set(`${SESSION_MODE_KEY_PREFIX}${await $.session.id()}`, mode)
@@ -962,7 +962,7 @@ export type EngineRead = { kind: 'messages'; messages: readonly EngineMessage[] 
 // key is consulted only when the service call fails: a real session that
 // answers never reads it, and a test can drive the engine source without the
 // service.
-export const ENGINE_MESSAGES_TEST_KEY = '__claude-navigator-engine-test__'
+export const ENGINE_MESSAGES_TEST_KEY = '__session-rail-engine-test__'
 
 async function engineMessagesOf($: EngineInterface): Promise<EngineRead> {
   try {
@@ -1469,20 +1469,20 @@ export const register: Register = (on, options) => {
     await $.command.register({
       // Named after the plugin: a plugin's commands share one namespace with
       // every other plugin's and the built-ins, so a generic name would collide.
-      name: 'claude-navigator',
+      name: 'session-rail',
       description:
         'Show the prompt rail: vertical (a pane beside the transcript), horizontal (above the prompt), below (under the prompt) or off; next, prev, first, last, a number or find <words> jumps to a prompt.',
       argumentHint: USAGE,
       // Runs while a turn streams, so next and prev move through it then too.
       immediate: true,
     })
-    // Argument-free, so a keybinding can name them (`command:claude-navigator-next`):
+    // Argument-free, so a keybinding can name them (`command:session-rail-next`):
     // a binding runs a command bare.
     for (const [name, way] of STEP_COMMANDS) {
       await $.command.register({ name, description: `Jump to the ${way} prompt in the prompt rail.`, immediate: true })
     }
     await $.command.register({
-      name: 'claude-navigator-toggle',
+      name: 'session-rail-toggle',
       description: 'Toggle the rail: off ↔ the mode last on (vertical, horizontal or below).',
       immediate: true,
     })
@@ -1554,7 +1554,7 @@ export const register: Register = (on, options) => {
     if (applyEngineRead(read, id, at)) await redrawRail($)
     if (generation === at && !isRunning) listedAtRest = entries.length
     // Unasked, the engine seats a pane only from 144 columns (110 once the
-    // person has opened it with /claude-navigator); below that it waits undrawn.
+    // person has opened it with /session-rail); below that it waits undrawn.
     await seatRail($, mode, isTerminal)
     return next(e)
   })
@@ -1570,8 +1570,8 @@ export const register: Register = (on, options) => {
     return pickPrompt(asked, entries.map(entry => entry.text))
   }
   const missingFor = (command: string, asked: string) => {
-    if (command === 'claude-navigator-next' || asked === 'next') return 'no later prompt'
-    if (command === 'claude-navigator-prev' || asked === 'prev') return 'no earlier prompt'
+    if (command === 'session-rail-next' || asked === 'next') return 'no later prompt'
+    if (command === 'session-rail-prev' || asked === 'prev') return 'no earlier prompt'
     return `no prompt ${asked}`
   }
   // The request id a jump scrolls to: the row the prompt's text was drawn
@@ -1580,12 +1580,12 @@ export const register: Register = (on, options) => {
 
   on('command.run', async ($, e, next) => {
     const isStep = STEP_COMMANDS.some(([name]) => name === e.command)
-    if (!isStep && e.command !== 'claude-navigator' && e.command !== 'claude-navigator-toggle') return next(e)
-    const asked = isStep || e.command === 'claude-navigator-toggle' ? '' : e.args.trim()
+    if (!isStep && e.command !== 'session-rail' && e.command !== 'session-rail-toggle') return next(e)
+    const asked = isStep || e.command === 'session-rail-toggle' ? '' : e.args.trim()
     unring()
-    // The toggle, as `/claude-navigator <mode>` does it: switch at once, then write
+    // The toggle, as `/session-rail <mode>` does it: switch at once, then write
     // the setting, whose change reloads this module in the new mode.
-    if (e.command === 'claude-navigator-toggle') {
+    if (e.command === 'session-rail-toggle') {
       if (mode === 'off') {
         const lastOn = await $.store.get(LAST_ON_KEY)
         mode = isMode(lastOn) && lastOn !== 'off' ? lastOn : 'horizontal'
@@ -1621,12 +1621,12 @@ export const register: Register = (on, options) => {
       return {}
     }
     if (asked && !isMode(asked)) {
-      $.ui.toast(`/claude-navigator ${USAGE}`)
+      $.ui.toast(`/session-rail ${USAGE}`)
       return {}
     }
     // Reopening a rail that is off would only close it again: say how to turn it on.
     if (!asked && mode === 'off') {
-      $.ui.toast('the rail is off; /claude-navigator vertical, horizontal or below turns it on')
+      $.ui.toast('the rail is off; /session-rail vertical, horizontal or below turns it on')
       return {}
     }
     if (isMode(asked)) mode = asked
@@ -2157,7 +2157,7 @@ export const register: Register = (on, options) => {
                   ? ` ${tick(i === current, isUnreachable(i))} ${oneLine(entry.text, width)}`
                   : ` ${tick(i === current, isUnreachable(i))} `
               }
-              hover={{ scope: `claude-navigator-${i}`, inverse: true, dimColor: false }}
+              hover={{ scope: `session-rail-${i}`, inverse: true, dimColor: false }}
               onPress={() => {}}
             />
           ))}
@@ -2204,7 +2204,7 @@ export const register: Register = (on, options) => {
     )
     const cards = (width: number) =>
       entries.map((entry, i) => (
-        <Box key={`card-${i}`} display="none" hover={{ scope: `claude-navigator-${i}`, display: 'flex' }}>
+        <Box key={`card-${i}`} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
           <Text dimColor>{`#${i + 1} `}</Text>
           <Text wrap="truncate-end">{withTurn(entry, width)}</Text>
         </Box>
@@ -2256,7 +2256,7 @@ export const register: Register = (on, options) => {
               plain
               dimColor={i !== current}
               label={bar(i === current, isUnreachable(i))}
-              hover={{ scope: `claude-navigator-${i}`, inverse: true, dimColor: false }}
+              hover={{ scope: `session-rail-${i}`, inverse: true, dimColor: false }}
               autoFocus={(isCellGrid && i === center) || undefined}
               onPress={() => {}}
             />
@@ -2271,7 +2271,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column" paddingLeft={RAIL_INSET}>
             <Box height={1} width={width}>
               {entries.map((_, i) => (
-                <Box key={`card-${i}`} display="none" hover={{ scope: `claude-navigator-${i}`, display: 'flex' }}>
+                <Box key={`card-${i}`} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
                   <Text wrap="truncate-end">{card(i)}</Text>
                 </Box>
               ))}
@@ -2292,7 +2292,7 @@ export const register: Register = (on, options) => {
             {/* With no prompt known on screen, the newest: an empty line reads as a broken rail. */}
             {shownRing === undefined ? <Text dimColor wrap="truncate-end">{label(center)}</Text> : <Text wrap="truncate-end">{padTo(card(shownRing), width)}</Text>}
             {entries.map((_, i) => (
-              <Box key={`card-${i}`} position="absolute" top={0} left={0} display="none" hover={{ scope: `claude-navigator-${i}`, display: 'flex' }}>
+              <Box key={`card-${i}`} position="absolute" top={0} left={0} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
                 <Text wrap="truncate-end">{padTo(card(i), width)}</Text>
               </Box>
             ))}
@@ -2351,7 +2351,7 @@ export const register: Register = (on, options) => {
                 plain
                 dimColor={i !== current}
                 label={bar(i === current, isUnreachable(i))}
-                hover={{ scope: `claude-navigator-${i}`, inverse: true, dimColor: false }}
+                hover={{ scope: `session-rail-${i}`, inverse: true, dimColor: false }}
                 onPress={() => {}}
               />
             )
@@ -2363,7 +2363,7 @@ export const register: Register = (on, options) => {
             {shown.map((_, offset) => {
               const i = first + offset
               return (
-                <Box key={`card-${i}`} position="absolute" top={0} left={0} display="none" hover={{ scope: `claude-navigator-${i}`, display: 'flex' }}>
+                <Box key={`card-${i}`} position="absolute" top={0} left={0} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
                   <Text wrap="truncate-end">{padTo(card(i), room)}</Text>
                 </Box>
               )
@@ -2378,10 +2378,10 @@ export const register: Register = (on, options) => {
   // on the bar of the prompt being read, the arrows move it, Enter jumps. A
   // scroll is refused here (it is no press), so the text line shows the
   // ringed prompt's card instead, for RING_CARD_MS after each move.
-  on('ui.focus', { component: 'AbovePrompt', plugin: 'claude-navigator' }, async ($, e, next) => {
+  on('ui.focus', { component: 'AbovePrompt', plugin: 'session-rail' }, async ($, e, next) => {
     if (!isBandMode(mode, isBandOnGrid)) return next(e)
     // A page keeps a clicked bar's ring beside the hovered one: two lit at once.
-    if (!isBandOnGrid) return { deny: 'claude-navigator: on this surface the bars take clicks, not the focus ring' }
+    if (!isBandOnGrid) return { deny: 'session-rail: on this surface the bars take clicks, not the focus ring' }
     const result = await next(e)
     const index = Number(/^jump-(\d+)/.exec(e.element ?? '')?.[1])
     if (result.deny || !Number.isInteger(index)) return result
@@ -2397,15 +2397,15 @@ export const register: Register = (on, options) => {
 
   // In the pane, a ringed row and the row under the pointer light at once and
   // read as two highlights. Keep the ring off the rows; a click still presses,
-  // and /claude-navigator next and prev are its keyboard route. The engine's own
+  // and /session-rail next and prev are its keyboard route. The engine's own
   // stops (the close mark, the tabs) carry no plugin, so the matcher leaves
   // them be.
-  on('ui.focus', { component: 'Pane', requestId: PANE, plugin: 'claude-navigator' }, async () => ({
-    deny: 'claude-navigator: the rail takes clicks, not the focus ring',
+  on('ui.focus', { component: 'Pane', requestId: PANE, plugin: 'session-rail' }, async () => ({
+    deny: 'session-rail: the rail takes clicks, not the focus ring',
   }))
 
   // Scroll from the press dispatch itself (a click).
-  on('ui.press', { plugin: 'claude-navigator' }, async ($, e, next) => {
+  on('ui.press', { plugin: 'session-rail' }, async ($, e, next) => {
     // The steps beside the bars under the prompt name no prompt of their own.
     const dir = e.element === 'step-next' ? 1 : e.element === 'step-prev' ? -1 : 0
     const index = dir === 0 ? Number(/^jump-(\d+)/.exec(e.element)?.[1]) : stepFrom(currentIndex(), entries.length, dir, isUnreachable)

@@ -14,5 +14,5 @@
     "jsxFactory": "h",
     "jsxFragmentFactory": "Fragment"
   },
-  "include": [".claude/types", "plugins/claude-navigator/hooks", "plugins/claude-navigator/types"]
+  "include": [".claude/types", "plugins/session-rail/hooks", "plugins/session-rail/types"]
 }

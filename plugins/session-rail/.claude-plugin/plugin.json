@@ -1,5 +1,5 @@
 {
-  "name": "claude-navigator",
+  "name": "session-rail",
   "version": "0.10.0",
   "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one, click to jump to it. Fork of prompt-rail, with the engine's own message list as the primary history source.",
   "author": {
@@ -13,12 +13,12 @@
     "prompts",
     "function-hooks"
   ],
-  "types": "./types/claude-navigator.d.ts",
+  "types": "./types/session-rail.d.ts",
   "userConfig": {
     "mode": {
       "type": "string",
       "title": "Rail mode",
-      "description": "off: no rail. vertical: a pane beside the transcript, one row per prompt. horizontal: a row of bars above the prompt input (terminal only). below: a row of bars under the hint line below the prompt input (terminal only; the desktop app keeps it above). /claude-navigator off|vertical|horizontal|below changes it too and shows where the rail sits.",
+      "description": "off: no rail. vertical: a pane beside the transcript, one row per prompt. horizontal: a row of bars above the prompt input (terminal only). below: a row of bars under the hint line below the prompt input (terminal only; the desktop app keeps it above). /session-rail off|vertical|horizontal|below changes it too and shows where the rail sits.",
       "default": "horizontal",
       "options": [
         "off",

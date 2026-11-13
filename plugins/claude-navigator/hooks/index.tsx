@@ -1944,9 +1944,11 @@ export const register: Register = (on, options) => {
     // Captured synchronously, before any await: a newer turn's start may
     // rewrite the running state while this hook waits.
     const entry = turnEntry()
-    // The turn started in this conversation: a completion that arrives after
-    // a /clear or resume describes a prompt the new list does not hold.
-    if (e.agentId === undefined && entry && activeTurnAt === generation) {
+    // The turn started in this conversation and is the one running (or a
+    // reload lost that id): a completion that arrives after a /clear, a
+    // resume, or the new conversation's own turn started describes a prompt
+    // the current list does not hold.
+    if (e.agentId === undefined && entry && (activeTurn === undefined || activeTurn === e.turnId) && activeTurnAt === generation) {
       // By row key: a prompt drawn under a derived id is listed under its
       // stored uuid once the transcript is read.
       const key = rowKey(entry.id)

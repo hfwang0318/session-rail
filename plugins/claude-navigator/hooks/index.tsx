@@ -1073,6 +1073,9 @@ export const register: Register = (on, options) => {
   // The transcript read last applied, kept to enrich the engine's prompt list
   // with uuids, owners and turn details.
   let lastIndex: TranscriptIndex | undefined
+  // The engine's last message list, so a transcript read that lands after its
+  // hook returned can list the prompts again with the history it found.
+  let lastMessages: readonly EngineMessage[] | undefined
   // Whether the engine's message list is the source of the prompts. When it
   // is, a transcript read only enriches the list and can never empty it.
   let engineMode = false
@@ -1085,8 +1088,11 @@ export const register: Register = (on, options) => {
   // started before a /clear or resume checks it against the value it captured
   // before touching the new conversation's state.
   let generation = 0
-  // The id of the main-loop turn running now, from turn.start.
+  // The id of the main-loop turn running now, from turn.start, and the
+  // conversation generation it started in: a completion that arrives after
+  // the conversation was replaced says nothing about the new one's prompts.
   let activeTurn: string | undefined
+  let activeTurnAt = 0
 
   const addPrompt = (id: string, text: string) => {
     // A new prompt is drawn under a provisional id before it is stored, then
@@ -1158,7 +1164,9 @@ export const register: Register = (on, options) => {
     // The same row drawn again: it already owns an entry, however its id was
     // named (the engine's list has no uuids, and a matched prompt may be
     // drawn under a derived id).
-    const owned = entries.find(entry => entry.rowId === id)
+    // A message the engine splits into several rows draws each under an id
+    // whose row key is the same: they are names of one prompt.
+    const owned = entries.find(entry => entry.rowId === id || (entry.rowId !== undefined && rowKey(entry.rowId) === key))
     if (owned !== undefined) {
       rowEntry.set(key, owned.id)
       drawn.set(rowKey(owned.id), id)
@@ -1421,6 +1429,8 @@ export const register: Register = (on, options) => {
     rowEntry.clear()
     filed = new Set()
     lastIndex = undefined
+    lastMessages = undefined
+    activeTurnAt = 0
     engineMode = false
     listedEngine = new Set<string>()
     pending.clear()
@@ -1507,7 +1517,7 @@ export const register: Register = (on, options) => {
     const isCurrent = () => session?.id === id && session?.path === transcriptPath
     const index = transcriptPath === undefined ? undefined : await readTranscript($, transcriptPath, seen, index => {
       if (!isCurrent()) return
-      if (index && merge(index)) void redrawRail($)
+      if (mergeLate(index)) void redrawRail($)
       tellNotice($, seen, isBound)
     })
     if (index && isCurrent() && merge(index)) await redrawRail($)
@@ -1524,7 +1534,7 @@ export const register: Register = (on, options) => {
         turns = new Map()
         const retried = await readTranscript($, recheck.path, seen, index => {
           if (generation !== at || session?.id !== id || session?.path !== recheck.path) return
-          if (index && merge(index)) void redrawRail($)
+          if (mergeLate(index)) void redrawRail($)
         })
         if (retried && generation === at && session?.id === id && session?.path === recheck.path && merge(retried)) await redrawRail($)
       }
@@ -1650,6 +1660,7 @@ export const register: Register = (on, options) => {
   // transcript that cannot be read only leaves it less detailed, never empty.
   // True when the list or the prompt being read changed.
   const refreshEngine = (messages: readonly EngineMessage[]) => {
+    lastMessages = messages
     const before = { list: listSignature(entries), current: currentIndex() }
     const prompts = promptsFromMessages(messages, preparePrompt)
     // An empty message list is a conversation with nothing in it (a /rewind
@@ -1782,6 +1793,16 @@ export const register: Register = (on, options) => {
     return listSignature(entries) !== before.list || currentIndex() !== before.current
   }
 
+  // A transcript read that lands after its hook returned: apply it, then list
+  // the engine's prompts again. The read may hold history older than the
+  // engine's window that the first list could not place.
+  const mergeLate = (index: TranscriptIndex | undefined) => {
+    if (index === undefined) return false
+    const changed = merge(index)
+    const relisted = engineMode && lastMessages !== undefined ? refreshEngine(lastMessages) : false
+    return changed || relisted
+  }
+
   // The classic hooks name the transcript exactly, so they stay registered
   // unless the classicHooks setting (userConfig) turns them off: without them
   // a session the engine files where findTranscript does not look, such as one
@@ -1809,7 +1830,7 @@ export const register: Register = (on, options) => {
         session = { id: e.session_id, path: e.transcript_path }
         const index = await readTranscript($, e.transcript_path, seen, index => {
           if (!isCurrent()) return
-          if (index && merge(index)) void redrawRail($)
+          if (mergeLate(index)) void redrawRail($)
           tellNotice($, seen, isBound)
         })
         if (index && isCurrent() && merge(index)) await redrawRail($)
@@ -1827,7 +1848,7 @@ export const register: Register = (on, options) => {
       const isCurrent = () => generation === at && session?.id === e.session_id && session?.path === e.transcript_path
       const index = await readTranscript($, e.transcript_path, seen, index => {
         if (!isCurrent()) return
-        if (index && merge(index)) void redrawRail($)
+        if (mergeLate(index)) void redrawRail($)
         tellNotice($, seen, isBound)
       })
       if (index && isCurrent() && merge(index)) await redrawRail($)
@@ -1865,6 +1886,7 @@ export const register: Register = (on, options) => {
     }
     isRunning = true
     activeTurn = e.turnId
+    activeTurnAt = at
     // The transcript follows the new turn down from the prompt jumped to.
     landed = undefined
     isContinuation = e.text.trim() === ''
@@ -1877,7 +1899,7 @@ export const register: Register = (on, options) => {
     const index = path
       ? await readTranscript($, path, seen, index => {
           if (!isCurrent()) return
-          if (index && merge(index)) void redrawRail($)
+          if (mergeLate(index)) void redrawRail($)
           tellNotice($, seen, isBound)
         })
       : undefined
@@ -1899,7 +1921,7 @@ export const register: Register = (on, options) => {
         turns = new Map()
         const retried = await readTranscript($, recheck.path, seen, index => {
           if (generation !== at || session?.id !== id || session?.path !== recheck.path) return
-          if (index && merge(index)) void redrawRail($)
+          if (mergeLate(index)) void redrawRail($)
         })
         if (retried && generation === at && session?.id === id && session?.path === recheck.path && merge(retried)) await redrawRail($)
       }
@@ -1922,7 +1944,9 @@ export const register: Register = (on, options) => {
     // Captured synchronously, before any await: a newer turn's start may
     // rewrite the running state while this hook waits.
     const entry = turnEntry()
-    if (e.agentId === undefined && entry) {
+    // The turn started in this conversation: a completion that arrives after
+    // a /clear or resume describes a prompt the new list does not hold.
+    if (e.agentId === undefined && entry && activeTurnAt === generation) {
       // By row key: a prompt drawn under a derived id is listed under its
       // stored uuid once the transcript is read.
       const key = rowKey(entry.id)
@@ -1957,7 +1981,7 @@ export const register: Register = (on, options) => {
       const index = path
         ? await readTranscript($, path, seen, index => {
             if (!isCurrent()) return
-            if (index && merge(index)) void redrawRail($)
+            if (mergeLate(index)) void redrawRail($)
             tellNotice($, seen, isBound)
           })
         : undefined
@@ -1974,7 +1998,7 @@ export const register: Register = (on, options) => {
           turns = new Map()
           const retried = await readTranscript($, recheck.path, seen, index => {
             if (generation !== at || session?.id !== id || session?.path !== recheck.path) return
-            if (index && merge(index)) void redrawRail($)
+            if (mergeLate(index)) void redrawRail($)
           })
           if (retried && generation === at && session?.id === id && session?.path === recheck.path && merge(retried)) await redrawRail($)
         }

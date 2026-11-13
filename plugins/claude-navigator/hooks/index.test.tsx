@@ -2510,6 +2510,25 @@ test('a queued copy before the turn prompt does not take the engine match', () =
   ])
 })
 
+test('the engine prompt pairs with the stored prompt, not the queued copy after it', () => {
+  // A prompt delivered into a running turn: the queued attachment sits before
+  // the real row, and the engine names the prompt that went into the turn.
+  expect(
+    mergePrompts(
+      [{ text: 'one', ordinal: 0 }, { text: 'continue', ordinal: 1 }],
+      [
+        { id: 'p0', text: 'one' },
+        { id: 'q', text: 'continue', queued: true },
+        { id: 'p2', text: 'continue' },
+      ],
+    ),
+  ).toEqual([
+    { id: 'p0', text: 'one', ordinal: 0 },
+    { id: 'q', text: 'continue' },
+    { id: 'p2', text: 'continue', ordinal: 1 },
+  ])
+})
+
 test('the queued fill stops at the next matched prompt, not the end', () => {
   const stored = [{ id: 'u1', text: 'A' }, { id: 'u2', text: 'B' }, { id: 'q', text: 'Q', queued: true }]
   expect(mergePrompts([{ text: 'A', ordinal: 0 }, { text: 'NEW', ordinal: 1 }, { text: 'B', ordinal: 2 }], stored)).toEqual([
@@ -2787,14 +2806,16 @@ test('a delayed end of an older conversation does not clear the new one', async 
   expect(await railLabels($)).toEqual([])
 })
 
-test('a transcript read that arrives late cannot replace the engine list', async ($, on) => {
+test('a transcript read that arrives late adds its older prompts without replacing the engine list', async ($, on) => {
   const disk = beneath(bigFile(bigRows()))
   const store = world(on, {}, disk.transcript, disk)
   store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'engine only' }])
   const clock = mock.clock(on)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await clock.settle()
-  expect(await railLabels($)).toEqual(['engine only'])
+  // None of the file's prompts is in the engine's list, so they are older
+  // than its window; the engine's own prompt stays last.
+  expect(await railLabels($)).toEqual(['first', '二番目のプロンプト', 'engine only'])
 })
 
 test('the engine list keeps the uuid each prompt was stored under, with its turn details', async ($, on) => {
@@ -2945,4 +2966,34 @@ test('a recheck adopts a different transcript and says so only when there is not
   expect(reconsiderDecision('/n/old.jsonl', '/n/old.jsonl', true)).toEqual({ shouldToast: true })
   expect(reconsiderDecision('/n/old.jsonl', '/n/old.jsonl', false)).toEqual({ shouldToast: false })
   expect(reconsiderDecision(undefined, '/n/old.jsonl', true)).toEqual({ shouldToast: true })
+})
+
+test('a message the engine splits into two rows is listed once without a transcript', async ($, on) => {
+  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
+  const store = world(on, {}, TRANSCRIPT, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'first' },
+    { role: 'user', text: 'second' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await drawSplit($, 'UserMessage', SPLIT_IDS.firstRow, null)
+  await drawSplit($, 'UserMessage', 'dae2bfb1-3f75-4882-a3e4-000000000001', null)
+  expect(await railLabels($)).toEqual(['first', 'second'])
+})
+
+test('a turn that ends after the conversation changed says nothing about the new prompt', async ($, on) => {
+  const disk = beneath(jsonl([]))
+  const store = world(on, {}, disk.transcript, disk)
+  on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
+  on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'old conversation' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.turn.start({ text: 'old conversation', turnId: 't1' })
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'new conversation' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's2', transcript_path: '/t/s1.jsonl' })
+  await $.turn.complete({ answer: 'done', durationMs: 12000, isAborted: true, turnId: 't1', reason: 'aborted' })
+  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ type: 'Text', text: /^#1 new conversation\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /12s|interrupted/ })).toBeUndefined()
 })

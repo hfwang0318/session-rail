@@ -141,8 +141,16 @@ export const matchStored = (prompts: readonly EnginePrompt[], stored: readonly S
     return { ids, first, firstEngine }
   }
 
+  // How many matched stored prompts are queued attachments. The engine's list
+  // names a prompt that went into a turn, not the copy queued behind it, so a
+  // pairing that takes the queued row for it loses the stored row and its
+  // turn details.
+  const queuedIds = new Set(stored.filter(prompt => prompt.queued).map(prompt => prompt.id))
+  const queuedPairs = (alignment: Alignment) => [...alignment.ids.values()].filter(id => queuedIds.has(id)).length
+
   const choose = (a: Alignment, b: Alignment) => {
     if (a.ids.size !== b.ids.size) return a.ids.size > b.ids.size ? a : b
+    if (queuedPairs(a) !== queuedPairs(b)) return queuedPairs(a) < queuedPairs(b) ? a : b
     const aLater = a.first >= 0 && stored[a.first]?.queued !== true
     const bLater = b.first >= 0 && stored[b.first]?.queued !== true
     if (aLater !== bLater) return aLater ? a : b

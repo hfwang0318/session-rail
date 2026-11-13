@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { bar, configDirOf, drawnRow, ENGINE_MESSAGES_TEST_KEY, findTranscript, jumpNotice, noteScroll, pickPrompt, rowKey, stepFrom, streamRequests, tick, transcriptCandidates, turnLine } from './index.tsx'
+import { bar, configDirOf, drawnRow, ENGINE_MESSAGES_TEST_KEY, findTranscript, jumpNotice, noteScroll, pickPrompt, reconsiderDecision, rowKey, scrollTargetOf, stepFrom, streamRequests, tick, transcriptCandidates, turnLine } from './index.tsx'
 import { engineId, matchStored, mergePrompts, promptsFromMessages } from './history.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -445,6 +445,7 @@ type Beneath = {
   transcript: string
   mtimeMs: number
   reads: number
+  stats: number
   invalidations: number
   railRedraws: number
   settings: Map<string, unknown>
@@ -468,11 +469,15 @@ type Beneath = {
   // written yet (a fresh session's file comes with its first prompt).
   sessionId: string
   isMissing: boolean
+  // A failure the file system raises for the transcript's stat or read.
+  statError?: string
+  readError?: string
 }
 const beneath = (transcript = TRANSCRIPT): Beneath => ({
   transcript,
   mtimeMs: 1,
   reads: 0,
+  stats: 0,
   invalidations: 0,
   railRedraws: 0,
   settings: new Map(),
@@ -514,14 +519,17 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
   const isTranscript = (path: string) => path === disk.path || path.endsWith(disk.path)
   on('fs.read', ($: any, e: any) => {
     disk.reads++
+    if (disk.readError !== undefined && isTranscript(e.path)) throw new Error(disk.readError)
     if (bytes(disk.transcript).length > READ_CAP) return { deny: 'over 4 MiB' }
     return { value: isTranscript(e.path) ? disk.transcript : '' }
   })
-  on('fs.stat', ($: any, e: any) =>
-    disk.isMissing && isTranscript(e.path)
+  on('fs.stat', ($: any, e: any) => {
+    disk.stats++
+    if (disk.statError !== undefined && isTranscript(e.path)) throw new Error(disk.statError)
+    return disk.isMissing && isTranscript(e.path)
       ? { deny: `ENOENT: no such file or directory, lstat '${e.path}'` }
-      : { value: { kind: 'file', size: isTranscript(e.path) ? bytes(disk.transcript).length : 0, mtimeMs: disk.mtimeMs, isLink: false } },
-  )
+      : { value: { kind: 'file', size: isTranscript(e.path) ? bytes(disk.transcript).length : 0, mtimeMs: disk.mtimeMs, isLink: false } }
+  })
   // `tail -c +N path`, or PowerShell reading from $env:PROMPT_RAIL_AT: the
   // file's bytes from there on, in pieces of a megabyte or so, as a child's
   // output arrives.
@@ -2403,7 +2411,7 @@ test('a user row carrying tool results is not a prompt', () => {
   ])
 })
 
-test('stored prompts match the engine list from the newest end, and older ones come back', () => {
+test('stored prompts match the engine list oldest to oldest, and older ones come back', () => {
   const stored = [
     { id: 'a', text: 'older than the engine cap' },
     { id: 'b', text: 'one' },
@@ -2778,4 +2786,130 @@ test('a background read finishing after /clear lists no prompt of the old conver
   await $.session.end({ reason: 'clear', session_id: 's1' })
   await clock.settle()
   expect(await railLabels($)).toEqual([])
+})
+
+test('an engine read landing after /clear is dropped', async ($, on) => {
+  const store = world(on, {}, TRANSCRIPT)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'old prompt' }])
+  on('session.end', ($: any, e: any) => ({ sessionId: e.session_id ?? 's1' }))
+  const pending = $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.session.end({ reason: 'clear', session_id: 's1' })
+  await pending
+  expect(await railLabels($)).toEqual([])
+})
+
+test('concurrent session.start and classic.SessionStart read the transcript once', async ($, on) => {
+  const disk = beneath(bigFile(bigRows()))
+  world(on, { 'transcript:s1': { path: '/t/s1.jsonl', at: 1 } }, disk.transcript, disk)
+  const clock = mock.clock(on)
+  const a = $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  const b = $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await Promise.all([a, b])
+  await clock.settle()
+  // The second call finds the read already claimed before it stats the file.
+  expect(disk.stats).toBe(1)
+  expect(await railLabels($)).toEqual(['first', '二番目のプロンプト'])
+})
+
+test('the engine list gains the uuid each prompt was stored under when a late read lands', async ($, on) => {
+  const disk = beneath(bigFile(bigRows()))
+  const store = world(on, {}, disk.transcript, disk)
+  const clock = mock.clock(on)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'first' },
+    { role: 'user', text: '二番目のプロンプト' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await clock.settle()
+  await stop($)
+  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ type: 'Text', text: /^#1 first · 20s · 1 tool\s*$/ })).toBeDefined()
+})
+
+test('two prompts with the same text keep their own turn details when the engine holds a newer copy', async ($, on) => {
+  const rows = [
+    { type: 'user', uuid: 'p1', timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'continue' } },
+    { type: 'assistant', uuid: 'a1', timestamp: '2026-09-24T00:00:03.000Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/w/big.log' } }] } },
+    { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: BULK }] } },
+    { type: 'system', uuid: 'd1', subtype: 'turn_duration', durationMs: 5000 },
+    { type: 'user', uuid: 'p2', timestamp: '2026-09-24T00:01:00.000Z', message: { role: 'user', content: 'continue' } },
+    { type: 'assistant', uuid: 'a2', timestamp: '2026-09-24T00:01:05.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } },
+    { type: 'system', uuid: 'd2', subtype: 'turn_duration', durationMs: 9000 },
+  ]
+  const disk = beneath(bigFile(rows))
+  const store = world(on, {}, disk.transcript, disk)
+  const clock = mock.clock(on)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'continue' },
+    { role: 'user', text: 'continue' },
+    { role: 'user', text: 'continue' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await clock.settle()
+  await stop($)
+  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  // An oldest-to-oldest pairing keeps the stored uuids on the two prompts the
+  // transcript has; the engine's newest copy is the one without details.
+  expect(await band.find({ type: 'Text', text: /^#1 continue · 5s · 1 tool\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /^#2 continue · 9s\s*$/ })).toBeDefined()
+})
+
+test('a prompt queued into a turn that is rewound leaves with it', async ($, on) => {
+  const before = jsonl([
+    { type: 'user', uuid: 'p1', message: { role: 'user', content: 'alpha' } },
+    { type: 'assistant', uuid: 'q1', message: { role: 'assistant', content: [{ type: 'text', text: 'alpha' }] } },
+    { type: 'user', uuid: 'p2', message: { role: 'user', content: 'beta' } },
+    { type: 'assistant', uuid: 'q2', message: { role: 'assistant', content: [{ type: 'text', text: 'beta' }] } },
+    { type: 'attachment', uuid: 'qc', attachment: { type: 'queued_command', prompt: 'queued while the turn ran' } },
+  ])
+  const disk = beneath(before)
+  const store = world(on, {}, before, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'alpha' }, { role: 'user', text: 'beta' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['alpha', 'beta', 'queued while the turn ran'])
+  disk.transcript = jsonl([
+    { type: 'user', uuid: 'p1', message: { role: 'user', content: 'alpha' } },
+    { type: 'assistant', uuid: 'q1', message: { role: 'assistant', content: [{ type: 'text', text: 'alpha' }] } },
+    { type: 'user', uuid: 'p2', message: { role: 'user', content: 'beta' } },
+    { type: 'assistant', uuid: 'q2', message: { role: 'assistant', content: [{ type: 'text', text: 'beta' }] } },
+    { type: 'attachment', uuid: 'qc', attachment: { type: 'queued_command', prompt: 'queued while the turn ran' } },
+    { type: 'user', uuid: 'p4', parentUuid: 'q1', message: { role: 'user', content: 'delta' } },
+    { type: 'assistant', uuid: 'q4', parentUuid: 'p4', message: { role: 'assistant', content: [{ type: 'text', text: 'delta' }] } },
+  ])
+  disk.mtimeMs = 2
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'alpha' }, { role: 'user', text: 'delta' }])
+  await stop($)
+  // The queued prompt was on the abandoned branch: the engine does not name
+  // it and the live branch no longer holds it.
+  expect(await railLabels($)).toEqual(['alpha', 'delta'])
+})
+
+test('a transcript that cannot be read says so once', async ($, on) => {
+  const disk = unclassicWorld(on)
+  disk.statError = 'EACCES: permission denied'
+  await startSession($)
+  expect(disk.toasts.filter(text => text.includes('could not be read'))).toHaveLength(1)
+})
+
+test('a transcript whose read fails says so once', async ($, on) => {
+  const disk = unclassicWorld(on)
+  disk.readError = 'EIO: input/output error'
+  await startSession($)
+  expect(disk.toasts.filter(text => text.includes('could not be read'))).toHaveLength(1)
+})
+
+test('a jump scrolls to the row a prompt was drawn under', () => {
+  expect(scrollTargetOf({ id: 'engine:2', rowId: 'r2' }, new Map())).toBe('r2')
+  expect(scrollTargetOf({ id: 'engine:2' }, new Map([['engine:2', 'r2']]))).toBe('r2')
+  expect(scrollTargetOf({ id: 'u1' }, new Map())).toBe('u1')
+  expect(scrollTargetOf(undefined, new Map())).toBeUndefined()
+})
+
+test('a recheck adopts a different transcript and says so only when there is nothing to try', () => {
+  expect(reconsiderDecision('/n/new.jsonl', '/n/old.jsonl', false)).toEqual({ path: '/n/new.jsonl', shouldToast: false })
+  expect(reconsiderDecision('/n/old.jsonl', '/n/old.jsonl', true)).toEqual({ shouldToast: true })
+  expect(reconsiderDecision('/n/old.jsonl', '/n/old.jsonl', false)).toEqual({ shouldToast: false })
+  expect(reconsiderDecision(undefined, '/n/old.jsonl', true)).toEqual({ shouldToast: true })
 })

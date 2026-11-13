@@ -160,6 +160,11 @@ export const rowKey = (id: string) => (UUID.test(id) ? id.slice(0, 24) : id)
 // map of row key -> drawn id; its own id while it has not been drawn.
 export const drawnRow = (drawn: Map<string, string>, id: string) => drawn.get(rowKey(id)) ?? id
 
+// The request id a jump scrolls to for an entry: the row its prompt was drawn
+// under when the engine's list named it, else the id its uuid is drawn under.
+export const scrollTargetOf = (entry: Pick<Entry, 'id' | 'rowId'> | undefined, drawn: Map<string, string>) =>
+  entry === undefined ? undefined : (entry.rowId ?? drawnRow(drawn, entry.id))
+
 // Terminal cells a character takes: two for East Asian wide and emoji ranges.
 const cells = (char: string) => {
   const code = char.codePointAt(0) ?? 0
@@ -928,6 +933,13 @@ async function transcriptOf($: EngineInterface, id: string, launchCwd: string | 
 // folder renamed. Undefined when the path in hand is still the best guess (a
 // fresh session's file, written with its first prompt), and `shouldToast` when
 // the rail should say once that no transcript could be found.
+// What to do with the path a recheck found: adopt it when it is a different
+// file, else hold the path in hand (a fresh session's file, written with its
+// first prompt) and say once when there is nothing to try or the list is not
+// empty.
+export const reconsiderDecision = (found: string | undefined, currentPath: string | undefined, hasEntries: boolean) =>
+  found !== undefined && found !== currentPath ? { path: found, shouldToast: false } : { shouldToast: found === undefined || hasEntries }
+
 async function reconsiderTranscript(
   $: EngineInterface,
   id: string,
@@ -938,8 +950,7 @@ async function reconsiderTranscript(
 ): Promise<{ path?: string; shouldToast: boolean }> {
   if (!isMissing) return { shouldToast: false }
   const found = await findTranscript(probeOf($), $.plugin.root, id, launchCwd)
-  if (found !== undefined && found !== currentPath) return { path: found, shouldToast: false }
-  return { shouldToast: found === undefined || hasEntries }
+  return reconsiderDecision(found, currentPath, hasEntries)
 }
 
 // What one read of the engine's list yielded: the messages, or a read that
@@ -1550,7 +1561,7 @@ export const register: Register = (on, options) => {
   }
   // The request id a jump scrolls to: the row the prompt's text was drawn
   // under, or the id its uuid is drawn under when the transcript matched it.
-  const targetOf = (entry: Entry | undefined) => (entry === undefined ? undefined : (entry.rowId ?? drawnRow(drawn, entry.id)))
+  const targetOf = (entry: Entry | undefined) => scrollTargetOf(entry, drawn)
 
   on('command.run', async ($, e, next) => {
     const isStep = STEP_COMMANDS.some(([name]) => name === e.command)

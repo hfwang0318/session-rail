@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { bar, configDirOf, drawnRow, ENGINE_MESSAGES_TEST_KEY, findTranscript, jumpNotice, noteScroll, pickPrompt, reconsiderDecision, rowKey, scrollTargetOf, sentLabel, stepFrom, streamRequests, tick, transcriptCandidates, turnLine } from './index.tsx'
+import { bar, configDirOf, ENGINE_MESSAGES_TEST_KEY, findTranscript, jumpNotice, noteScroll, pickPrompt, reconsiderDecision, rowKey, scrollTargetOf, sentLabel, stepFrom, streamRequests, tick, transcriptCandidates, turnLine } from './index.tsx'
 import { engineId, matchStored, mergePrompts, promptsFromMessages } from './history.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -1038,12 +1038,36 @@ test('a reply row on screen under a derived id places the reader under its promp
   expect((await band.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual(['┃', '│'])
 })
 
+test('a jump targets the id a prompt is drawn under now, not one remembered before', () => {
+  const drawn = new Map([[rowKey(SPLIT_IDS.first), SPLIT_IDS.firstRow]])
+  expect(scrollTargetOf({ id: SPLIT_IDS.first, rowId: 'older-row' }, drawn)).toBe(SPLIT_IDS.firstRow)
+})
+
+test('a prompt row stored before origin stamps places the reader, without listing a duplicate', async ($, on) => {
+  const disk = beneath(SPLIT)
+  world(on, {}, SPLIT, disk)
+  const clock = mock.clock(on)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  // A message stored before the engine stamped origins is drawn as
+  // `unclassified`, and a split one under an id derived from its uuid.
+  await $.ui.mount({
+    plugin: 'session-rail',
+    surface: 'terminal',
+    component: 'UserMessage',
+    requestId: SPLIT_IDS.firstRow,
+    props: { ...prompt('first', { first: 0, last: 1, of: 2 }), origin: { kind: 'unclassified' } },
+  })
+  await clock.settle()
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  expect((await rail.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual([' ━ first', ' ─ second'])
+})
+
 test('a jump to a stored prompt scrolls to the id its row was drawn under', () => {
   const drawn = new Map([[rowKey(SPLIT_IDS.firstRow), SPLIT_IDS.firstRow]])
-  expect(drawnRow(drawn, SPLIT_IDS.first)).toBe(SPLIT_IDS.firstRow)
+  expect(scrollTargetOf({ id: SPLIT_IDS.first }, drawn)).toBe(SPLIT_IDS.firstRow)
   // A prompt not drawn yet is looked for under its own id.
-  expect(drawnRow(drawn, SPLIT_IDS.second)).toBe(SPLIT_IDS.second)
-  expect(drawnRow(drawn, 'u1')).toBe('u1')
+  expect(scrollTargetOf({ id: SPLIT_IDS.second }, drawn)).toBe(SPLIT_IDS.second)
+  expect(scrollTargetOf({ id: 'u1' }, drawn)).toBe('u1')
 })
 
 // How the engine draws a prompt that does not go straight into a turn, as

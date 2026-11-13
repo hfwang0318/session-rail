@@ -6,6 +6,7 @@
 - Added when each prompt was sent to the hover cards, before the turn's duration: the local clock time for today, the date and time for an older prompt
 - Removed the tool count from the hover cards, and the reply excerpt with it: the card shows the prompt, its sent time, the turn's duration and outcome, and the files it edited
 - Added an "Expand on hover" row to `/config`, on by default: off, hovering a prompt in any layout opens no card, so a prompt the rail cuts is read only in part, and clicking a row or bar still jumps to it
+- Fixed a prompt from a session whose stored messages carry no origin stamp (the engine draws those rows as `unclassified`) refusing every jump even after it was scrolled into view: the rail now records the id such a row is drawn under, and a jump goes to the id the row is drawn under now rather than one remembered from an earlier drawing
 - Added color coding to the rail's ticks and bars: the prompt being read in the accent color, a running turn green, an interrupted one yellow, an API error red, and one Claude Code refuses to scroll to gray. Colors are theme keys and follow the person's theme
 - Added a `─ compacted ─` divider in the vertical rail at a `/compact` boundary, in the accent color so it reads as the rail's own row rather than a transcript line, and a `⌁` mark on that prompt in the band and below layouts
 - Changed the default layout to `vertical`: the rail opens as a pane beside the transcript. A mode already chosen in `/config` stays as it is

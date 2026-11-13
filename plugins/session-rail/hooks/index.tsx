@@ -145,8 +145,8 @@ export const placePicture = (mode: Mode) => {
 type Entry = {
   id: string
   text: string
-  // The request id the row was last drawn under, when the engine's list names
-  // a prompt the transcript could not match to a uuid. A jump scrolls to it.
+  // The request id the engine's list last named for this prompt, when it names
+  // it without a stored uuid. A jump falls back to it until a row is drawn.
   rowId?: string
   // When the prompt was sent, from the transcript's timestamp.
   sentAt?: number
@@ -160,14 +160,13 @@ type Entry = {
 // groups; any other id (a tool_use id, the provisional one) as it is.
 export const rowKey = (id: string) => (UUID.test(id) ? id.slice(0, 24) : id)
 
-// The id a prompt's row was last drawn under, which a jump scrolls to, from a
-// map of row key -> drawn id; its own id while it has not been drawn.
-export const drawnRow = (drawn: Map<string, string>, id: string) => drawn.get(rowKey(id)) ?? id
-
 // The request id a jump scrolls to for an entry: the row its prompt was drawn
-// under when the engine's list named it, else the id its uuid is drawn under.
+// under now, else the id the engine's list last named for it (a prompt listed
+// before any row was drawn), else its own id. The drawn id wins over the named
+// one: a row the engine remounts, or draws part of a split message under a new
+// id, leaves the named one with no row to scroll to.
 export const scrollTargetOf = (entry: Pick<Entry, 'id' | 'rowId'> | undefined, drawn: Map<string, string>) =>
-  entry === undefined ? undefined : (entry.rowId ?? drawnRow(drawn, entry.id))
+  entry === undefined ? undefined : (drawn.get(rowKey(entry.id)) ?? entry.rowId ?? entry.id)
 
 // Terminal cells a character takes: two for East Asian wide and emoji ranges.
 const cells = (char: string) => {
@@ -1096,7 +1095,7 @@ export const register: Register = (on, options) => {
   let session: { id: string; path?: string } | undefined
   let unfoundFor: string | undefined
   let launchCwd: string | undefined
-  // Row key -> the id a prompt's row was last drawn under (see drawnRow).
+  // Row key -> the id a prompt's row was last drawn under (see scrollTargetOf).
   const drawn = new Map<string, string>()
   // Row key of a rendered prompt row -> the entry it belongs to, when the
   // engine's list (which has no uuids) is the source and the row's text names
@@ -2119,9 +2118,25 @@ export const register: Register = (on, options) => {
         if (same.length === 1) {
           const entry = same[0]!
           rowEntry.set(rowKey(e.requestId), entry.id)
+          drawn.set(rowKey(entry.id), e.requestId)
           if (entry.rowId !== e.requestId) entries = entries.map(item => (item === entry ? { ...item, rowId: e.requestId } : item))
         }
       }
+      if (e.props.onScreen !== undefined) {
+        afterReport($, settle, see(e.component, e.requestId, e.props.onScreen), dropAbove, isDrawnStale)
+      }
+      return next(e)
+    }
+    // A message stored before the engine stamped origins draws as
+    // `unclassified`, as does a message no ingress could place. The transcript
+    // lists the person's prompts under their stored uuids, so a row drawn under
+    // one of those is theirs: remember where it is drawn, so a jump lands on it
+    // and scrolling to it places the reader. List nothing new from it; a
+    // message that is not a prompt matches no uuid the list holds.
+    const listed = entries.find(entry => rowKey(entry.id) === rowKey(e.requestId))
+    if (listed !== undefined) {
+      rowEntry.set(rowKey(e.requestId), listed.id)
+      drawn.set(rowKey(e.requestId), e.requestId)
       if (e.props.onScreen !== undefined) {
         afterReport($, settle, see(e.component, e.requestId, e.props.onScreen), dropAbove, isDrawnStale)
       }

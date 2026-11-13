@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-- Added the latest reply the engine holds to a prompt's hover card, after its turn details
+- Added the latest reply the engine holds to a prompt's hover card: in the band and below layouts after its turn details, in the vertical rail on a wrapped line of its own under the hovered row
 - Added color coding to the rail's ticks and bars: the prompt being read in the accent color, a running turn green, an interrupted one yellow, an API error red, and one Claude Code refuses to scroll to gray. Colors are theme keys and follow the person's theme
-- Added a `─ compacted ─` divider in the vertical rail at a `/compact` boundary, and a `⌁` mark on that prompt in the band and below layouts
+- Added a `─ compacted ─` divider in the vertical rail at a `/compact` boundary, in the accent color so it reads as the rail's own row rather than a transcript line, and a `⌁` mark on that prompt in the band and below layouts
 - Changed the default layout to `vertical`: the rail opens as a pane beside the transcript. A mode already chosen in `/config` stays as it is
 - Changed the plugin's name from claude-navigator to session-rail: the `claude-` prefix is reserved for Anthropic's public plugin directory, so the old name failed `claude plugin validate`. The `/session-rail` commands, pane id, state key, setting keys and marketplace entry take the new name
 - Rebuilt the history source: the engine's own message list (`$.session.messages()`) is the primary list, and the transcript file enriches it with uuids, turn details and older history. A transcript that is missing, renamed, still being written or read after a `/clear` can no longer empty the rail

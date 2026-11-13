@@ -108,7 +108,7 @@ In the horizontal layout, `ctrl+x tab` moves the focus to the bars: the ring sta
 
 | Color | Meaning |
 | --- | --- |
-| accent | The prompt you are reading |
+| accent | The prompt you are reading, and the `─ compacted ─` divider the rail draws itself |
 | green | Its turn is running |
 | yellow | The turn was interrupted |
 | red | The turn ended with an API error |

@@ -12,6 +12,9 @@ const INLINE_REVEAL_MIN_COLUMNS = 12
 // Cells a hover card keeps for the prompt's text beside the turn's details,
 // and the desktop's label of the prompt being read beside the bars.
 const MIN_CARD_TEXT = 12
+// Cells of a reply the vertical rail's hover card wraps under a row: about
+// four lines at the dock's width, enough to judge the answer.
+const REPLY_CARD_CELLS = 200
 // Cells the desktop's bars keep however narrow the band: one bar and its marks.
 const MIN_DESKTOP_BARS = 3
 // The mode is the plugin's `mode` setting (userConfig), a row in /config. An
@@ -2203,7 +2206,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column">
           {entries.map((entry, i) => (
             <Box key={`row-${i}`} flexDirection="column">
-              {i > 0 && entry.breakBefore ? <Text dimColor> ─ compacted ─</Text> : null}
+              {i > 0 && entry.breakBefore ? <Text color="claude"> ─ compacted ─</Text> : null}
               <Button
                 key={`jump-${i}`}
                 plain
@@ -2221,9 +2224,14 @@ export const register: Register = (on, options) => {
                 </Text>
                 {hasRoom ? <Text dimColor={i !== current}>{` ${oneLine(entry.text, width)}`}</Text> : null}
               </Button>
-              {hasRoom && summaryOf(entry, width - 3) ? (
-                <Box display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
-                  <Text dimColor>{`   ${summaryOf(entry, width - 3)}`}</Text>
+              {hasRoom && (entry.reply !== undefined || turnOf(entry.id) !== undefined) ? (
+                <Box display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }} flexDirection="column">
+                  {entry.reply === undefined ? null : (
+                    <Text wrap="wrap">{`   ↳ ${oneLine(entry.reply, REPLY_CARD_CELLS)}`}</Text>
+                  )}
+                  {turnLine(turnOf(entry.id), width - 3) ? (
+                    <Text dimColor wrap="wrap">{`   ${turnLine(turnOf(entry.id), width - 3)}`}</Text>
+                  ) : null}
                 </Box>
               ) : null}
             </Box>

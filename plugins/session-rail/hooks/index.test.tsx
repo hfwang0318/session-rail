@@ -3016,9 +3016,26 @@ test('the vertical rail draws a divider at a compaction boundary', async ($, on)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
-  const texts = (await rail.findAll({ type: 'Text' })).map((t: any) => String(t.text))
-  expect(texts.some(text => text.includes('compacted'))).toBe(true)
+  const divider = (await rail.findAll({ type: 'Text' })).find((t: any) => String(t.text).includes('compacted'))
+  expect(divider).toBeDefined()
+  // The accent color marks it as the rail's own row, not a transcript line.
+  expect((divider as any).props.color).toBe('claude')
   await rail.unmount()
+})
+
+test('the vertical hover card wraps a longer reply', async ($, on) => {
+  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
+  const store = world(on, {}, TRANSCRIPT, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'the question' },
+    { role: 'assistant', text: 'the answer is long enough that the card must wrap it over more than one line to be useful' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  expect(
+    await rail.find({ type: 'Text', text: /the answer is long enough that the card must wrap it over more than one line/ }),
+  ).toBeDefined()
 })
 
 test('a message the engine splits into two rows is listed once without a transcript', async ($, on) => {

@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { bar, configDirOf, drawnRow, ENGINE_MESSAGES_TEST_KEY, findTranscript, jumpNotice, noteScroll, pickPrompt, reconsiderDecision, rowKey, scrollTargetOf, stepFrom, streamRequests, tick, transcriptCandidates, turnLine } from './index.tsx'
-import { engineId, matchStored, mergePrompts, promptsFromMessages, repliesFromMessages } from './history.ts'
+import { bar, configDirOf, drawnRow, ENGINE_MESSAGES_TEST_KEY, findTranscript, jumpNotice, noteScroll, pickPrompt, reconsiderDecision, rowKey, scrollTargetOf, sentLabel, stepFrom, streamRequests, tick, transcriptCandidates, turnLine } from './index.tsx'
+import { engineId, matchStored, mergePrompts, promptsFromMessages } from './history.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -54,6 +54,11 @@ test('the terminal dock draws a tick per prompt, other seats draw the text, pres
 })
 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 }, view: {} }
+
+// The clock time a card shows for a stored timestamp, in this machine's zone.
+const at = (iso: string) => sentLabel(Date.parse(iso))
+// A card's whole line, with its trailing padding allowed.
+const cardRe = (text: string) => new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`)
 
 const drawPrompts = async ($: any, on: any, below?: string) => {
   on('ui.render', { component: 'UserMessage' }, ($: any, e: any) => {
@@ -625,7 +630,7 @@ test('a transcript over 4 MiB is listed in its order, with turn details, without
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   await drawRow($, 'p1', 'first', { first: 0, last: 1, of: 2 })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: /^#1 first · 20s · 1 tool\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#1 first · ${at('2026-09-24T00:00:00.000Z')} · 20s`) })).toBeDefined()
 })
 
 test('a later read of a large transcript asks only for the bytes after the last row', async ($, on) => {
@@ -1226,7 +1231,7 @@ test('a prompt delivered into a turn is listed from the transcript, the turn sta
   expect(await railLabels($)).toEqual(['first', 'mid'])
   await drawRow($, 's1', 'first', { first: 0, last: 1, of: 2 })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: /^#1 first · 14s · 1 tool\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#1 first · ${at('2026-09-24T00:00:00.000Z')} · 14s`) })).toBeDefined()
 })
 
 test('a delivered prompt drawn before the transcript is read is listed once after it', async ($, on) => {
@@ -1777,12 +1782,18 @@ const TURNS = jsonl([
   { type: 'assistant', uuid: 'a3', timestamp: '2026-09-24T00:02:07.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } },
 ])
 
-test('a turn is summed up as its duration, tool calls and edited files', () => {
-  expect(turnLine({ durationMs: 83000, tools: 4, files: ['app.ts', 'README.md'] })).toBe('1m 23s · 4 tools · app.ts, README.md')
-  expect(turnLine({ durationMs: 7000, tools: 1, files: [] })).toBe('7s · 1 tool')
-  expect(turnLine({ durationMs: 3_720_000, tools: 0, files: [] })).toBe('1h 2m')
-  expect(turnLine({ tools: 0, files: [] })).toBe('')
-  expect(turnLine({ durationMs: 500, tools: 5, files: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts'] })).toBe('0s · 5 tools · a.ts, b.ts, c.ts +2')
+test('a sent time is the clock today, and the date too when it was another day', () => {
+  const now = new Date(2026, 10, 13, 9, 30)
+  expect(sentLabel(new Date(2026, 10, 13, 8, 5).getTime(), now)).toBe('08:05')
+  expect(sentLabel(new Date(2026, 8, 24, 23, 5).getTime(), now)).toBe('09-24 23:05')
+})
+
+test('a turn is summed up as its duration and edited files, never its tool calls', () => {
+  expect(turnLine({ durationMs: 83000, files: ['app.ts', 'README.md'] })).toBe('1m 23s · app.ts, README.md')
+  expect(turnLine({ durationMs: 7000, files: [] })).toBe('7s')
+  expect(turnLine({ durationMs: 3_720_000, files: [] })).toBe('1h 2m')
+  expect(turnLine({ files: [] })).toBe('')
+  expect(turnLine({ durationMs: 500, files: ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts'] })).toBe('0s · a.ts, b.ts, c.ts +2')
 })
 
 test('the hover card in the horizontal rail carries the turn\'s details', async ($, on) => {
@@ -1790,14 +1801,16 @@ test('the hover card in the horizontal rail carries the turn\'s details', async 
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: /^#1 first · 1m 23s · 4 tools · app\.ts, README\.md\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#1 first · ${at('2026-09-24T00:00:00.000Z')} · 1m 23s · app.ts, README.md`) })).toBeDefined()
   // No turn_duration row: the time from the prompt to the turn's last row.
-  expect(await band.find({ type: 'Text', text: /^#2 second · 7s\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#2 second · ${at('2026-09-24T00:02:00.000Z')} · 7s`) })).toBeDefined()
+  // Neither a reply excerpt nor a tool count is shown.
+  expect(await band.find({ type: 'Text', text: /↳|tools?/ })).toBeUndefined()
 })
 
 test('a narrow band keeps room for the details by cutting the prompt first', async ($, on) => {
   world(on, {}, jsonl([
-    { type: 'user', uuid: 'u1', timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'a prompt far too long to fit in a narrow band beside its details' } },
+    { type: 'user', uuid: 'u1', message: { role: 'user', content: 'a prompt far too long to fit in a narrow band beside its details' } },
     { type: 'system', uuid: 'd1', subtype: 'turn_duration', durationMs: 9000 },
   ]))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
@@ -1815,7 +1828,7 @@ test('the hover card of a narrow vertical rail carries the turn\'s details', asy
   await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 4) })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: /^first · 1m 23s · 4 tools · app\.ts, README\.md$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`first · ${at('2026-09-24T00:00:00.000Z')} · 1m 23s · app.ts, README.md`) })).toBeDefined()
 })
 
 test('a turn that ends redraws the rail, so its card carries the new details', async ($, on) => {
@@ -1872,9 +1885,9 @@ test('a turn that just ended shows the duration the engine reported before the t
   await $.turn.complete({ answer: '', durationMs: 99000, isAborted: false, turnId: 'sub', agentId: 'ag1', reason: 'answer' })
   await $.turn.complete({ answer: 'done', durationMs: 12500, isAborted: false, turnId: 'main', reason: 'answer' })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: /^#2 second · 12s\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#2 second · ${at('2026-09-24T00:02:00.000Z')} · 12s`) })).toBeDefined()
   // The turn_duration row the transcript records wins where it has one.
-  expect(await band.find({ type: 'Text', text: /^#1 first · 1m 23s · 4 tools · app\.ts, README\.md\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#1 first · ${at('2026-09-24T00:00:00.000Z')} · 1m 23s · app.ts, README.md`) })).toBeDefined()
 })
 
 test('what the engine reported of a turn stays with its prompt once the stored row replaces a derived one', async ($, on) => {
@@ -1921,7 +1934,7 @@ test('a view that cannot scroll the transcript is said once, in plain words, and
 })
 
 test('files that share a name are told apart by their folder', async ($, on) => {
-  expect(turnLine({ tools: 2, files: ['/p/web/index.ts', '/p/api/index.ts', '/p/README.md'] })).toBe('2 tools · web/index.ts, api/index.ts, README.md')
+  expect(turnLine({ files: ['/p/web/index.ts', '/p/api/index.ts', '/p/README.md'] })).toBe('web/index.ts, api/index.ts, README.md')
   world(on, {}, jsonl([
     { type: 'user', uuid: 'u1', message: { role: 'user', content: 'first' } },
     {
@@ -1940,14 +1953,15 @@ test('files that share a name are told apart by their folder', async ($, on) => 
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: /^#1 first · 3 tools · web\/index\.ts, api\/index\.ts\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe('#1 first · web/index.ts, api/index.ts') })).toBeDefined()
 })
 
 test('a turn line too long for its room names fewer files and keeps the count', () => {
-  const turn = { durationMs: 9000, tools: 3, files: ['/w/alpha.ts', '/w/beta.ts', '/w/gamma.ts'] }
-  expect(turnLine(turn)).toBe('9s · 3 tools · alpha.ts, beta.ts, gamma.ts')
-  expect(turnLine(turn, 26)).toBe('9s · 3 tools · alpha.ts +2')
-  expect(turnLine(turn, 25)).toBe('9s · 3 tools · 3 files')
+  const turn = { durationMs: 9000, files: ['/w/alpha.ts', '/w/beta.ts', '/w/gamma.ts'] }
+  expect(turnLine(turn)).toBe('9s · alpha.ts, beta.ts, gamma.ts')
+  expect(turnLine(turn, 30)).toBe('9s · alpha.ts, beta.ts +1')
+  expect(turnLine(turn, 20)).toBe('9s · alpha.ts +2')
+  expect(turnLine(turn, 10)).toBe('9s · 3 files')
 })
 
 test('a long turn summary keeps its end in the card', async ($, on) => {
@@ -1970,7 +1984,7 @@ test('a long turn summary keeps its end in the card', async ($, on) => {
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 50 } })
   // Forty-six cells: the file count stays whole at the end.
-  const card = await band.find({ type: 'Text', text: /· 9s · 2 tools · 2 files\s*$/ })
+  const card = await band.find({ type: 'Text', text: /· 9s · a-long-file-name\.ts \+1\s*$/ })
   expect(card).toBeDefined()
   expect(String(card?.text).trimEnd().length).toBeLessThanOrEqual(46)
 })
@@ -2010,9 +2024,9 @@ const cardDetails = async ($: any) => {
 }
 
 test('a turn is summed up with how it ended', () => {
-  expect(turnLine({ durationMs: 7000, tools: 1, files: [], outcome: 'interrupted' })).toBe('7s · interrupted · 1 tool')
-  expect(turnLine({ tools: 0, files: [], outcome: 'error' })).toBe('API error')
-  expect(turnLine({ tools: 2, files: [], outcome: 'running' })).toBe('running · 2 tools')
+  expect(turnLine({ durationMs: 7000, files: [], outcome: 'interrupted' })).toBe('7s · interrupted')
+  expect(turnLine({ files: [], outcome: 'error' })).toBe('API error')
+  expect(turnLine({ files: [], outcome: 'running' })).toBe('running')
 })
 
 test('the rails color a turn\'s mark by how it went, and the cards say it in words', async ($, on) => {
@@ -2025,7 +2039,7 @@ test('the rails color a turn\'s mark by how it went, and the cards say it in wor
   expect(railColors).toContain('warning')
   expect(railColors).toContain('error')
   await rail.unmount()
-  expect(await cardDetails($)).toEqual(['first · interrupted', 'second · API error', 'third · 1 tool · a.ts', 'fourth'])
+  expect(await cardDetails($)).toEqual(['first · interrupted', 'second · API error', 'third · a.ts', 'fourth'])
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   const bandColors = (await band.findAll({ type: 'Text' })).map((t: any) => t.props.color)
@@ -2457,25 +2471,6 @@ test('a new unstored prompt does not take the stored row of an older prompt with
   ])
 })
 
-test('the latest assistant text between two prompts is their reply', () => {
-  const messages = [
-    { role: 'assistant', text: 'before any prompt' },
-    { role: 'user', text: 'one' },
-    { role: 'assistant', text: '' },
-    { role: 'assistant', text: 'an early answer' },
-    { role: 'assistant', text: 'the final answer' },
-    { role: 'user', text: 'tool result', toolResults: [{ id: 't1' }] },
-    { role: 'assistant', text: 'still the first reply' },
-    { role: 'user', text: 'two' },
-    { role: 'assistant', text: 'second answer' },
-  ]
-  const prompts = promptsFromMessages(messages, text => text)
-  expect(Object.fromEntries(repliesFromMessages(messages, prompts))).toEqual({
-    1: 'still the first reply',
-    7: 'second answer',
-  })
-})
-
 test('text that differs only in whitespace still matches between the two sources', () => {
   expect(mergePrompts([{ text: 'first line\nsecond line', ordinal: 0 }], [{ id: 'u1', text: 'first line second line' }])).toEqual([
     { id: 'u1', text: 'first line\nsecond line', ordinal: 0 },
@@ -2849,7 +2844,7 @@ test('the engine list keeps the uuid each prompt was stored under, with its turn
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: /^#1 first · 1m 23s · 4 tools · app\.ts, README\.md\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#1 first · ${at('2026-09-24T00:00:00.000Z')} · 1m 23s · app.ts, README.md`) })).toBeDefined()
 })
 
 test('a background read finishing after /clear lists no prompt of the old conversation', async ($, on) => {
@@ -2897,7 +2892,7 @@ test('the engine list gains the uuid each prompt was stored under when a late re
   await stop($)
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: /^#1 first · 20s · 1 tool\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#1 first · ${at('2026-09-24T00:00:00.000Z')} · 20s`) })).toBeDefined()
 })
 
 test('two prompts with the same text keep their own turn details when the engine holds a newer copy', async ($, on) => {
@@ -2925,8 +2920,8 @@ test('two prompts with the same text keep their own turn details when the engine
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   // An oldest-to-oldest pairing keeps the stored uuids on the two prompts the
   // transcript has; the engine's newest copy is the one without details.
-  expect(await band.find({ type: 'Text', text: /^#1 continue · 5s · 1 tool\s*$/ })).toBeDefined()
-  expect(await band.find({ type: 'Text', text: /^#2 continue · 9s\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#1 continue · ${at('2026-09-24T00:00:00.000Z')} · 5s`) })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: cardRe(`#2 continue · ${at('2026-09-24T00:01:00.000Z')} · 9s`) })).toBeDefined()
 })
 
 test('a prompt queued into a turn that is rewound leaves with it', async ($, on) => {
@@ -2989,22 +2984,23 @@ test('a recheck adopts a different transcript and says so only when there is not
   expect(reconsiderDecision(undefined, '/n/old.jsonl', true)).toEqual({ shouldToast: true })
 })
 
-test('the hover card adds the latest reply the engine holds', async ($, on) => {
-  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
-  const store = world(on, {}, TRANSCRIPT, disk)
-  mock.clock(on)
-  store.set(ENGINE_MESSAGES_TEST_KEY, [
-    { role: 'user', text: 'the question' },
-    { role: 'assistant', text: '' },
-    { role: 'assistant', text: 'the answer, in full' },
-  ])
+test('the vertical hover card shows the whole prompt and when it was sent', async ($, on) => {
+  const question = 'a prompt long enough that the rail row cuts it short while the hover card still shows every word'
+  world(on, {}, jsonl([
+    { type: 'user', uuid: 'u1', timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: question } },
+    { type: 'system', uuid: 'd1', subtype: 'turn_duration', durationMs: 9000 },
+  ]))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'horizontal' })
-  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  expect(await band.find({ type: 'Text', text: /↳ the answer, in full/ })).toBeDefined()
   await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
-  expect(await rail.find({ type: 'Text', text: /↳ the answer, in full/ })).toBeDefined()
+  // The row beside the tick cuts the prompt; the card holds all of it.
+  expect(await rail.find({ type: 'Text', text: question })).toBeDefined()
+  const labels = (await rail.findAll({ type: 'Button' })).map((b: any) => String(b.props.label))
+  expect(labels.some(label => label.includes(question))).toBe(false)
+  // The sent time comes before how long the turn took.
+  expect(await rail.find({ type: 'Text', text: cardRe(`${at('2026-09-24T00:00:00.000Z')} · 9s`) })).toBeDefined()
+  // No reply excerpt and no tool count are shown.
+  expect(await rail.find({ type: 'Text', text: /↳|tools?/ })).toBeUndefined()
 })
 
 test('the vertical rail draws a divider at a compaction boundary', async ($, on) => {
@@ -3021,21 +3017,6 @@ test('the vertical rail draws a divider at a compaction boundary', async ($, on)
   // The accent color marks it as the rail's own row, not a transcript line.
   expect((divider as any).props.color).toBe('claude')
   await rail.unmount()
-})
-
-test('the vertical hover card wraps a longer reply', async ($, on) => {
-  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
-  const store = world(on, {}, TRANSCRIPT, disk)
-  store.set(ENGINE_MESSAGES_TEST_KEY, [
-    { role: 'user', text: 'the question' },
-    { role: 'assistant', text: 'the answer is long enough that the card must wrap it over more than one line to be useful' },
-  ])
-  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
-  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
-  expect(
-    await rail.find({ type: 'Text', text: /the answer is long enough that the card must wrap it over more than one line/ }),
-  ).toBeDefined()
 })
 
 test('a message the engine splits into two rows is listed once without a transcript', async ($, on) => {

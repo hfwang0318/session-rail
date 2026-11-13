@@ -1,5 +1,5 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
-import { matchText, mergePrompts, promptsFromMessages, repliesFromMessages, type EngineMessage, type StoredPrompt } from './history.ts'
+import { matchText, mergePrompts, promptsFromMessages, type EngineMessage, type StoredPrompt } from './history.ts'
 
 const PANE = 'session-rail'
 // Rows the person typed (terminal composer, desktop/remote bridge, SDK host).
@@ -12,9 +12,6 @@ const INLINE_REVEAL_MIN_COLUMNS = 12
 // Cells a hover card keeps for the prompt's text beside the turn's details,
 // and the desktop's label of the prompt being read beside the bars.
 const MIN_CARD_TEXT = 12
-// Cells of a reply the vertical rail's hover card wraps under a row: about
-// four lines at the dock's width, enough to judge the answer.
-const REPLY_CARD_CELLS = 200
 // Cells the desktop's bars keep however narrow the band: one bar and its marks.
 const MIN_DESKTOP_BARS = 3
 // The mode is the plugin's `mode` setting (userConfig), a row in /config. An
@@ -151,9 +148,8 @@ type Entry = {
   // The request id the row was last drawn under, when the engine's list names
   // a prompt the transcript could not match to a uuid. A jump scrolls to it.
   rowId?: string
-  // The latest assistant text the engine's list holds between this prompt and
-  // the next, for the hover card.
-  reply?: string
+  // When the prompt was sent, from the transcript's timestamp.
+  sentAt?: number
   // The prompt begins the segment after a /compact boundary in the transcript.
   breakBefore?: boolean
 }
@@ -259,9 +255,9 @@ export const pickPrompt = (asked: string, texts: string[]) => {
 
 // What the transcript records of the turn a prompt started: how long it took
 // (`durationMs` as the engine reported it, else `spanMs` from the prompt to
-// the latest reply), how many tools it called, the paths of the files it
-// edited (Edit and Write), and, unless it simply answered, how it went.
-export type Turn = { durationMs?: number; spanMs?: number; tools: number; files: string[]; outcome?: Outcome }
+// the latest reply), the paths of the files it edited (Edit and Write), and,
+// unless it simply answered, how it went.
+export type Turn = { durationMs?: number; spanMs?: number; files: string[]; outcome?: Outcome }
 // A turn still running, stopped by the person, or ended by an API error.
 type Outcome = 'running' | 'interrupted' | 'error'
 const OUTCOME_WORDS: Record<Outcome, string> = { running: 'running', interrupted: 'interrupted', error: 'API error' }
@@ -272,6 +268,15 @@ const duration = (ms: number) => {
   if (seconds < 60) return `${seconds}s`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`
+}
+
+// When a prompt was sent: local `HH:MM` today, else `MM-DD HH:MM`.
+export const sentLabel = (ms: number, now = new Date()) => {
+  const at = new Date(ms)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const clock = `${pad(at.getHours())}:${pad(at.getMinutes())}`
+  const sameDay = at.getFullYear() === now.getFullYear() && at.getMonth() === now.getMonth() && at.getDate() === now.getDate()
+  return sameDay ? clock : `${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${clock}`
 }
 
 // The files a turn line names before it counts the rest.
@@ -288,16 +293,15 @@ const fileNames = (paths: string[]) => {
   )
 }
 
-// A turn on one line: `1m 23s · 4 tools · app.ts, README.md`, each part left
-// out when the transcript has nothing for it; empty when it has nothing.
-// Given `maxCells`, it names fewer files (down to a count) to fit in them.
+// A turn on one line: `1m 23s · app.ts, README.md`, each part left out when
+// the transcript has nothing for it; empty when it has nothing. Given
+// `maxCells`, it names fewer files (down to a count) to fit in them.
 export const turnLine = (turn: Turn | undefined, maxCells = Infinity) => {
   if (!turn) return ''
   const parts: string[] = []
   const ms = turn.durationMs ?? turn.spanMs
   if (ms !== undefined) parts.push(duration(ms))
   if (turn.outcome) parts.push(OUTCOME_WORDS[turn.outcome])
-  if (turn.tools > 0) parts.push(`${turn.tools} ${turn.tools === 1 ? 'tool' : 'tools'}`)
   const names = fileNames(turn.files)
   const withFiles = (named: number) => {
     if (names.length === 0) return parts.join(' · ')
@@ -467,7 +471,6 @@ const indexRows = (rows: any[]): TranscriptIndex => {
       for (const block of blocks) {
         if (block?.type !== 'tool_use' || typeof block.id !== 'string') continue
         owners.push([block.id, owner])
-        turn.tools++
         const path = block.input?.file_path
         if (EDITING_TOOLS.has(block.name) && typeof path === 'string' && !turn.files.includes(path)) turn.files.push(path)
       }
@@ -481,9 +484,16 @@ const indexRows = (rows: any[]): TranscriptIndex => {
       const prompt = row.attachment.prompt
       const text = typeof prompt === 'string' ? prompt.replace(VIEW_CONTEXT, '').trim() : ''
       if (!text || WRAPPER.test(text) || text.startsWith('/')) continue
-      prompts.push({ id: row.uuid, text, queued: true, ...(afterBreak ? { breakBefore: true } : {}) })
+      const sentAt = Date.parse(row.timestamp)
+      prompts.push({
+        id: row.uuid,
+        text,
+        queued: true,
+        ...(Number.isFinite(sentAt) ? { sentAt } : {}),
+        ...(afterBreak ? { breakBefore: true } : {}),
+      })
       afterBreak = false
-      turns.push({ tools: 0, files: [] })
+      turns.push({ files: [] })
       times.push({ start: NaN, last: NaN })
       continue
     }
@@ -511,11 +521,16 @@ const indexRows = (rows: any[]): TranscriptIndex => {
     // Some builds wrote a compaction summary without the flag that names it;
     // its fixed wording still tells the engine's.
     if (!text || WRAPPER.test(text) || COMPACT_SUMMARY.test(text) || text.startsWith('/')) continue
-    prompts.push({ id: row.uuid, text, ...(afterBreak ? { breakBefore: true } : {}) })
-    afterBreak = false
-    turns.push({ tools: 0, files: [] })
-    started = prompts.length - 1
     const at = Date.parse(row.timestamp)
+    prompts.push({
+      id: row.uuid,
+      text,
+      ...(Number.isFinite(at) ? { sentAt: at } : {}),
+      ...(afterBreak ? { breakBefore: true } : {}),
+    })
+    afterBreak = false
+    turns.push({ files: [] })
+    started = prompts.length - 1
     times.push({ start: at, last: at })
   }
   turns.forEach((turn, i) => {
@@ -1043,7 +1058,7 @@ export const register: Register = (on, options) => {
     const ms = turn?.durationMs ?? reported.get(rowKey(id))
     const outcome = isRunningFor(id) ? 'running' : (turn?.outcome ?? ended.get(rowKey(id)))
     if (!turn && ms === undefined && outcome === undefined) return undefined
-    return { tools: 0, files: [], ...turn, ...(ms === undefined ? {} : { durationMs: ms }), ...(outcome ? { outcome } : {}) }
+    return { files: [], ...turn, ...(ms === undefined ? {} : { durationMs: ms }), ...(outcome ? { outcome } : {}) }
   }
   // The transcript rows (prompts, replies, tool rows) the viewport shows, by
   // component and the id each is drawn under: the key its prompt is found by,
@@ -1660,7 +1675,10 @@ export const register: Register = (on, options) => {
   // A turn's details count as the list's: a turn that ends changes its card.
   const listSignature = (list: Entry[]) =>
     list
-      .map(entry => `${entry.id}\u0000${entry.text}\u0000${entry.reply ?? ''}\u0000${entry.breakBefore ? '1' : '0'}\u0000${turnLine(turnOf(entry.id))}`)
+      .map(
+        entry =>
+          `${entry.id}\u0000${entry.text}\u0000${entry.sentAt ?? ''}\u0000${entry.breakBefore ? '1' : '0'}\u0000${turnLine(turnOf(entry.id))}`,
+      )
       .join('\u0001')
 
   // Take what the transcript read knows of the conversation: the prompt each
@@ -1669,7 +1687,7 @@ export const register: Register = (on, options) => {
   const applyIndex = (index: TranscriptIndex) => {
     lastIndex = index
     owners = new Map(index.owners.map(([id, i]) => [rowKey(id), rowKey(index.prompts[i]?.id ?? '')]))
-    turns = new Map(index.prompts.map((entry, i) => [entry.id, index.turns[i] ?? { tools: 0, files: [] }]))
+    turns = new Map(index.prompts.map((entry, i) => [entry.id, index.turns[i] ?? { files: [] }]))
   }
 
   // The text of the engine's user message that is a prompt, or undefined for a
@@ -1690,10 +1708,12 @@ export const register: Register = (on, options) => {
     lastMessages = messages
     const before = { list: listSignature(entries), current: currentIndex() }
     const prompts = promptsFromMessages(messages, preparePrompt)
-    const replies = repliesFromMessages(messages, prompts)
     // The transcript says which listed prompt opens a segment after a
-    // compaction; the engine's list itself holds no boundary.
+    // compaction, and when each was sent; the engine's list holds neither.
     const breakIds = new Set((lastIndex?.prompts ?? []).filter(prompt => prompt.breakBefore).map(prompt => rowKey(prompt.id)))
+    const sentTimes = new Map(
+      (lastIndex?.prompts ?? []).filter(prompt => prompt.sentAt !== undefined).map(prompt => [rowKey(prompt.id), prompt.sentAt]),
+    )
     // An empty message list is a conversation with nothing in it (a /rewind
     // before the first prompt); the transcript read is then stale and its
     // prompts are not history to put back. A list with rows but no prompts is
@@ -1755,9 +1775,9 @@ export const register: Register = (on, options) => {
         if (pending.delete(prior.id)) pending.add(id)
       }
       const named = id === entry.id ? entry : { ...entry, id }
-      const reply = entry.ordinal === undefined ? undefined : replies.get(entry.ordinal)
-      const withReply = reply === undefined ? { ...named, reply: undefined } : { ...named, reply }
-      const flagged = breakIds.has(rowKey(entry.id)) ? { ...withReply, breakBefore: true } : { ...withReply, breakBefore: undefined }
+      const sentAt = sentTimes.get(rowKey(entry.id))
+      const timed = sentAt === undefined ? { ...named, sentAt: undefined } : { ...named, sentAt }
+      const flagged = breakIds.has(rowKey(entry.id)) ? { ...timed, breakBefore: true } : { ...timed, breakBefore: undefined }
       return prior?.rowId === undefined ? flagged : { ...flagged, rowId: prior.rowId }
     })
     engineMode = true
@@ -2151,19 +2171,13 @@ export const register: Register = (on, options) => {
   // A prompt that opens the segment after a /compact boundary.
   const breakMark = (i: number) => (i > 0 && entries[i]?.breakBefore ? '⌁ ' : '')
 
-  // A turn's details and its latest reply on one line `width` cells wide: the
-  // reply gets at most a little over half, and the details name fewer files.
+  // When a prompt was sent and how its turn went, on one line `width` cells
+  // wide: the time, then the duration, outcome and files.
   const summaryOf = (entry: Entry, width: number) => {
-    const turn = turnOf(entry.id)
-    // With no turn details the reply may take the whole line; with them, a
-    // little over half, leaving the rest for the duration, tools and files.
-    const reply = entry.reply === undefined ? '' : oneLine(entry.reply, turn === undefined ? width : Math.max(8, Math.floor(width * 0.55)))
-    const replyPart = reply ? `↳ ${reply}` : ''
-    const details = turnLine(
-      turn,
-      Math.max(0, width - MIN_CARD_TEXT - cellWidth(replyPart) - (replyPart ? ' · '.length : 0) - ' · '.length),
-    )
-    return [details, replyPart].filter(Boolean).join(' · ')
+    const time = entry.sentAt === undefined ? '' : sentLabel(entry.sentAt)
+    const timePart = time ? `${time} · ` : ''
+    const details = turnLine(turnOf(entry.id), Math.max(0, width - MIN_CARD_TEXT - cellWidth(timePart) - ' · '.length))
+    return [time, details].filter(Boolean).join(' · ')
   }
   // A prompt's text and its summary on one line: the text is cut first, down
   // to a few words, then the summary names fewer files.
@@ -2224,14 +2238,10 @@ export const register: Register = (on, options) => {
                 </Text>
                 {hasRoom ? <Text dimColor={i !== current}>{` ${oneLine(entry.text, width)}`}</Text> : null}
               </Button>
-              {hasRoom && (entry.reply !== undefined || turnOf(entry.id) !== undefined) ? (
-                <Box display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }} flexDirection="column">
-                  {entry.reply === undefined ? null : (
-                    <Text wrap="wrap">{`   ↳ ${oneLine(entry.reply, REPLY_CARD_CELLS)}`}</Text>
-                  )}
-                  {turnLine(turnOf(entry.id), width - 3) ? (
-                    <Text dimColor wrap="wrap">{`   ${turnLine(turnOf(entry.id), width - 3)}`}</Text>
-                  ) : null}
+              {hasRoom ? (
+                <Box display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }} flexDirection="column" paddingLeft={3}>
+                  <Text wrap="wrap">{entry.text}</Text>
+                  {summaryOf(entry, width - 3) ? <Text dimColor wrap="wrap">{summaryOf(entry, width - 3)}</Text> : null}
                 </Box>
               ) : null}
             </Box>

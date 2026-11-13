@@ -162,25 +162,6 @@ export const matchStored = (prompts: readonly EnginePrompt[], stored: readonly S
   return { ids: best.ids, older: stored.slice(0, best.first >= 0 ? best.first : stored.length) }
 }
 
-// The latest reply the engine's list holds for each prompt, by the prompt's
-// ordinal: the last non-empty assistant text between it and the next prompt.
-// Assistant rows before the first prompt belong to none.
-export const repliesFromMessages = (messages: readonly EngineMessage[], prompts: readonly EnginePrompt[]) => {
-  const replies = new Map<number, string>()
-  let at = -1
-  let next = 0
-  messages.forEach((message, ordinal) => {
-    while (next < prompts.length && prompts[next]!.ordinal === ordinal) {
-      at = next
-      next++
-    }
-    if (message?.role !== 'assistant' || typeof message.text !== 'string') return
-    const text = message.text.replace(/\s+/g, ' ').trim()
-    if (text && at >= 0) replies.set(prompts[at]!.ordinal, text)
-  })
-  return replies
-}
-
 // The entry id an engine prompt is listed under: its stored uuid when the
 // transcript matched it, else a stable name of its own.
 export const engineId = (prompt: EnginePrompt, uuid: string | undefined) => uuid ?? `engine:${prompt.ordinal}`

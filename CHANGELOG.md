@@ -5,6 +5,7 @@
 - Changed the vertical rail's hover card to show the whole prompt: a long prompt is cut in the row beside its tick, and the card under the hovered row wraps every word, above when it was sent and how long its turn took; a prompt the row already holds whole is not repeated, so the card carries only the stats
 - Added when each prompt was sent to the hover cards, before the turn's duration: the local clock time for today, the date and time for an older prompt
 - Removed the tool count from the hover cards, and the reply excerpt with it: the card shows the prompt, its sent time, the turn's duration and outcome, and the files it edited
+- Added an "Expand on hover" row to `/config`, on by default: off, hovering a prompt in any layout opens no card, so a prompt the rail cuts is read only in part, and clicking a row or bar still jumps to it
 - Added color coding to the rail's ticks and bars: the prompt being read in the accent color, a running turn green, an interrupted one yellow, an API error red, and one Claude Code refuses to scroll to gray. Colors are theme keys and follow the person's theme
 - Added a `─ compacted ─` divider in the vertical rail at a `/compact` boundary, in the accent color so it reads as the rail's own row rather than a transcript line, and a `⌁` mark on that prompt in the band and below layouts
 - Changed the default layout to `vertical`: the rail opens as a pane beside the transcript. A mode already chosen in `/config` stays as it is

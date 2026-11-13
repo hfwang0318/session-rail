@@ -3013,6 +3013,20 @@ test('a prompt the vertical row holds whole is not repeated in the hover card', 
   expect(await rail.find({ type: 'Text', text: cardRe(`${at('2026-09-24T00:00:00.000Z')} · 1m 23s · 2 files`) })).toBeDefined()
 })
 
+test('the expandOnHover setting off leaves hovering a prompt with no card', { options: { expandOnHover: false } }, async ($, on) => {
+  world(on, {}, TURNS)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  // Only the row says the prompt; no card carries the stats.
+  expect(await rail.findAll({ type: 'Text', text: 'first' })).toHaveLength(1)
+  expect(await rail.find({ type: 'Text', text: /1m 23s/ })).toBeUndefined()
+  await rail.unmount()
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ type: 'Text', text: /1m 23s/ })).toBeUndefined()
+})
+
 test('the vertical rail draws a divider at a compaction boundary', async ($, on) => {
   const store = world(on, {}, COMPACTED)
   store.set(ENGINE_MESSAGES_TEST_KEY, [

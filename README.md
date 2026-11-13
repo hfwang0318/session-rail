@@ -81,7 +81,7 @@ The bars sit on a row of their own under the hint line below the prompt input, n
 | `/session-rail-toggle` | Hide the rail, or bring it back in the layout last on, with no argument, for a keybinding |
 | `/session-rail` | Reopen the rail in the current layout |
 
-The layout is also the "Rail mode" row in `/config`, and it is kept across sessions. Switching it with `/session-rail <layout>` also draws where the rail now sits around the prompt input.
+The layout is also the "Rail mode" row in `/config`, and it is kept across sessions. Switching it with `/session-rail <layout>` also draws where the rail now sits around the prompt input. The "Expand on hover" row turns the hover cards on or off; they are on by default.
 
 ### Keyboard
 

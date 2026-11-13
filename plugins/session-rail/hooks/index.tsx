@@ -1429,6 +1429,9 @@ export const register: Register = (on, options) => {
 
   // A change of the setting reloads this module with the new value.
   let mode: Mode = isMode(options.mode) ? options.mode : 'vertical'
+  // Whether hovering a prompt opens its card. A change of the setting reloads
+  // this module with the new value.
+  const expandOnHover = options.expandOnHover !== false
   // The subagent whose transcript is in view, as the rail's sites last drew;
   // undefined for the main conversation, whose rows alone the rail lists.
   let viewAgent: string | undefined
@@ -2244,7 +2247,7 @@ export const register: Register = (on, options) => {
                   </Text>
                   {hasRoom ? <Text dimColor={i !== current}>{` ${oneLine(entry.text, width)}`}</Text> : null}
                 </Button>
-                {hasRoom && (!fits || summary) ? (
+                {hasRoom && expandOnHover && (!fits || summary) ? (
                   <Box display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }} flexDirection="column" paddingLeft={3}>
                     {fits ? null : <Text wrap="wrap">{entry.text}</Text>}
                     {summary ? <Text dimColor wrap="wrap">{summary}</Text> : null}
@@ -2368,11 +2371,13 @@ export const register: Register = (on, options) => {
         return stack(
           <Box flexDirection="column" paddingLeft={RAIL_INSET}>
             <Box height={1} width={width}>
-              {entries.map((_, i) => (
-                <Box key={`card-${i}`} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
-                  <Text wrap="truncate-end">{card(i)}</Text>
-                </Box>
-              ))}
+              {expandOnHover
+                ? entries.map((_, i) => (
+                    <Box key={`card-${i}`} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
+                      <Text wrap="truncate-end">{card(i)}</Text>
+                    </Box>
+                  ))
+                : null}
             </Box>
             <Box flexDirection="row">
               {bars}
@@ -2389,18 +2394,20 @@ export const register: Register = (on, options) => {
           <Box height={1} width={width}>
             {/* With no prompt known on screen, the newest: an empty line reads as a broken rail. */}
             {shownRing === undefined ? <Text dimColor wrap="truncate-end">{label(center)}</Text> : <Text wrap="truncate-end">{padTo(card(shownRing), width)}</Text>}
-            {entries.map((_, i) => (
-              <Box key={`card-${i}`} position="absolute" top={0} left={0} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
-                <Text wrap="truncate-end">{padTo(card(i), width)}</Text>
-              </Box>
-            ))}
+            {expandOnHover
+              ? entries.map((_, i) => (
+                  <Box key={`card-${i}`} position="absolute" top={0} left={0} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
+                    <Text wrap="truncate-end">{padTo(card(i), width)}</Text>
+                  </Box>
+                ))
+              : null}
           </Box>
           <Box flexDirection="row">{bars}</Box>
         </Box>,
       )
     }
 
-    if (railColumns > 0 && railColumns < INLINE_REVEAL_MIN_COLUMNS) {
+    if (expandOnHover && railColumns > 0 && railColumns < INLINE_REVEAL_MIN_COLUMNS) {
       return stack(<Box flexDirection="column">{cards(Math.max(8, e.props.bodyColumns - 8))}</Box>)
     }
     return below
@@ -2461,14 +2468,16 @@ export const register: Register = (on, options) => {
           <Box marginLeft={1} width={room} height={1}>
             {/* With no prompt known on screen, the newest: bars alone read as a broken rail. */}
             <Text dimColor wrap="truncate-end">{`${reading}${oneLine(entries[center]?.text ?? '', room - reading.length)}`}</Text>
-            {shown.map((_, offset) => {
-              const i = first + offset
-              return (
-                <Box key={`card-${i}`} position="absolute" top={0} left={0} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
-                  <Text wrap="truncate-end">{padTo(card(i), room)}</Text>
-                </Box>
-              )
-            })}
+            {expandOnHover
+              ? shown.map((_, offset) => {
+                  const i = first + offset
+                  return (
+                    <Box key={`card-${i}`} position="absolute" top={0} left={0} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
+                      <Text wrap="truncate-end">{padTo(card(i), room)}</Text>
+                    </Box>
+                  )
+                })
+              : null}
           </Box>
         </Box>
       </Box>

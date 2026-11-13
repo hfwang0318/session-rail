@@ -32,6 +32,12 @@
       "title": "Classic hooks",
       "description": "Register the classic.SessionStart and classic.Stop hooks, which name the transcript exactly. Off silences Claude Code's notes about the security default skipping them on a machine with managed settings or in a Team or Enterprise organization, where they never ran anyway; elsewhere, off leaves a session resumed from another directory, or an install loaded with --plugin-dir, with no transcript to read.",
       "default": true
+    },
+    "expandOnHover": {
+      "type": "boolean",
+      "title": "Expand on hover",
+      "description": "Hovering a prompt opens its card: the whole prompt when its row or bar cuts it, and when it was sent, how long its turn took, how it ended and the files it edited. Off leaves the rail as it is, with no card; a prompt the rail cuts is then read only in part.",
+      "default": true
     }
   }
 }

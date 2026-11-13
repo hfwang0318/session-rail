@@ -35,6 +35,8 @@ Start a new session and the rail opens on its own.
 
 The layout is also the "Rail mode" row in `/config`, and it is kept across sessions.
 
+The "Expand on hover" row in `/config` keeps the hover cards on (the default). Turning it off draws no card when you hover a prompt in any layout, so a prompt the rail cuts is read only in part; clicking a row or bar still jumps to it.
+
 The "Classic hooks" row in `/config` keeps `classic.SessionStart` and `classic.Stop` registered (the default). On a machine with managed settings, or in a Team or Enterprise organization, Claude Code's security default passes the classic events over installed plugins and notes the skipped hooks each session; turning the row off registers neither hook, which silences those notes and changes nothing else there, since the rail finds the transcript on its own. Leave it on elsewhere: without the classic hooks, a session resumed from another directory than it started in, and an install loaded with `--plugin-dir`, leave the rail no transcript to read.
 
 In the horizontal layout, `ctrl+x tab` moves the focus to the bars: `←` `→` move across them, `Enter` jumps to the prompt, `Esc` returns to the prompt input.

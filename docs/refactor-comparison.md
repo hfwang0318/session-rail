@@ -112,6 +112,7 @@
 - 没有 transcript 时，跳转只能指向已经渲染过一次的行（引擎列表没有行 id）。
 - `claude plugin validate` 会拒绝 `claude-` 前缀的插件名（Anthropic 公共目录保留）。本地 `--plugin-dir` 与本地 marketplace 安装已验证可用；若要提交公共目录，需要改 manifest 名称。
 - 测试框架的 `$.plugin.root` 不是 marketplace 形状，`reconsiderTranscript` 找到新路径后的“采纳并重读”分支无法在单测里走到；其决策逻辑有纯函数测试，真实路径需在 marketplace 安装环境下验证。
+- 若引擎异常地对同一 `turnId` 重复投递 `turn.complete`，且期间已列出新提示词，重复的时长仍会记到最新提示词。这是重构前就有的行为；正常引擎不会重复投递，本次未改动。
 - 未做交互式 TUI 的人工验收；布局与交互由原项目的 142 个测试覆盖。
 
 ## 8. 复现

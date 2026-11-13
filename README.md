@@ -19,16 +19,18 @@ A rail of your prompts for Claude Code. Hover to read one, click to jump back to
 
 session-rail is a mod, so it needs Claude Code 2.1.287 or later, where mods are on by default. If you set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` during early access, you can remove it, since Claude Code now ignores it.
 
-1. Install from this checkout, from your shell or inside a session:
+1. Install from the marketplace, inside a session:
+
+   ```
+   /plugin marketplace add hfwang0318/session-rail
+   /plugin install session-rail@hfwang
+   ```
+
+   Or from your shell, with a checkout of this repository:
 
    ```bash
    claude plugin marketplace add /path/to/session-rail
    claude plugin install session-rail@hfwang
-   ```
-
-   ```
-   /plugin marketplace add /path/to/session-rail
-   /plugin install session-rail@hfwang
    ```
 
    For development, load the plugin straight from the checkout instead:
@@ -63,6 +65,10 @@ The bars sit on a row of their own under the hint line below the prompt input, n
 <img src="docs/below.gif" alt="session-rail 0.9.0: hovering a bar under the prompt previews a prompt, clicking jumps to it, the arrows step, and /config picks the layout" width="800">
 
 </details>
+
+## Hover cards
+
+Hovering a prompt opens its card. A prompt too long for its row or bar is shown whole there, wrapped; a prompt the row already holds whole is not repeated, so the card carries only its stats. Under the prompt, the card names when it was sent — the clock time for today, the date and time for an older prompt — then how long its turn took, how it ended, and the files it edited. The "Expand on hover" row in `/config` turns the cards off, on by default.
 
 ## Commands
 
@@ -133,6 +139,8 @@ The engine's message list is the rail's primary source. It names the person's pr
 
 A compaction replaces the engine's list with a summary message plus the most recent rows, so the rail filters that summary out and restores the prompts before the boundary from the transcript. Prompts abandoned with `/rewind` still drop out: the transcript read follows only the live branch.
 
+A jump addresses the uuid the transcript stores for a prompt. Where no transcript can be read, the rail records the request id the prompt's row was drawn under, and matches a prompt restored without one to the engine's list by its text, so a click still lands. The transcript is found by the classic hooks where they run, and otherwise by session id under `CLAUDE_CONFIG_DIR` or `~/.claude`.
+
 The prompt you are reading owns the topmost row on screen. The transcript is read again only when its size or time changed.
 
 </details>
@@ -143,7 +151,7 @@ The prompt you are reading owns the topmost row on screen. The transcript is rea
 <summary>Known limits</summary>
 
 - The mods API may still change between Claude Code releases.
-- The hover card with the turn summary is part of the horizontal and below rails.
+- The hover card is drawn in every layout; in the vertical layout its prompt wraps to the pane's width.
 - The below rail is the terminal's. The Claude desktop app draws it above the prompt, as the horizontal rail.
 - The Claude desktop app draws the horizontal rail and its hover cards, but a click cannot jump there. The app gives a plugin no way to scroll its transcript, so the rail says so once a session. The prompt being read is named beside the bars rather than on the line above them, since the app paints a card over that line without hiding what is under it. Checked with Claude Code 2.1.280, the app did not draw the vertical pane.
 - The dock width is shared by all plugin panes; drag its edge to narrow it, down to 24 columns.

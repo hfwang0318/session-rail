@@ -2,7 +2,7 @@
 
 A rail of your prompts for Claude Code. Hover to read one, click to jump back to it.
 
-session-rail is a mod: it draws a row of bars above or below the prompt input, or a pane beside the transcript, with one tick for each prompt you sent in the session. Hovering a tick shows the prompt and a short summary of its turn, and clicking it scrolls the transcript to that prompt. Commands step through the prompts from the keyboard.
+session-rail is a mod: it draws a row of bars above or below the prompt input, or a pane beside the transcript, with one tick for each prompt you sent in the session. Hovering a tick shows the whole prompt when its row or bar cuts it, when it was sent, and how its turn went; clicking it scrolls the transcript to that prompt. Commands step through the prompts from the keyboard.
 
 It needs Claude Code v2.1.287 or later, in the terminal or in the Code tab of the Claude desktop app. Mouse works best with `"tui": "fullscreen"`.
 
@@ -11,8 +11,8 @@ It needs Claude Code v2.1.287 or later, in the terminal or in the Code tab of th
 From the Claude directory, or from the plugin's own marketplace:
 
 ```bash
-claude plugin marketplace add oikon48/session-rail
-claude plugin install session-rail@oikon48
+claude plugin marketplace add hfwang0318/session-rail
+claude plugin install session-rail@hfwang
 ```
 
 Start a new session and the rail opens on its own.
@@ -35,7 +35,7 @@ Start a new session and the rail opens on its own.
 
 The layout is also the "Rail mode" row in `/config`, and it is kept across sessions.
 
-The "Expand on hover" row in `/config` keeps the hover cards on (the default). Turning it off draws no card when you hover a prompt in any layout, so a prompt the rail cuts is read only in part; clicking a row or bar still jumps to it.
+The "Expand on hover" row in `/config` keeps the hover cards on (the default). A card shows the whole prompt when its row or bar cuts it, above when it was sent, how long its turn took, how it ended, and the files it edited; a prompt the row holds whole is not repeated, so the card carries only the stats. Turning the row off draws no card when you hover a prompt in any layout, so a prompt the rail cuts is read only in part; clicking a row or bar still jumps to it.
 
 The "Classic hooks" row in `/config` keeps `classic.SessionStart` and `classic.Stop` registered (the default). On a machine with managed settings, or in a Team or Enterprise organization, Claude Code's security default passes the classic events over installed plugins and notes the skipped hooks each session; turning the row off registers neither hook, which silences those notes and changes nothing else there, since the rail finds the transcript on its own. Leave it on elsewhere: without the classic hooks, the rail looks for the transcript by session id under `CLAUDE_CONFIG_DIR` or `~/.claude`, which misses one Claude Code files somewhere else.
 
@@ -72,8 +72,8 @@ Its hooks watch and do not change what passes through them:
 
 ## Source and license
 
-This is a fork of prompt-rail: https://github.com/oikon48/prompt-rail
+This is a fork of prompt-rail: https://github.com/oikon48/prompt-rail, published at https://github.com/hfwang0318/session-rail.
 
 The full README with screenshots and the refactor notes are in the fork's checkout: `README.md` and `docs/refactor-comparison.md`.
 
-[MIT](https://github.com/oikon48/prompt-rail/blob/main/LICENSE), Copyright (c) 2026 oikon48; fork changes under the same license.
+[MIT](https://github.com/hfwang0318/session-rail/blob/main/LICENSE), Copyright (c) 2026 oikon48; fork changes under the same license.

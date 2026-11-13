@@ -1,11 +1,11 @@
 {
   "name": "session-rail",
-  "version": "0.10.0",
-  "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one, click to jump to it. Fork of prompt-rail, with the engine's own message list as the primary history source.",
+  "version": "0.11.0",
+  "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one in full with when it was sent, click to jump to it. Fork of prompt-rail, with the engine's own message list as the primary history source.",
   "author": {
     "name": "hfwang, based on prompt-rail by oikon48"
   },
-  "homepage": "https://github.com/oikon48/prompt-rail",
+  "homepage": "https://github.com/hfwang0318/session-rail",
   "license": "MIT",
   "keywords": [
     "navigation",

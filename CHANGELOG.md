@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
 
 - Changed the vertical rail's hover card to show the whole prompt: a long prompt is cut in the row beside its tick, and the card under the hovered row wraps every word, above when it was sent and how long its turn took; a prompt the row already holds whole is not repeated, so the card carries only the stats
 - Added when each prompt was sent to the hover cards, before the turn's duration: the local clock time for today, the date and time for an older prompt
@@ -23,7 +23,6 @@
 - Fixed a message the engine draws as several rows being listed twice when no transcript can be read
 - Fixed history older than the engine's window appearing only after the next turn when a large transcript was read in the background
 - Fixed a turn that ends after the conversation was replaced writing its duration and outcome onto the new conversation's prompt, even after that conversation started a turn of its own
-
 - Added a "Classic hooks" row to `/config` (#69): on a machine with managed settings or in a Team or Enterprise organization, Claude Code notes each session that the security default skipped session-rail's `classic.SessionStart` and `classic.Stop` hooks; turning the row off registers neither hook, which silences those notes and changes nothing else there, since the rail finds the transcript on its own. It stays on by default: without the classic hooks, a session resumed from another directory, or an install loaded with `--plugin-dir`, leaves the rail no transcript to read
 
 ## 0.9.0

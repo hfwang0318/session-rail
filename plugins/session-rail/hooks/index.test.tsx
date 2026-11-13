@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
 import { bar, configDirOf, drawnRow, ENGINE_MESSAGES_TEST_KEY, findTranscript, jumpNotice, noteScroll, pickPrompt, reconsiderDecision, rowKey, scrollTargetOf, stepFrom, streamRequests, tick, transcriptCandidates, turnLine } from './index.tsx'
-import { engineId, matchStored, mergePrompts, promptsFromMessages } from './history.ts'
+import { engineId, matchStored, mergePrompts, promptsFromMessages, repliesFromMessages } from './history.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -2015,20 +2015,22 @@ test('a turn is summed up with how it ended', () => {
   expect(turnLine({ tools: 2, files: [], outcome: 'running' })).toBe('running · 2 tools')
 })
 
-test('no rail draws a colored mark; how a turn went is left to its card', async ($, on) => {
+test('the rails color a turn\'s mark by how it went, and the cards say it in words', async ($, on) => {
   world(on, {}, OUTCOMES)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.command.run({ command: 'session-rail', args: 'vertical' })
-  for (const [surface, placement] of [['terminal', 'dock'], ['desktop', 'inline']] as const) {
-    const site = await $.ui.mount({ plugin: 'session-rail', surface, component: 'Pane', requestId: 'session-rail', props: pane(placement, 40) })
-    expect(await site.findAll({ type: 'Text' })).toEqual([])
-    await site.unmount()
-  }
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  const railColors = (await rail.findAll({ type: 'Text' })).map((t: any) => t.props.color)
+  // An interrupted turn is the warning color, an API error the error color.
+  expect(railColors).toContain('warning')
+  expect(railColors).toContain('error')
+  await rail.unmount()
   expect(await cardDetails($)).toEqual(['first · interrupted', 'second · API error', 'third · 1 tool · a.ts', 'fourth'])
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
-  const texts = await band.findAll({ type: 'Text' })
-  expect(texts.filter((t: any) => t.props.color !== undefined || ['×', '•'].includes(t.text))).toEqual([])
+  const bandColors = (await band.findAll({ type: 'Text' })).map((t: any) => t.props.color)
+  expect(bandColors).toContain('warning')
+  expect(bandColors).toContain('error')
   await band.unmount()
   await $.command.run({ command: 'session-rail', args: 'vertical' })
   expect(await railLabels($)).toEqual(['first', 'second', 'third', 'fourth'])
@@ -2453,6 +2455,25 @@ test('a new unstored prompt does not take the stored row of an older prompt with
     { id: 'u2', text: 'one', ordinal: 1 },
     { id: 'engine:2', text: 'continue', ordinal: 2 },
   ])
+})
+
+test('the latest assistant text between two prompts is their reply', () => {
+  const messages = [
+    { role: 'assistant', text: 'before any prompt' },
+    { role: 'user', text: 'one' },
+    { role: 'assistant', text: '' },
+    { role: 'assistant', text: 'an early answer' },
+    { role: 'assistant', text: 'the final answer' },
+    { role: 'user', text: 'tool result', toolResults: [{ id: 't1' }] },
+    { role: 'assistant', text: 'still the first reply' },
+    { role: 'user', text: 'two' },
+    { role: 'assistant', text: 'second answer' },
+  ]
+  const prompts = promptsFromMessages(messages, text => text)
+  expect(Object.fromEntries(repliesFromMessages(messages, prompts))).toEqual({
+    1: 'still the first reply',
+    7: 'second answer',
+  })
 })
 
 test('text that differs only in whitespace still matches between the two sources', () => {
@@ -2966,6 +2987,38 @@ test('a recheck adopts a different transcript and says so only when there is not
   expect(reconsiderDecision('/n/old.jsonl', '/n/old.jsonl', true)).toEqual({ shouldToast: true })
   expect(reconsiderDecision('/n/old.jsonl', '/n/old.jsonl', false)).toEqual({ shouldToast: false })
   expect(reconsiderDecision(undefined, '/n/old.jsonl', true)).toEqual({ shouldToast: true })
+})
+
+test('the hover card adds the latest reply the engine holds', async ($, on) => {
+  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
+  const store = world(on, {}, TRANSCRIPT, disk)
+  mock.clock(on)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'the question' },
+    { role: 'assistant', text: '' },
+    { role: 'assistant', text: 'the answer, in full' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ type: 'Text', text: /↳ the answer, in full/ })).toBeDefined()
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  expect(await rail.find({ type: 'Text', text: /↳ the answer, in full/ })).toBeDefined()
+})
+
+test('the vertical rail draws a divider at a compaction boundary', async ($, on) => {
+  const store = world(on, {}, COMPACTED)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'before compact' },
+    { role: 'user', text: 'after compact' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((t: any) => String(t.text))
+  expect(texts.some(text => text.includes('compacted'))).toBe(true)
+  await rail.unmount()
 })
 
 test('a message the engine splits into two rows is listed once without a transcript', async ($, on) => {

@@ -104,6 +104,17 @@ In the horizontal layout, `ctrl+x tab` moves the focus to the bars: the ring sta
 | `━` `┃` | The prompt you are reading |
 | `─` `│` | Any other prompt |
 | `┄` `┆` | A prompt Claude Code refused to scroll to; `next` and `prev` skip it |
+| `⌁` / `─ compacted ─` | The prompt that opens the segment after a `/compact` |
+
+| Color | Meaning |
+| --- | --- |
+| accent | The prompt you are reading |
+| green | Its turn is running |
+| yellow | The turn was interrupted |
+| red | The turn ended with an API error |
+| gray | Claude Code refused to scroll to it |
+
+Colors are theme keys, so they follow the person's theme; a hover card still names the turn's outcome in words.
 
 ## How it works
 

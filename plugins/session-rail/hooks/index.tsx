@@ -1,5 +1,5 @@
 import type { EngineInterface, Register, Timer } from 'claude-code'
-import { matchText, mergePrompts, promptsFromMessages, type EngineMessage, type StoredPrompt } from './history.ts'
+import { matchText, mergePrompts, promptsFromMessages, repliesFromMessages, type EngineMessage, type StoredPrompt } from './history.ts'
 
 const PANE = 'session-rail'
 // Rows the person typed (terminal composer, desktop/remote bridge, SDK host).
@@ -148,6 +148,11 @@ type Entry = {
   // The request id the row was last drawn under, when the engine's list names
   // a prompt the transcript could not match to a uuid. A jump scrolls to it.
   rowId?: string
+  // The latest assistant text the engine's list holds between this prompt and
+  // the next, for the hover card.
+  reply?: string
+  // The prompt begins the segment after a /compact boundary in the transcript.
+  breakBefore?: boolean
 }
 
 // The key rows are matched by. A message the engine splits into several rows
@@ -431,7 +436,16 @@ const indexRows = (rows: any[]): TranscriptIndex => {
   // The prompt that started the turn being read: a prompt delivered into a
   // turn is listed, but the turn's details stay with the one that started it.
   let started = -1
+  // A live /compact boundary: the next prompt on the live branch opens the
+  // segment after it.
+  let afterBreak = false
   for (const row of rows) {
+    // The boundary row is not always on the parent chain (a summary that links
+    // back skips it), but its place in the file still divides the segments.
+    if (!row.isSidechain && row.type === 'system' && row.subtype === 'compact_boundary') {
+      afterBreak = true
+      continue
+    }
     if (row.isSidechain || !live.has(row.uuid)) continue
     const turn = turns[started]
     if (row.type === 'system' && row.subtype === 'turn_duration' && typeof row.durationMs === 'number') {
@@ -464,7 +478,8 @@ const indexRows = (rows: any[]): TranscriptIndex => {
       const prompt = row.attachment.prompt
       const text = typeof prompt === 'string' ? prompt.replace(VIEW_CONTEXT, '').trim() : ''
       if (!text || WRAPPER.test(text) || text.startsWith('/')) continue
-      prompts.push({ id: row.uuid, text, queued: true })
+      prompts.push({ id: row.uuid, text, queued: true, ...(afterBreak ? { breakBefore: true } : {}) })
+      afterBreak = false
       turns.push({ tools: 0, files: [] })
       times.push({ start: NaN, last: NaN })
       continue
@@ -493,7 +508,8 @@ const indexRows = (rows: any[]): TranscriptIndex => {
     // Some builds wrote a compaction summary without the flag that names it;
     // its fixed wording still tells the engine's.
     if (!text || WRAPPER.test(text) || COMPACT_SUMMARY.test(text) || text.startsWith('/')) continue
-    prompts.push({ id: row.uuid, text })
+    prompts.push({ id: row.uuid, text, ...(afterBreak ? { breakBefore: true } : {}) })
+    afterBreak = false
     turns.push({ tools: 0, files: [] })
     started = prompts.length - 1
     const at = Date.parse(row.timestamp)
@@ -1639,7 +1655,10 @@ export const register: Register = (on, options) => {
   })
 
   // A turn's details count as the list's: a turn that ends changes its card.
-  const listSignature = (list: Entry[]) => list.map(entry => `${entry.id}\u0000${entry.text}\u0000${turnLine(turnOf(entry.id))}`).join('\u0001')
+  const listSignature = (list: Entry[]) =>
+    list
+      .map(entry => `${entry.id}\u0000${entry.text}\u0000${entry.reply ?? ''}\u0000${entry.breakBefore ? '1' : '0'}\u0000${turnLine(turnOf(entry.id))}`)
+      .join('\u0001')
 
   // Take what the transcript read knows of the conversation: the prompt each
   // reply row and tool call answers, and each prompt's turn. Never the list
@@ -1668,6 +1687,10 @@ export const register: Register = (on, options) => {
     lastMessages = messages
     const before = { list: listSignature(entries), current: currentIndex() }
     const prompts = promptsFromMessages(messages, preparePrompt)
+    const replies = repliesFromMessages(messages, prompts)
+    // The transcript says which listed prompt opens a segment after a
+    // compaction; the engine's list itself holds no boundary.
+    const breakIds = new Set((lastIndex?.prompts ?? []).filter(prompt => prompt.breakBefore).map(prompt => rowKey(prompt.id)))
     // An empty message list is a conversation with nothing in it (a /rewind
     // before the first prompt); the transcript read is then stale and its
     // prompts are not history to put back. A list with rows but no prompts is
@@ -1729,7 +1752,10 @@ export const register: Register = (on, options) => {
         if (pending.delete(prior.id)) pending.add(id)
       }
       const named = id === entry.id ? entry : { ...entry, id }
-      return prior?.rowId === undefined ? named : { ...named, rowId: prior.rowId }
+      const reply = entry.ordinal === undefined ? undefined : replies.get(entry.ordinal)
+      const withReply = reply === undefined ? { ...named, reply: undefined } : { ...named, reply }
+      const flagged = breakIds.has(rowKey(entry.id)) ? { ...withReply, breakBefore: true } : { ...withReply, breakBefore: undefined }
+      return prior?.rowId === undefined ? flagged : { ...flagged, rowId: prior.rowId }
     })
     engineMode = true
     // A row is kept when neither this list nor the last one named it: it was
@@ -2108,13 +2134,41 @@ export const register: Register = (on, options) => {
 
   const isUnreachable = (i: number) => unreachable.has(entries[i]?.id ?? '')
 
-  // A prompt's text and its turn's details on one line `width` cells wide: the
-  // text is cut first, down to a few words, then the details name fewer files.
+  // The tick's theme color: a turn's failure or progress, the prompt being
+  // read, or one nothing can scroll to. Theme keys follow the person's theme.
+  const colorOf = (i: number) => {
+    const outcome = turnOf(entries[i]?.id ?? '')?.outcome
+    if (outcome === 'error') return 'error'
+    if (outcome === 'interrupted') return 'warning'
+    if (outcome === 'running') return 'success'
+    if (i === currentIndex()) return 'claude'
+    if (isUnreachable(i)) return 'inactive'
+    return undefined
+  }
+  // A prompt that opens the segment after a /compact boundary.
+  const breakMark = (i: number) => (i > 0 && entries[i]?.breakBefore ? '⌁ ' : '')
+
+  // A turn's details and its latest reply on one line `width` cells wide: the
+  // reply gets at most a little over half, and the details name fewer files.
+  const summaryOf = (entry: Entry, width: number) => {
+    const turn = turnOf(entry.id)
+    // With no turn details the reply may take the whole line; with them, a
+    // little over half, leaving the rest for the duration, tools and files.
+    const reply = entry.reply === undefined ? '' : oneLine(entry.reply, turn === undefined ? width : Math.max(8, Math.floor(width * 0.55)))
+    const replyPart = reply ? `↳ ${reply}` : ''
+    const details = turnLine(
+      turn,
+      Math.max(0, width - MIN_CARD_TEXT - cellWidth(replyPart) - (replyPart ? ' · '.length : 0) - ' · '.length),
+    )
+    return [details, replyPart].filter(Boolean).join(' · ')
+  }
+  // A prompt's text and its summary on one line: the text is cut first, down
+  // to a few words, then the summary names fewer files.
   const withTurn = (entry: Entry, width: number) => {
-    const details = turnLine(turnOf(entry.id), width - MIN_CARD_TEXT - ' · '.length)
-    if (!details) return oneLine(entry.text, width)
-    const room = Math.max(MIN_CARD_TEXT, width - cellWidth(details) - ' · '.length)
-    return `${oneLine(entry.text, room)} · ${details}`
+    const summary = summaryOf(entry, width)
+    if (!summary) return oneLine(entry.text, width)
+    const room = Math.max(MIN_CARD_TEXT, width - cellWidth(summary) - ' · '.length)
+    return `${oneLine(entry.text, room)} · ${summary}`
   }
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -2148,18 +2202,31 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column">
           {entries.map((entry, i) => (
-            <Button
-              key={`jump-${i}`}
-              plain
-              dimColor={i !== current}
-              label={
-                hasRoom
-                  ? ` ${tick(i === current, isUnreachable(i))} ${oneLine(entry.text, width)}`
-                  : ` ${tick(i === current, isUnreachable(i))} `
-              }
-              hover={{ scope: `session-rail-${i}`, inverse: true, dimColor: false }}
-              onPress={() => {}}
-            />
+            <Box key={`row-${i}`} flexDirection="column">
+              {i > 0 && entry.breakBefore ? <Text dimColor> ─ compacted ─</Text> : null}
+              <Button
+                key={`jump-${i}`}
+                plain
+                dimColor={i !== current}
+                label={
+                  hasRoom
+                    ? ` ${tick(i === current, isUnreachable(i))} ${oneLine(entry.text, width)}`
+                    : ` ${tick(i === current, isUnreachable(i))} `
+                }
+                hover={{ scope: `session-rail-${i}`, inverse: true, dimColor: false }}
+                onPress={() => {}}
+              >
+                <Text color={colorOf(i)} dimColor={colorOf(i) === undefined && i !== current}>
+                  {` ${tick(i === current, isUnreachable(i))}`}
+                </Text>
+                {hasRoom ? <Text dimColor={i !== current}>{` ${oneLine(entry.text, width)}`}</Text> : null}
+              </Button>
+              {hasRoom && summaryOf(entry, width - 3) ? (
+                <Box display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
+                  <Text dimColor>{`   ${summaryOf(entry, width - 3)}`}</Text>
+                </Box>
+              ) : null}
+            </Box>
           ))}
         </Box>
       )
@@ -2240,11 +2307,15 @@ export const register: Register = (on, options) => {
       const first = Math.min(Math.max(0, center - Math.floor(capacity / 2)), entries.length - capacity)
       const shown = entries.slice(first, first + capacity)
       const hidesAfter = first + capacity < entries.length
-      const label = (i: number, room = width) => `#${i + 1} ${oneLine(entries[i]?.text ?? '', room - `#${i + 1} `.length)}`
-      // The hovered prompt's card also sums up its turn.
+      const label = (i: number, room = width) => {
+        const mark = breakMark(i)
+        return `${mark}#${i + 1} ${oneLine(entries[i]?.text ?? '', room - cellWidth(mark) - `#${i + 1} `.length)}`
+      }
+      // The hovered prompt's card also sums up its turn and latest reply.
       const card = (i: number) => {
         const entry = entries[i]
-        return entry ? `#${i + 1} ${withTurn(entry, width - `#${i + 1} `.length)}` : ''
+        const mark = breakMark(i)
+        return entry ? `${mark}#${i + 1} ${withTurn(entry, width - cellWidth(mark) - `#${i + 1} `.length)}` : ''
       }
       const bars = [
         isOverflowing ? <Text dimColor>{first > 0 ? '‹' : ' '}</Text> : null,
@@ -2259,7 +2330,9 @@ export const register: Register = (on, options) => {
               hover={{ scope: `session-rail-${i}`, inverse: true, dimColor: false }}
               autoFocus={(isCellGrid && i === center) || undefined}
               onPress={() => {}}
-            />
+            >
+              <Text color={colorOf(i)}>{bar(i === current, isUnreachable(i))}</Text>
+            </Button>
           )
         }),
         hidesAfter ? <Text dimColor>›</Text> : null,
@@ -2335,9 +2408,10 @@ export const register: Register = (on, options) => {
       to >= 0 ? <Button key={key} plain dimColor label={label} hover={{ scope: key, inverse: true, dimColor: false }} onPress={() => {}} /> : <Text> </Text>
     const card = (i: number) => {
       const entry = entries[i]
-      return entry ? `#${i + 1} ${withTurn(entry, room - `#${i + 1} `.length)}` : ''
+      const mark = breakMark(i)
+      return entry ? `${mark}#${i + 1} ${withTurn(entry, room - cellWidth(mark) - `#${i + 1} `.length)}` : ''
     }
-    const reading = `#${center + 1}/${entries.length} `
+    const reading = `${breakMark(center)}#${center + 1}/${entries.length} `
     return (
       <Box flexDirection="column">
         {engine}
@@ -2353,7 +2427,9 @@ export const register: Register = (on, options) => {
                 label={bar(i === current, isUnreachable(i))}
                 hover={{ scope: `session-rail-${i}`, inverse: true, dimColor: false }}
                 onPress={() => {}}
-              />
+              >
+                <Text color={colorOf(i)}>{bar(i === current, isUnreachable(i))}</Text>
+              </Button>
             )
           })}
           {step('step-next', '›', stepFrom(current, entries.length, 1, isUnreachable))}

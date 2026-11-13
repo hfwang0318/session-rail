@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | 测试命令 | `claude plugin test plugins/prompt-rail` | `claude plugin test plugins/claude-navigator` |
 | 结果 | 142 pass / 0 fail | 193 pass / 0 fail |
-| 耗时 | 4.46s | 5.5s |
+| 耗时 | 4.5s | 5.5s |
 | 新增测试 | — | 51（15 个注入引擎列表场景 + 36 个纯函数/压缩/竞态场景） |
 
 原项目的 142 个测试全部保留并通过，因此 UI、布局、命令、转场、轨道绘制的行为没有回退。

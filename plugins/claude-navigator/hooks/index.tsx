@@ -1093,6 +1093,10 @@ export const register: Register = (on, options) => {
   // the conversation was replaced says nothing about the new one's prompts.
   let activeTurn: string | undefined
   let activeTurnAt = 0
+  // The last turn a start named in this conversation. With no turn running,
+  // a completion may still belong to it (a duplicate, or a hook that ran
+  // after the bookkeeping), but not to a turn this conversation never began.
+  let lastStartedTurn: string | undefined
 
   const addPrompt = (id: string, text: string) => {
     // A new prompt is drawn under a provisional id before it is stored, then
@@ -1431,6 +1435,7 @@ export const register: Register = (on, options) => {
     lastIndex = undefined
     lastMessages = undefined
     activeTurnAt = 0
+    lastStartedTurn = undefined
     engineMode = false
     listedEngine = new Set<string>()
     pending.clear()
@@ -1887,6 +1892,7 @@ export const register: Register = (on, options) => {
     isRunning = true
     activeTurn = e.turnId
     activeTurnAt = at
+    lastStartedTurn = e.turnId
     // The transcript follows the new turn down from the prompt jumped to.
     landed = undefined
     isContinuation = e.text.trim() === ''
@@ -1944,11 +1950,14 @@ export const register: Register = (on, options) => {
     // Captured synchronously, before any await: a newer turn's start may
     // rewrite the running state while this hook waits.
     const entry = turnEntry()
-    // The turn started in this conversation and is the one running (or a
-    // reload lost that id): a completion that arrives after a /clear, a
-    // resume, or the new conversation's own turn started describes a prompt
-    // the current list does not hold.
-    if (e.agentId === undefined && entry && (activeTurn === undefined || activeTurn === e.turnId) && activeTurnAt === generation) {
+    // The turn started in this conversation and is one it knows: the turn
+    // running now, the last one it started (a duplicate, or after the
+    // bookkeeping), or any turn when a reload lost the start. A completion
+    // that arrives after a /clear, a resume, or the new conversation's own
+    // turn describes a prompt the current list does not hold.
+    const isKnownTurn =
+      activeTurn !== undefined ? activeTurn === e.turnId : lastStartedTurn === undefined || lastStartedTurn === e.turnId
+    if (e.agentId === undefined && entry && isKnownTurn && activeTurnAt === generation) {
       // By row key: a prompt drawn under a derived id is listed under its
       // stored uuid once the transcript is read.
       const key = rowKey(entry.id)

@@ -2998,6 +2998,25 @@ test('a turn that ends after the conversation changed says nothing about the new
   expect(await band.find({ type: 'Text', text: /12s|interrupted/ })).toBeUndefined()
 })
 
+test('a stale turn completion is not written after the new conversation has rested', async ($, on) => {
+  const disk = beneath(jsonl([]))
+  const store = world(on, {}, disk.transcript, disk)
+  on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
+  on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'old conversation' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.turn.start({ text: 'old conversation', turnId: 't1' })
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'new conversation' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's2', transcript_path: '/t/s1.jsonl' })
+  await $.turn.start({ text: 'new conversation', turnId: 't2' })
+  await $.turn.complete({ answer: 'done', durationMs: 1000, isAborted: false, turnId: 't2', reason: 'answer' })
+  await $.turn.complete({ answer: 'done', durationMs: 12000, isAborted: true, turnId: 't1', reason: 'aborted' })
+  await $.command.run({ command: 'claude-navigator', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  expect(await band.find({ type: 'Text', text: /^#1 new conversation · 1s\s*$/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /12s|interrupted/ })).toBeUndefined()
+})
+
 test('a stale turn completion is not written onto a turn the new conversation started', async ($, on) => {
   const disk = beneath(jsonl([]))
   const store = world(on, {}, disk.transcript, disk)

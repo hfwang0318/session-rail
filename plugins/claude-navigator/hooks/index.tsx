@@ -1144,6 +1144,15 @@ export const register: Register = (on, options) => {
       return false
     }
     const key = rowKey(id)
+    // The same row drawn again: it already owns an entry, however its id was
+    // named (the engine's list has no uuids, and a matched prompt may be
+    // drawn under a derived id).
+    const owned = entries.find(entry => entry.rowId === id)
+    if (owned !== undefined) {
+      rowEntry.set(key, owned.id)
+      drawn.set(rowKey(owned.id), id)
+      return false
+    }
     if (entries.some(entry => rowKey(entry.id) === key)) {
       // A stored row a transcript read listed first still ends its prompt.
       if (provisional === text) {
@@ -1402,7 +1411,7 @@ export const register: Register = (on, options) => {
     filed = new Set()
     lastIndex = undefined
     engineMode = false
-    listedEngine = new Set()
+    listedEngine = new Set<string>()
     pending.clear()
     aliases.clear()
     waiting.clear()
@@ -1493,11 +1502,20 @@ export const register: Register = (on, options) => {
     if (index && isCurrent() && merge(index)) await redrawRail($)
     tellNotice($, seen, isBound)
     // A session that started or cleared while the read ran owns none of this.
-    if (generation === at && session?.id === id) {
+    if (!seen.isReading && generation === at && session?.id === id) {
       const recheck = await reconsiderTranscript($, id, launchCwd, session.path, seen.isMissing, entries.length > 0)
-      if (generation === at && session?.id === id && recheck.path !== undefined) {
+      if (generation === at && session?.id === id && recheck.path !== undefined && recheck.path !== session.path) {
         session = { id, path: recheck.path }
+        // The old file's index and ids are of another path.
         lastIndex = undefined
+        filed = new Set()
+        owners = new Map()
+        turns = new Map()
+        const retried = await readTranscript($, recheck.path, seen, index => {
+          if (generation !== at || session?.id !== id || session?.path !== recheck.path) return
+          if (index && merge(index)) void redrawRail($)
+        })
+        if (retried && generation === at && session?.id === id && session?.path === recheck.path && merge(retried)) await redrawRail($)
       }
       if (generation === at && recheck.shouldToast && unfoundFor !== id) {
         unfoundFor = id
@@ -1623,7 +1641,12 @@ export const register: Register = (on, options) => {
   const refreshEngine = (messages: readonly EngineMessage[]) => {
     const before = { list: listSignature(entries), current: currentIndex() }
     const prompts = promptsFromMessages(messages, preparePrompt)
-    const stored: StoredPrompt[] = lastIndex?.prompts.map(prompt => ({ id: prompt.id, text: prompt.text, queued: prompt.queued })) ?? []
+    // An empty message list is a conversation with nothing in it (a /rewind
+    // before the first prompt); the transcript read is then stale and its
+    // prompts are not history to put back. A list with rows but no prompts is
+    // a compaction summary, whose history the transcript still holds.
+    const stored: StoredPrompt[] =
+      messages.length === 0 ? [] : (lastIndex?.prompts.map(prompt => ({ id: prompt.id, text: prompt.text, queued: prompt.queued })) ?? [])
     const merged = mergePrompts(prompts, stored)
     // Keep a row id the viewport already reported for a prompt whose id
     // changed between a synthetic name and its stored uuid.
@@ -1758,10 +1781,16 @@ export const register: Register = (on, options) => {
   // which silences those notes and changes nothing else there.
   if (options.classicHooks !== false) {
     on('classic.SessionStart', async ($, e, next) => {
-      const at = generation
+      let at = generation
+      // A resume under another id starts the list over, as session.start does.
+      if (session !== undefined && session.id !== e.session_id) {
+        forget()
+        at = generation
+      }
       const isCurrent = () => generation === at && session?.id === e.session_id && session?.path === e.transcript_path
       if (e.source === 'clear') {
         forget()
+        at = generation
         session = { id: e.session_id, path: e.transcript_path }
         await redrawRail($)
       } else {
@@ -1848,11 +1877,20 @@ export const register: Register = (on, options) => {
       // count as this turn's.
       for (const [name, row] of onScreen) if (!isKnownRow(row.key)) onScreen.delete(name)
     }
-    if (generation === at && session?.id === id) {
+    if (!seen.isReading && generation === at && session?.id === id) {
       const recheck = await reconsiderTranscript($, id, launchCwd, session.path, seen.isMissing, entries.length > 0)
-      if (generation === at && session?.id === id && recheck.path !== undefined) {
+      if (generation === at && session?.id === id && recheck.path !== undefined && recheck.path !== session.path) {
         session = { id, path: recheck.path }
+        // The old file's index and ids are of another path.
         lastIndex = undefined
+        filed = new Set()
+        owners = new Map()
+        turns = new Map()
+        const retried = await readTranscript($, recheck.path, seen, index => {
+          if (generation !== at || session?.id !== id || session?.path !== recheck.path) return
+          if (index && merge(index)) void redrawRail($)
+        })
+        if (retried && generation === at && session?.id === id && session?.path === recheck.path && merge(retried)) await redrawRail($)
       }
       if (generation === at && recheck.shouldToast && unfoundFor !== id) {
         unfoundFor = id
@@ -1870,14 +1908,25 @@ export const register: Register = (on, options) => {
   // turn_duration row is written after the Stop hook reads the file, so keep
   // the engine's figure and how the turn ended until a later read has them.
   on('turn.complete', async ($, e, next) => {
+    // Captured synchronously, before any await: a newer turn's start may
+    // rewrite the running state while this hook waits.
+    const entry = turnEntry()
+    if (e.agentId === undefined && entry) {
+      // By row key: a prompt drawn under a derived id is listed under its
+      // stored uuid once the transcript is read.
+      const key = rowKey(entry.id)
+      reported.set(key, (reported.get(key) ?? 0) + e.durationMs)
+      if (e.reason === 'aborted') ended.set(key, 'interrupted')
+      if (e.reason === 'error') ended.set(key, 'error')
+    }
     const at = generation
     const id = await $.session.id()
-    // Captured before next(): another hook's turn may start while it runs.
-    const entry = generation === at ? turnEntry() : undefined
     const result = await next(e)
     // A /clear or resume during next() owns none of this turn's bookkeeping.
     if (e.agentId !== undefined || generation !== at || session?.id !== id) return result
-    if (activeTurn === e.turnId) {
+    // A turn whose start this module missed (a reload mid-turn) still ends;
+    // only a newer turn's start leaves the bookkeeping alone.
+    if (activeTurn === undefined || activeTurn === e.turnId) {
       activeTurn = undefined
       isRunning = false
       // A prompt still waiting now is queued behind this turn; its rows to
@@ -1890,14 +1939,6 @@ export const register: Register = (on, options) => {
       listedAtRest = entries.length
     }
     {
-      if (entry) {
-        // By row key: a prompt drawn under a derived id is listed under its
-        // stored uuid once the transcript is read.
-        const key = rowKey(entry.id)
-        reported.set(key, (reported.get(key) ?? 0) + e.durationMs)
-        if (e.reason === 'aborted') ended.set(key, 'interrupted')
-        if (e.reason === 'error') ended.set(key, 'error')
-      }
       // The turn's rows are stored by now: read them, as classic.Stop does
       // where the classic hooks are not passed over.
       const path = session?.path
@@ -1911,11 +1952,20 @@ export const register: Register = (on, options) => {
         : undefined
       tellNotice($, seen, isBound)
       if (index && isCurrent()) merge(index)
-      if (generation === at && session?.id === id) {
+      if (!seen.isReading && generation === at && session?.id === id) {
         const recheck = await reconsiderTranscript($, id, launchCwd, session.path, seen.isMissing, entries.length > 0)
-        if (generation === at && session?.id === id && recheck.path !== undefined) {
+        if (generation === at && session?.id === id && recheck.path !== undefined && recheck.path !== session.path) {
           session = { id, path: recheck.path }
+          // The old file's index and ids are of another path.
           lastIndex = undefined
+          filed = new Set()
+          owners = new Map()
+          turns = new Map()
+          const retried = await readTranscript($, recheck.path, seen, index => {
+            if (generation !== at || session?.id !== id || session?.path !== recheck.path) return
+            if (index && merge(index)) void redrawRail($)
+          })
+          if (retried && generation === at && session?.id === id && session?.path === recheck.path && merge(retried)) await redrawRail($)
         }
         if (generation === at && recheck.shouldToast && unfoundFor !== id) {
           unfoundFor = id
@@ -1934,6 +1984,9 @@ export const register: Register = (on, options) => {
   // be passed over.
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear' || e.reason === 'resume') {
+      // A delayed end of an older conversation does not clear the new one.
+      const ended = (e as { sessionId?: unknown }).sessionId
+      if (typeof ended === 'string' && session !== undefined && session.id !== ended) return next(e)
       forget()
       await redrawRail($)
     }

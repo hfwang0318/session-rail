@@ -53,51 +53,105 @@ export const promptsFromMessages = (messages: readonly EngineMessage[], prepare:
   return prompts
 }
 
-// Which engine prompt each stored prompt is. The engine's list is a window
-// over the same conversation: the transcript may hold prompts older than it,
-// and the engine may hold prompts whose stored row is not written yet. The
-// walk starts at the oldest end, so a repeated text pairs the older engine
-// prompt with the older stored row; a new copy the transcript does not have
-// yet is left at the end. A stored prompt with no engine prompt at that point
-// is passed (it is older than the engine's window, or one delivered into a
-// running turn), and an engine prompt with no stored row is passed too (sent
-// and not stored yet). Returns the uuid each engine ordinal is stored under,
-// and the stored prompts older than the oldest match, which the engine's list
-// no longer holds. With no match at all, every stored prompt is such history.
+// One way to pair the two prompt sequences.
+type Alignment = { ids: Map<number, string>; first: number; firstEngine: number }
+
+// Which engine prompt each stored prompt is. Two walks pair the sequences: one
+// from the oldest end, one from the newest. The oldest-end walk pairs a new
+// trailing copy of a repeated text with the newer engine prompt, which is what
+// a sent-but-not-stored row needs; the newest-end walk keeps the history older
+// than the engine's window when the window starts inside a repeated text. The
+// better walk wins: more pairs first, then more stored history before the
+// first pair, then the older engine prompt for the same stored row. A stored
+// row or engine prompt left over is passed. With no pair at all, every stored
+// prompt is history older than the engine's list.
 export const matchStored = (prompts: readonly EnginePrompt[], stored: readonly StoredPrompt[]) => {
-  const ids = new Map<number, string>()
   const left = prompts.map(prompt => matchText(prompt.text))
   const right = stored.map(prompt => matchText(prompt.text))
   const same = (i: number, j: number) => left[i] !== undefined && left[i] === right[j]
-  let first = -1
-  let i = 0
-  let j = 0
-  while (i < prompts.length && j < stored.length) {
-    if (same(i, j)) {
-      if (first < 0) first = j
-      ids.set(prompts[i]!.ordinal, stored[j]!.id)
-      i++
+
+  const forward = (): Alignment => {
+    const ids = new Map<number, string>()
+    let first = -1
+    let firstEngine = -1
+    let i = 0
+    let j = 0
+    while (i < prompts.length && j < stored.length) {
+      if (same(i, j)) {
+        if (first < 0) {
+          first = j
+          firstEngine = i
+        }
+        ids.set(prompts[i]!.ordinal, stored[j]!.id)
+        i++
+        j++
+        continue
+      }
+      const storedAhead = j + 1 < stored.length && same(i, j + 1)
+      const engineAhead = i + 1 < prompts.length && same(i + 1, j)
+      if (storedAhead) {
+        // The stored row here is one the engine's list leaves out.
+        j++
+        continue
+      }
+      if (engineAhead) {
+        // The engine prompt here is newer than the stored row; its own row is
+        // not written yet.
+        i++
+        continue
+      }
+      // Neither the next stored nor the next engine prompt lines up here. Pass
+      // the stored row: the engine's list is the source of what is current.
       j++
-      continue
     }
-    const storedAhead = j + 1 < stored.length && same(i, j + 1)
-    const engineAhead = i + 1 < prompts.length && same(i + 1, j)
-    if (storedAhead) {
-      // The stored row here is one the engine's list leaves out.
-      j++
-      continue
-    }
-    if (engineAhead) {
-      // The engine prompt here is newer than the stored row; its own row is
-      // not written yet.
-      i++
-      continue
-    }
-    // Neither the next stored nor the next engine prompt lines up here. Pass
-    // the stored row: the engine's list is the source of what is current.
-    j++
+    return { ids, first, firstEngine }
   }
-  return { ids, older: stored.slice(0, first >= 0 ? first : stored.length) }
+
+  const backward = (): Alignment => {
+    const ids = new Map<number, string>()
+    let first = -1
+    let firstEngine = -1
+    let i = prompts.length - 1
+    let j = stored.length - 1
+    while (i >= 0 && j >= 0) {
+      if (same(i, j)) {
+        if (first < 0 || j < first) {
+          first = j
+          firstEngine = i
+        }
+        ids.set(prompts[i]!.ordinal, stored[j]!.id)
+        i--
+        j--
+        continue
+      }
+      const engineAhead = i > 0 && same(i - 1, j)
+      const storedAhead = j > 0 && same(i, j - 1)
+      if (engineAhead) {
+        // The newer engine prompt is not stored yet; keep the stored row for
+        // the older prompt.
+        i--
+        continue
+      }
+      if (storedAhead) {
+        j--
+        continue
+      }
+      i--
+    }
+    return { ids, first, firstEngine }
+  }
+
+  const choose = (a: Alignment, b: Alignment) => {
+    if (a.ids.size !== b.ids.size) return a.ids.size > b.ids.size ? a : b
+    const aLater = a.first >= 0 && stored[a.first]?.queued !== true
+    const bLater = b.first >= 0 && stored[b.first]?.queued !== true
+    if (aLater !== bLater) return aLater ? a : b
+    if (aLater && a.first !== b.first) return a.first > b.first ? a : b
+    return a.firstEngine <= b.firstEngine ? a : b
+  }
+
+  const best = choose(forward(), backward())
+  return { ids: best.ids, older: stored.slice(0, best.first >= 0 ? best.first : stored.length) }
 }
 
 // The entry id an engine prompt is listed under: its stored uuid when the
@@ -112,27 +166,35 @@ export const engineId = (prompt: EnginePrompt, uuid: string | undefined) => uuid
 export const mergePrompts = (prompts: readonly EnginePrompt[], stored: readonly StoredPrompt[]): MergedPrompt[] => {
   const { ids, older } = matchStored(prompts, stored)
   const at = new Map(stored.map((prompt, index) => [prompt.id, index]))
-  const merged: MergedPrompt[] = older.map(prompt => ({ id: prompt.id, text: prompt.text }))
+  const matchedAt = [...ids.values()]
+    .map(id => at.get(id))
+    .filter((index): index is number => index !== undefined)
+    .sort((a, b) => a - b)
+  let nextMatch = 0
   let cursor = older.length
+  const merged: MergedPrompt[] = older.map(prompt => ({ id: prompt.id, text: prompt.text }))
+  const flushQueued = (limit: number) => {
+    for (; cursor < limit; cursor++) {
+      const queued = stored[cursor]!
+      if (queued.queued) merged.push({ id: queued.id, text: queued.text })
+    }
+    cursor = Math.max(cursor, limit)
+  }
   for (const prompt of prompts) {
     const id = ids.get(prompt.ordinal)
     if (id === undefined) {
-      // Queued prompts the transcript placed before this engine prompt are
-      // older than it, even though neither has a stored row of its own.
-      for (; cursor < stored.length; cursor++) {
-        const queued = stored[cursor]!
-        if (queued.queued) merged.push({ id: queued.id, text: queued.text })
-      }
+      // Queued prompts the transcript placed before the next matched prompt
+      // are older than this engine prompt, even though neither has a stored
+      // row of its own.
+      flushQueued(matchedAt[nextMatch] ?? stored.length)
       merged.push({ id: engineId(prompt, undefined), text: prompt.text, ordinal: prompt.ordinal })
       continue
     }
-    const matchedAt = at.get(id)
-    if (matchedAt !== undefined) {
-      for (; cursor < matchedAt; cursor++) {
-        const queued = stored[cursor]!
-        if (queued.queued) merged.push({ id: queued.id, text: queued.text })
-      }
-      cursor = Math.max(cursor, matchedAt + 1)
+    const matched = at.get(id)
+    if (matched !== undefined) {
+      flushQueued(matched)
+      cursor = Math.max(cursor, matched + 1)
+      while (nextMatch < matchedAt.length && matchedAt[nextMatch]! <= matched) nextMatch++
     }
     merged.push({ id, text: prompt.text, ordinal: prompt.ordinal })
   }

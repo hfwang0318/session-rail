@@ -13,9 +13,9 @@
 | 项 | 原项目 | 重构后 |
 | --- | --- | --- |
 | 测试命令 | `claude plugin test plugins/prompt-rail` | `claude plugin test plugins/claude-navigator` |
-| 结果 | 142 pass / 0 fail | 169 pass / 0 fail |
-| 耗时 | 4.46s | 4.9s |
-| 新增测试 | — | 27（12 个注入引擎列表场景 + 15 个纯函数/压缩/竞态场景） |
+| 结果 | 142 pass / 0 fail | 177 pass / 0 fail |
+| 耗时 | 4.46s | 5.3s |
+| 新增测试 | — | 35（15 个注入引擎列表场景 + 20 个纯函数/压缩/竞态场景） |
 
 原项目的 142 个测试全部保留并通过，因此 UI、布局、命令、转场、轨道绘制的行为没有回退。
 
@@ -33,7 +33,7 @@
 | 行 id | 全部来自 transcript uuid | uuid 优先；无 transcript 时用稳定引擎 id + 已渲染行 id |
 | 读失败 | 静默 | 提示一次 |
 
-核心新模块：`plugins/claude-navigator/hooks/history.ts`（约 130 行），把消息过滤、双源对齐、旧历史恢复做成纯函数，便于单测。
+核心新模块：`plugins/claude-navigator/hooks/history.ts`（约 210 行），把消息过滤、正向/反向双源对齐、旧历史恢复和对队列提示词的插入做成纯函数，便于单测。
 
 ## 4. 已修复的故障模式
 
@@ -52,7 +52,7 @@
 
 ## 5. 真实运行验证（不是仅测试替身）
 
-测试框架 `claude-code/testing` 的 `$.session` 确实没有 `messages()`。为此新增了一个**注入缝**：测试把消息列表写进插件自己的 store（键 `__claude-navigator-engine-test__`），`engineMessagesOf` 优先读取它。生产环境从不写这个键，并且只有在 `$.session.messages()` 调用失败时才会读它。上述 12 个集成测试走的是同一条 `refreshEngine` 代码路径，不是 transcript 回退路径；其中 4 个测试在没有 transcript 的情况下也能通过，证明主路径确实被使用。
+测试框架 `claude-code/testing` 的 `$.session` 确实没有 `messages()`。为此新增了一个**注入缝**：测试把消息列表写进插件自己的 store（键 `__claude-navigator-engine-test__`），`engineMessagesOf` 优先读取它。生产环境从不写这个键，并且只有在 `$.session.messages()` 调用失败时才会读它。上述 15 个注入场景走的是同一条 `refreshEngine` 代码路径，不是 transcript 回退路径；其中多个测试在没有 transcript 的情况下也能通过，证明主路径确实被使用。
 
 为了验证真实运行时 `$.session.messages()` 的形状，另用临时探针插件在 **Claude Code 2.1.308 真实会话** 中采样（`--plugin-dir` + `claude -p`）：
 

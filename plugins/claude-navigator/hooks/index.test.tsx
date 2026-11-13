@@ -2480,6 +2480,49 @@ test('a queued copy of the same text pairs with its own stored row', () => {
   ])
 })
 
+test('a repeated text at the engine window start keeps the older stored prompts', () => {
+  const stored = [
+    { id: 'c1', text: 'C' },
+    { id: 'x', text: 'X' },
+    { id: 'c2', text: 'C' },
+    { id: 'y', text: 'Y' },
+  ]
+  expect(mergePrompts([{ text: 'C', ordinal: 0 }, { text: 'Y', ordinal: 2 }], stored)).toEqual([
+    { id: 'c1', text: 'C' },
+    { id: 'x', text: 'X' },
+    { id: 'c2', text: 'C', ordinal: 0 },
+    { id: 'y', text: 'Y', ordinal: 2 },
+  ])
+})
+
+test('a queued copy before the turn prompt does not take the engine match', () => {
+  expect(mergePrompts([{ text: 'C', ordinal: 0 }], [{ id: 'q', text: 'C', queued: true }, { id: 'u2', text: 'C' }])).toEqual([
+    { id: 'q', text: 'C' },
+    { id: 'u2', text: 'C', ordinal: 0 },
+  ])
+})
+
+test('the queued fill stops at the next matched prompt, not the end', () => {
+  const stored = [{ id: 'u1', text: 'A' }, { id: 'u2', text: 'B' }, { id: 'q', text: 'Q', queued: true }]
+  expect(mergePrompts([{ text: 'A', ordinal: 0 }, { text: 'NEW', ordinal: 1 }, { text: 'B', ordinal: 2 }], stored)).toEqual([
+    { id: 'u1', text: 'A', ordinal: 0 },
+    { id: 'engine:1', text: 'NEW', ordinal: 1 },
+    { id: 'u2', text: 'B', ordinal: 2 },
+    { id: 'q', text: 'Q' },
+  ])
+  expect(
+    mergePrompts(
+      [{ text: 'A', ordinal: 0 }, { text: 'NEW', ordinal: 1 }, { text: 'B', ordinal: 2 }, { text: 'C', ordinal: 3 }],
+      [{ id: 'u1', text: 'A' }, { id: 'u2', text: 'B' }, { id: 'q', text: 'C', queued: true }],
+    ),
+  ).toEqual([
+    { id: 'u1', text: 'A', ordinal: 0 },
+    { id: 'engine:1', text: 'NEW', ordinal: 1 },
+    { id: 'u2', text: 'B', ordinal: 2 },
+    { id: 'q', text: 'C', ordinal: 3 },
+  ])
+})
+
 test('a queued prompt before a new engine prompt stays before it', () => {
   expect(mergePrompts([{ text: 'one', ordinal: 0 }, { text: 'brand new', ordinal: 4 }], [{ id: 'u0', text: 'one' }, { id: 'q1', text: 'queued', queued: true }])).toEqual([
     { id: 'u0', text: 'one', ordinal: 0 },
@@ -2651,6 +2694,58 @@ test('a prompt the engine drops with a /rewind leaves the engine-sourced list', 
   store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'alpha' }, { role: 'user', text: 'delta' }])
   await stop($)
   expect(await railLabels($)).toEqual(['alpha', 'delta'])
+})
+
+test('a prompt row drawn again does not add a second entry', async ($, on) => {
+  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
+  const store = world(on, {}, TRANSCRIPT, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'engine one' },
+    { role: 'assistant', text: 'ok' },
+    { role: 'user', text: 'engine two' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const row = await $.ui.mount({ plugin: 'claude-navigator', surface: 'terminal', component: 'UserMessage', requestId: 'r2', props: prompt('engine two', null) })
+  await row.redraw(prompt('engine two', null))
+  expect(await railLabels($)).toEqual(['engine one', 'engine two'])
+})
+
+test('an empty engine list clears a list the transcript still holds', async ($, on) => {
+  const store = world(on, {}, TRANSCRIPT)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual([])
+})
+
+test('a compaction summary alone leaves the transcript history listed', async ($, on) => {
+  const store = world(on, {}, FWD_COMPACTED)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['before compact', 'after compact'])
+})
+
+test('a classic start under a new id does not carry the old transcript history', async ($, on) => {
+  const disk = beneath(TRANSCRIPT)
+  const store = world(on, {}, TRANSCRIPT, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  expect((await railLabels($)).length).toBe(4)
+  disk.transcript = jsonl([])
+  disk.mtimeMs = 2
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'new conversation' }])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's2', transcript_path: '/t/s1.jsonl' })
+  expect(await railLabels($)).toEqual(['new conversation'])
+})
+
+test('a delayed end of an older conversation does not clear the new one', async ($, on) => {
+  world(on)
+  on('session.end', ($: any, e: any) => ({ sessionId: e.sessionId ?? 's1' }))
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.session.end({ reason: 'clear', sessionId: 'older' })
+  expect((await railLabels($)).length).toBe(4)
+  await $.session.end({ reason: 'clear', sessionId: 's1' })
+  expect(await railLabels($)).toEqual([])
 })
 
 test('a transcript read that arrives late cannot replace the engine list', async ($, on) => {

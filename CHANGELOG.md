@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Changed the vertical rail's hover card to show the whole prompt: a long prompt is cut in the row beside its tick, and the card under the hovered row wraps every word, above when it was sent and how long its turn took
+- Changed the vertical rail's hover card to show the whole prompt: a long prompt is cut in the row beside its tick, and the card under the hovered row wraps every word, above when it was sent and how long its turn took; a prompt the row already holds whole is not repeated, so the card carries only the stats
 - Added when each prompt was sent to the hover cards, before the turn's duration: the local clock time for today, the date and time for an older prompt
 - Removed the tool count from the hover cards, and the reply excerpt with it: the card shows the prompt, its sent time, the turn's duration and outcome, and the files it edited
 - Added color coding to the rail's ticks and bars: the prompt being read in the accent color, a running turn green, an interrupted one yellow, an API error red, and one Claude Code refuses to scroll to gray. Colors are theme keys and follow the person's theme

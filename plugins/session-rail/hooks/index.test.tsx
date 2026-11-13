@@ -3003,6 +3003,16 @@ test('the vertical hover card shows the whole prompt and when it was sent', asyn
   expect(await rail.find({ type: 'Text', text: /↳|tools?/ })).toBeUndefined()
 })
 
+test('a prompt the vertical row holds whole is not repeated in the hover card', async ($, on) => {
+  world(on, {}, TURNS)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  // The row beside the tick already says `first`, so the card carries only the stats.
+  expect(await rail.findAll({ type: 'Text', text: 'first' })).toHaveLength(1)
+  expect(await rail.find({ type: 'Text', text: cardRe(`${at('2026-09-24T00:00:00.000Z')} · 1m 23s · 2 files`) })).toBeDefined()
+})
+
 test('the vertical rail draws a divider at a compaction boundary', async ($, on) => {
   const store = world(on, {}, COMPACTED)
   store.set(ENGINE_MESSAGES_TEST_KEY, [

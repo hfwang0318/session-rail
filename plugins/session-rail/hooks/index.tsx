@@ -2218,34 +2218,41 @@ export const register: Register = (on, options) => {
       const width = Math.max(4, e.props.bodyColumns - 4)
       return (
         <Box flexDirection="column">
-          {entries.map((entry, i) => (
-            <Box key={`row-${i}`} flexDirection="column">
-              {i > 0 && entry.breakBefore ? <Text color="claude"> ─ compacted ─</Text> : null}
-              <Button
-                key={`jump-${i}`}
-                plain
-                dimColor={i !== current}
-                label={
-                  hasRoom
-                    ? ` ${tick(i === current, isUnreachable(i))} ${oneLine(entry.text, width)}`
-                    : ` ${tick(i === current, isUnreachable(i))} `
-                }
-                hover={{ scope: `session-rail-${i}`, inverse: true, dimColor: false }}
-                onPress={() => {}}
-              >
-                <Text color={colorOf(i)} dimColor={colorOf(i) === undefined && i !== current}>
-                  {` ${tick(i === current, isUnreachable(i))}`}
-                </Text>
-                {hasRoom ? <Text dimColor={i !== current}>{` ${oneLine(entry.text, width)}`}</Text> : null}
-              </Button>
-              {hasRoom ? (
-                <Box display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }} flexDirection="column" paddingLeft={3}>
-                  <Text wrap="wrap">{entry.text}</Text>
-                  {summaryOf(entry, width - 3) ? <Text dimColor wrap="wrap">{summaryOf(entry, width - 3)}</Text> : null}
-                </Box>
-              ) : null}
-            </Box>
-          ))}
+          {entries.map((entry, i) => {
+            // The row holds the whole prompt already: the card repeats only the
+            // stats. A prompt the row cuts, or one whose line breaks it flattens,
+            // is shown whole.
+            const fits = oneLine(entry.text, width) === entry.text
+            const summary = summaryOf(entry, width - 3)
+            return (
+              <Box key={`row-${i}`} flexDirection="column">
+                {i > 0 && entry.breakBefore ? <Text color="claude"> ─ compacted ─</Text> : null}
+                <Button
+                  key={`jump-${i}`}
+                  plain
+                  dimColor={i !== current}
+                  label={
+                    hasRoom
+                      ? ` ${tick(i === current, isUnreachable(i))} ${oneLine(entry.text, width)}`
+                      : ` ${tick(i === current, isUnreachable(i))} `
+                  }
+                  hover={{ scope: `session-rail-${i}`, inverse: true, dimColor: false }}
+                  onPress={() => {}}
+                >
+                  <Text color={colorOf(i)} dimColor={colorOf(i) === undefined && i !== current}>
+                    {` ${tick(i === current, isUnreachable(i))}`}
+                  </Text>
+                  {hasRoom ? <Text dimColor={i !== current}>{` ${oneLine(entry.text, width)}`}</Text> : null}
+                </Button>
+                {hasRoom && (!fits || summary) ? (
+                  <Box display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }} flexDirection="column" paddingLeft={3}>
+                    {fits ? null : <Text wrap="wrap">{entry.text}</Text>}
+                    {summary ? <Text dimColor wrap="wrap">{summary}</Text> : null}
+                  </Box>
+                ) : null}
+              </Box>
+            )
+          })}
         </Box>
       )
     }

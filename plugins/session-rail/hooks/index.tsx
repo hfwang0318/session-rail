@@ -41,7 +41,7 @@ const PROVISIONAL_ID = 'placeholder'
 // prompts. Builds up to 2.1.304 stored some of the messages with no origin,
 // so only this framing tells them apart.
 const WRAPPER =
-  /^(<(command-|local-command-|bash-|system-reminder|task-notification|user-prompt-submit-hook|cross-session-message|agent-message|teammate-message|relay\b)|Another Claude session sent a message)/
+  /^(<(command-|local-command-|bash-|system-reminder|task-notification|user-prompt-submit-hook|cross-session-message|agent-message|teammate-message|relay\b)|Another Claude session sent a message|Here is a note offered by a side agent)/
 // Origins the transcript stores on a row no person typed: another session or
 // agent, a background task or relay, the engine's own follow-up, a plugin's
 // prompt. The file names them apart from the hooks (a typed prompt is
@@ -920,7 +920,9 @@ async function rememberedTranscript($: EngineInterface) {
 // configDirOf), whose config folder is not known, and for a folder name the
 // engine cut that no folder on disk matches yet.
 export async function findTranscript(probe: Probe, root: string, id: string, launchCwd: string | undefined) {
-  const config = configDirOf(root)
+  // A plugin loaded from a folder of its own (--plugin-dir, or a checkout's
+  // source folder a reload reads) names no config folder; the environment does.
+  const config = configDirOf(root) ?? (probe.config === undefined ? undefined : await probe.config().catch(() => undefined))
   if (config === undefined) return undefined
   const now = await probe.dirs().catch(() => [])
   const cwds = [...new Set([launchCwd, ...now].filter((cwd): cwd is string => cwd !== undefined))]
@@ -945,6 +947,8 @@ export type Probe = {
   dirs: () => Promise<readonly string[]>
   exists: (path: string) => Promise<boolean>
   folders: (path: string) => Promise<readonly string[]>
+  // The config folder, where the plugin's own root does not name it.
+  config?: () => Promise<{ dir: string; sep: string } | undefined>
 }
 
 // The transcript path a classic SessionStart remembered for this session, or
@@ -954,6 +958,19 @@ function probeOf($: EngineInterface): Probe {
     dirs: async () => [await $.session.cwd(), await $.session.root()],
     exists: path => $.fs.exists(path),
     folders: async path => (await $.fs.list(path)).filter(entry => entry.kind === 'dir').map(entry => entry.name),
+    // The config folder a plugin loaded from a folder of its own does not name:
+    // CLAUDE_CONFIG_DIR where set, else `~/.claude` under HOME (USERPROFILE on
+    // Windows). Unreadable there, the caller looks no further.
+    config: async () => {
+      const configured = await $.env.get('CLAUDE_CONFIG_DIR')
+      if (configured) {
+        return { dir: configured.replace(/[\\/]+$/, ''), sep: configured.includes('\\') ? '\\' : '/' }
+      }
+      const home = (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))
+      if (!home) return undefined
+      const sep = home.includes('\\') ? '\\' : '/'
+      return { dir: `${home.replace(/[\\/]+$/, '')}${sep}.claude`, sep }
+    },
   }
 }
 
@@ -1646,12 +1663,15 @@ export const register: Register = (on, options) => {
       }
       const entry = entries[index]
       const target = targetOf(entry)
-      if (entry && target && (await jumpTo($, entry.id, target, unreachable, notices))) {
-        const jump = landOn(entry.id, target, index)
-        $.clock.after(SETTLE_MAX_MS, () => {
-          jump.isSettled = true
-        })
-        if (isDrawnStale()) await redrawRail($)
+      if (entry && target) {
+        const landedHere = await jumpTo($, entry.id, target, unreachable, notices)
+        if (landedHere) {
+          const jump = landOn(entry.id, target, index)
+          $.clock.after(SETTLE_MAX_MS, () => {
+            jump.isSettled = true
+          })
+          if (isDrawnStale()) await redrawRail($)
+        }
       }
       if (!entry) $.ui.toast(missingFor(e.command, asked))
       return {}
@@ -2106,7 +2126,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'UserMessage' }, ($, e, next) => {
     // A slash command's row is drawn as a user row too; it is not a prompt.
     const text = e.props.text.replace(VIEW_CONTEXT, '').trim()
-    if (PROMPT_KINDS.has(e.props.origin.kind) && text && !text.startsWith('/')) {
+    if (PROMPT_KINDS.has(e.props.origin.kind) && text && !text.startsWith('/') && !WRAPPER.test(text)) {
       drawn.set(rowKey(e.requestId), e.requestId)
       if (listDrawn(e.requestId, text)) redrawRailLater($)
       // The engine's list names prompts without uuids; a row whose text names
@@ -2541,12 +2561,15 @@ export const register: Register = (on, options) => {
     unring()
     const entry = entries[index]
     const target = targetOf(entry)
-    if (entry && target && (await jumpTo($, entry.id, target, unreachable, notices))) {
-      const jump = landOn(entry.id, target, index)
-      $.clock.after(SETTLE_MAX_MS, () => {
-        jump.isSettled = true
-      })
-      if (isDrawnStale()) await redrawRail($)
+    if (entry && target) {
+      const landedHere = await jumpTo($, entry.id, target, unreachable, notices)
+      if (landedHere) {
+        const jump = landOn(entry.id, target, index)
+        $.clock.after(SETTLE_MAX_MS, () => {
+          jump.isSettled = true
+        })
+        if (isDrawnStale()) await redrawRail($)
+      }
     }
     return next(e)
   })

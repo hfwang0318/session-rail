@@ -3165,12 +3165,6 @@ export const register: Register = (on, options) => {
     }
     const current = currentIndex()
     drawnCurrent = current
-    // The list may be taller than the pane: bring the row being read into the
-    // pane's window when it moves, so the heavy mark is always one row shown.
-    if (isRail && current !== followedCurrent) {
-      followedCurrent = current
-      followCurrent($, current < 0 ? 'end' : `row-${current}`)
-    }
     if (hasRunning()) keepSpinning($)
     // Docked on the terminal: one row per prompt, its tick and its text, the
     // whole row pressable. Too narrow for text, ticks alone (the band shows it).
@@ -3264,6 +3258,14 @@ export const register: Register = (on, options) => {
           contentTops.push(y)
           y++
         })
+      }
+      const contentRows = (contentTops[contentTops.length - 1] ?? headRows - 1) + 1 + (dividerAt.has(entries.length) ? 1 : 0)
+      // The list may be taller than the pane: bring the row being read into the
+      // pane's window when it moves, so the heavy mark is always one row shown.
+      // A list that fits needs no move, and no clock to schedule one.
+      if (current !== followedCurrent) {
+        followedCurrent = current
+        if (contentRows > bodyRows) followCurrent($, current < 0 ? 'end' : `row-${current}`)
       }
       const cardLeft = Math.min(CHANNEL_COLUMNS, Math.max(0, e.props.bodyColumns - 4))
       const cardWidth = Math.max(1, e.props.bodyColumns - cardLeft)

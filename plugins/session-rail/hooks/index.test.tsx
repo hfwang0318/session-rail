@@ -248,11 +248,15 @@ test('with no prompt on screen the text line shows the newest one and no bar is 
 test('the horizontal band rings its bars, starting on the one being read, and shows the ringed card for a while', async ($, on) => {
   const clock = mock.clock(on)
   const moves: (string | undefined)[] = []
-  // Stand in for the engine moving the ring.
-  on('ui.focus', ($: any, e: any) => {
+  // Stand in for the engine moving the ring. A call on $ takes the value shape;
+  // newer kits name the plugin on it, and only a wildcard matcher answers that,
+  // while older ones answer the matcherless hook alone.
+  const recordFocus = ($: any, e: any) => {
     moves.push(e.element)
-    return {}
-  })
+    return { value: {} }
+  }
+  on('ui.focus', { plugin: '*' }, recordFocus)
+  on('ui.focus', recordFocus)
   await drawPrompts($, on)
   const focus = (plugin: string, element: string) =>
     $.ui.focus({ component: 'AbovePrompt', requestId: 'above-prompt', plugin, element, origin: { kind: 'person' } })
@@ -354,26 +358,29 @@ test('on the desktop the bars leave room beside them for the prompt being read',
   expect(String(label.text)).toMatch(/^#2 second/)
 })
 
-test('the band keeps what the mods after it draw, above the rail', async ($, on) => {
+test('the band keeps what the mods after it draw beside the rail', async ($, on) => {
+  mock.clock(on)
   await drawPrompts($, on, 'cache 98% · 3:41')
   const isBelow = (node: any) => node.type === 'Text' && node.text === 'cache 98% · 3:41'
   const isRail = (node: any) => node.type === 'Button' || node.props?.key === 'card-0'
-  const expectBelowAboveRail = async (band: any) => {
+  // The rail draws a tree where the mods after it drew theirs; a newer engine
+  // stacks that answer with the mods' own rows itself, above or below the rail,
+  // so neither row may be dropped or drawn twice.
+  const expectWithBelow = async (band: any) => {
     const drawn = await band.findAll({})
     expect(drawn.findIndex(isRail)).toBeGreaterThanOrEqual(0)
-    expect(drawn.findIndex(isBelow)).toBeGreaterThanOrEqual(0)
-    expect(drawn.findIndex(isBelow)).toBeLessThan(drawn.findIndex(isRail))
+    expect(drawn.filter(isBelow).length).toBe(1)
   }
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   for (const surface of SURFACES) {
     const band = await $.ui.mount({ plugin: 'session-rail', surface, component: 'AbovePrompt', props: BAND })
-    await expectBelowAboveRail(band)
+    await expectWithBelow(band)
     await band.unmount()
   }
   // A vertical rail too narrow to reveal beside its ticks keeps hidden cards in the band.
   await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 4) })
-  await expectBelowAboveRail(await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND }))
+  await expectWithBelow(await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND }))
 })
 
 test('a command names a prompt by number, first, last or the words it holds', () => {
@@ -4513,7 +4520,9 @@ test('scrollOnHover: a jump lights the row it landed on', { options: { scrollOnH
 test("scrollOnHover: a ringed line and the same prompt's hidden card keep distinct Clients", { options: { scrollOnHover: true } }, async ($, on) => {
   world(on, {}, SCROLLED)
   mock.clock(on)
-  on('ui.focus', () => ({}))
+  const answerFocus = () => ({ value: {} })
+  on('ui.focus', { plugin: '*' }, answerFocus)
+  on('ui.focus', answerFocus)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })

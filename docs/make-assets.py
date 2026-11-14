@@ -50,8 +50,10 @@ YELLOW = "#e5c07b"
 RED = "#f07171"
 GRAY = "#6c7078"
 CODE = "#c7c9cc"
-INVERSE = "#d7d8da"
-INVERSE_TEXT = "#1a1b1e"
+# The hover panel's colours, as the plugin's defaults paint them.
+CARD_BG = "#264f78"
+CARD_TEXT = "#f2f2f2"
+CARD_STATS = "#9fbad6"
 PAGE = "#111216"
 
 
@@ -146,6 +148,37 @@ REPLIES = [
 OUTCOME_WORDS = {"running": "running", "interrupted": "interrupted", "error": "API error"}
 
 
+def stats_sentence(prompt: Prompt) -> str:
+    """The pane card's stats as the plugin writes them: one sentence."""
+    turn = prompt.turn
+    lead = f"At {turn.sent}" if turn.sent else ""
+
+    def join(tail: str) -> str:
+        if not lead:
+            return tail
+        return f"{lead}, {tail}" if tail else lead
+
+    if turn.outcome == "running":
+        return join("still running")
+    took = f"ran {turn.duration}" if turn.duration else ""
+    if turn.outcome == "interrupted":
+        return join(f"{took} and was interrupted" if took else "was interrupted")
+    if turn.outcome == "error":
+        return join(f"{took} and ended with an API error" if took else "ended with an API error")
+    names = [Path(path).name for path in turn.files]
+    if not names:
+        changed = ""
+    elif len(names) == 1:
+        changed = f"changed {names[0]}"
+    elif len(names) == 2:
+        changed = f"changed {names[0]} and {names[1]}"
+    else:
+        changed = f"changed {len(names)} files"
+    if took and changed:
+        return join(f"{took} and {changed}")
+    return join(took or changed)
+
+
 def summary(prompt: Prompt, max_cells: int | None = None) -> str:
     """Sent time, turn details and files; names fewer files to fit max_cells."""
     turn = prompt.turn
@@ -211,11 +244,25 @@ def label(
     d.text((sx(x), sx(y_center)), text, font=BOLD if bold else REGULAR, fill=color, anchor=anchor)
 
 
+def panel_label(
+    d: ImageDraw.ImageDraw,
+    x: float,
+    y_center: float,
+    text: str,
+    color: str = CARD_TEXT,
+    width: float | None = None,
+) -> None:
+    """A band card's line on its panel, bold, its background behind it."""
+    w = width if width is not None else REGULAR.getlength(text) / SCALE + CELL
+    rect(d, x - CELL / 2, y_center - LINE / 2, w, LINE, fill=CARD_BG)
+    label(d, x, y_center, text, color, bold=True)
+
+
 def pill(d: ImageDraw.ImageDraw, x: float, y: float, w: float, h: float, fill: str, outline: str | None = None) -> None:
     rect(d, x, y, w, h, radius=h / 2, fill=fill, outline=outline, width=1 if outline else 0)
 
 
-def window(width: float, height: float, title: str = "~/demo", right: str = "session-rail 0.11.0") -> tuple[Image.Image, ImageDraw.ImageDraw]:
+def window(width: float, height: float, title: str = "~/demo", right: str = "session-rail 0.12.0") -> tuple[Image.Image, ImageDraw.ImageDraw]:
     img = Image.new("RGB", (s(width), s(height)), WINDOW)
     d = ImageDraw.Draw(img)
     # A rounded top edge is enough to read as a window; the page colour fills
@@ -361,7 +408,7 @@ class RailRow:
 
 
 def rail_rows(entries: list[Prompt], current: int, hover: int | None, width_cells: int, expand: bool) -> list[RailRow]:
-    """Rows as they stack, with a hovered row's card counted in."""
+    """Rows as they stack: a hover card floats over them and moves none."""
     rows: list[RailRow] = []
     top = 0.0
     for index, prompt in enumerate(entries):
@@ -370,14 +417,44 @@ def rail_rows(entries: list[Prompt], current: int, hover: int | None, width_cell
             top += LINE
         rows.append(RailRow(index, top, LINE))
         top += LINE
-        if expand and hover == index:
-            lines = 0
-            if cut(prompt.text, width_cells) != " ".join(prompt.text.split()):
-                lines += len(wrap(prompt.text, width_cells - 3))
-            lines += len(wrap(summary(prompt, width_cells - 3), width_cells - 3))
-            rows.append(RailRow(-2 - index, top, lines * LINE))
-            top += lines * LINE
     return rows
+
+
+SPINNER_DOTS = {(0, 0), (1, 0), (1, 1), (1, 2)}
+
+
+def draw_spinner(d: ImageDraw.ImageDraw, x: float, y_center: float) -> None:
+    """A running turn's tick spins in place; the stills catch one frame (⠹).
+    Drawn as dots because the terminal face has no Braille glyphs."""
+    for column in range(2):
+        for row in range(4):
+            if (column, row) not in SPINNER_DOTS:
+                continue
+            cx = x - 1.8 + column * 3.6
+            cy = y_center - 4.7 + row * 3.1
+            d.ellipse(
+                [sx(cx - 0.95), sx(cy - 0.95), sx(cx + 0.95), sx(cy + 0.95)],
+                fill=GREEN,
+            )
+
+
+def card_lines(prompt: Prompt, width_cells: int, whole: bool) -> list[tuple[str, bool]]:
+    """The card's lines: the prompt's rest (or its whole text), a blank panel
+    line, and the stats sentence, wrapped to leave the scrollbar a column."""
+    card_cells = max(8, width_cells - 3)
+    if whole:
+        body = wrap(" ".join(prompt.text.split()), card_cells)
+    else:
+        flat = " ".join(prompt.text.split())
+        head = cut(flat, width_cells - 1)
+        rest = flat[len(head[:-1]):].lstrip() if head.endswith("…") else ""
+        body = wrap(rest, card_cells) if rest else []
+    stats = wrap(stats_sentence(prompt), card_cells)
+    lines: list[tuple[str, bool]] = [(part, False) for part in body]
+    if lines and stats:
+        lines.append(("", False))
+    lines += [(part, True) for part in stats]
+    return lines
 
 
 def draw_rail(
@@ -389,36 +466,101 @@ def draw_rail(
     current: int,
     hover: int | None,
     expand: bool = True,
+    rows: int | None = None,
+    offset: int = 0,
+    pulse: int | None = None,
 ) -> None:
-    """The docked vertical rail, one prompt a row, the hovered one expanded."""
-    rows = rail_rows(entries, current, hover, width_cells, expand)
-    for row in rows:
+    """The docked vertical rail, one prompt a row, the hovered one expanded.
+
+    With `rows`, the pane's body height, a card too tall for the room beside
+    its row becomes a window with a scrollbar, and a card that opens above its
+    row blanks it; the card shows the whole prompt from its first line.
+    """
+    stack = rail_rows(entries, current, hover, width_cells, expand)
+    hover_row = next((row for row in stack if row.index == hover), None)
+
+    # Where the card opens, mirroring the plugin's cardFit.
+    lines: list[tuple[str, bool]] = []
+    side = "below"
+    window = 0
+    if hover_row is not None and hover is not None:
+        row_top = int(round(hover_row.top / LINE))
+        below_space = max(0, rows - row_top - 1) if rows is not None else 10**6
+        above_space = row_top if rows is not None else 0
+        probe = card_lines(entries[hover], width_cells, whole=False)
+        side = "below"
+        window = len(probe)
+        if rows is not None:
+            if len(probe) <= below_space:
+                side, window = "below", len(probe)
+            elif len(probe) <= above_space:
+                side, window = "above", len(probe)
+            elif above_space >= below_space:
+                side, window = "above", above_space
+            else:
+                side, window = "below", below_space
+        whole = side == "above"
+        lines = probe if not whole else card_lines(entries[hover], width_cells, whole=True)
+
+    blank_hover = hover_row is not None and side == "above"
+
+    for row in stack:
         if row.index == -1:
             label(d, x + CELL, y + row.top + LINE / 2, "─ compacted ─", ACCENT)
             continue
-        if row.index < -1:
-            index = -2 - row.index
-            prompt = entries[index]
-            offset = 0
-            if cut(prompt.text, width_cells) != " ".join(prompt.text.split()):
-                for part in wrap(prompt.text, width_cells - 3):
-                    label(d, x + 3 * CELL, y + row.top + offset * LINE + LINE / 2, part, TEXT)
-                    offset += 1
-            for part in wrap(summary(prompt, width_cells - 3), width_cells - 3):
-                label(d, x + 3 * CELL, y + row.top + offset * LINE + LINE / 2, part, DIM)
-                offset += 1
-            continue
         index = row.index
         prompt = entries[index]
-        color, heavy, dotted = tick_color(prompt, index, current)
         cy = y + row.top + LINE / 2
         if hover == index:
-            rect(d, x - 3, y + row.top, (width_cells + 2) * CELL + 6, LINE, fill=INVERSE, radius=3)
-            draw_tick(d, x + CELL, cy, INVERSE_TEXT, heavy, dotted)
-            label(d, x + 2 * CELL, cy, cut(prompt.text, width_cells), INVERSE_TEXT)
+            # The row and the card share one panel. A card that opens above
+            # carries the whole prompt, so the row itself goes blank.
+            rect(d, x - 3, y + row.top, (width_cells + 2) * CELL + 6, LINE, fill=CARD_BG, radius=3)
+            if blank_hover:
+                continue
+            if prompt.turn.outcome == "running":
+                draw_spinner(d, x + CELL, cy)
+            else:
+                color, heavy, dotted = tick_color(prompt, index, current)
+                draw_tick(d, x + CELL, cy, color, heavy, dotted)
+            # The row's cut mark is hidden while its card continues it.
+            text = cut(prompt.text, width_cells - 1)
+            if text.endswith("…"):
+                text = text[:-1]
+            label(d, x + 3 * CELL, cy, text, CARD_TEXT, bold=True)
+        elif pulse == index:
+            # A jump briefly inverts the row it landed on.
+            rect(d, x - 3, y + row.top, (width_cells + 2) * CELL + 6, LINE, fill=TEXT, radius=3)
+            draw_tick(d, x + CELL, cy, WINDOW, True, False)
+            label(d, x + 3 * CELL, cy, cut(prompt.text, width_cells - 1), WINDOW, bold=True)
         else:
-            draw_tick(d, x + CELL, cy, color, heavy, dotted)
-            label(d, x + 2 * CELL, cy, cut(prompt.text, width_cells), TEXT if index == current else DIM)
+            if prompt.turn.outcome == "running":
+                draw_spinner(d, x + CELL, cy)
+            else:
+                color, heavy, dotted = tick_color(prompt, index, current)
+                draw_tick(d, x + CELL, cy, color, heavy, dotted)
+            label(d, x + 3 * CELL, cy, cut(prompt.text, width_cells - 1), TEXT if index == current else DIM)
+
+    if hover_row is None or hover is None or window <= 0:
+        return
+    # The card floats beside its row: covered rows are not pushed, and a
+    # window shows one screen of lines with a scrollbar on the right edge.
+    total = len(lines)
+    window = min(window, total)
+    first = max(0, min(offset, total - window))
+    card_x = x + 3 * CELL
+    card_w = (width_cells - 1) * CELL + 6
+    card_top = y + hover_row.top + LINE if side == "below" else y + hover_row.top - window * LINE
+    for row_index, (text, is_stats) in enumerate(lines[first:first + window]):
+        top = card_top + row_index * LINE
+        rect(d, card_x, top, card_w, LINE, fill=CARD_BG)
+        label(d, card_x + CELL / 2, top + LINE / 2, text, CARD_STATS if is_stats else CARD_TEXT, bold=True)
+    if total > window:
+        # The terminal's scrollbar: a track line and a block thumb.
+        track_x = card_x + card_w - CELL / 2
+        rect(d, track_x - 0.8, card_top + 1, 1.6, window * LINE - 2, fill=CARD_STATS)
+        thumb_h = max(1, round(window * window / total))
+        thumb_top = round((window - thumb_h) * first / max(1, total - window))
+        rect(d, track_x - 2, card_top + thumb_top * LINE + 1, 4, thumb_h * LINE - 2, fill=CARD_TEXT, radius=2)
 
 
 # ------------------------------------------------------------------ composer
@@ -481,7 +623,7 @@ def still_horizontal(path: Path) -> None:
     hover = 3
     prompt = PROMPTS[hover]
     card = f"#{hover + 1} {prompt.text} · {summary(prompt)}"
-    label(d, 24, 404, cut(card, 126), TEXT)
+    panel_label(d, 24, 404, cut(card, 126), width=1052)
     bars_y = 430
     for index, entry in enumerate(PROMPTS):
         color, heavy, dotted = tick_color(entry, index, 2)
@@ -513,7 +655,63 @@ def still_below(path: Path) -> None:
     label(d, bx + len(PROMPTS) * CELL + CELL / 2, row_y, "›", DIM)
     card_x = bx + (len(PROMPTS) + 2) * CELL
     card = f"#{hover + 1} {prompt.text} · {summary(prompt)}"
-    label(d, card_x, row_y, cut(card, 100), TEXT)
+    panel_label(d, card_x, row_y, cut(card, 100), width=1076 - card_x)
+    img.save(path, optimize=True)
+
+
+SHORT_PROMPTS = [
+    "Explain what src/debounce.ts does",
+    "Add a cancel() method that clears the pending timeout",
+    "Write tests for cancel() with and without a pending call",
+    "Why does the test fail on Node 18?",
+    "Fix the timer typing for Node and browsers",
+    "Run the suite and update the README example",
+    "Now add a leading-edge option",
+    "Why is the trailing call skipped when wait is 0?",
+    "Document the return value of the wrapped function",
+    "Add a flush() method that runs the pending call now",
+    "Check that cancel() after flush() is a no-op",
+    "Cover the case where the timer handle is a number",
+    "Simplify the option parsing with a defaults object",
+    "Add a changeset and bump the minor version",
+    "Run typecheck, the suite and the formatter",
+    "Write the release notes for 0.13",
+]
+
+LONG_PROMPT = (
+    "Walk me through the debounce helper end to end: how the timer is typed so it works in both "
+    "Node and the browser, why every call replaces the pending timer instead of queueing, what "
+    "cancel() and flush() should report when nothing is pending, and which tests cover the leading "
+    "edge, the trailing edge and the wait between them. Then update the README example so it shows "
+    "the default wait, the option names, and the return value callers can rely on. Finish by running "
+    "the suite and listing any behavior that changes for code that passes its own timer handle, "
+    "including the cases where clearTimeout is unavailable or returns nothing."
+)
+
+CARD_SCENE = [
+    Prompt(text, Turn(f"14:{2 + index:02d}", f"{6 + index * 3}s"))
+    for index, text in enumerate(SHORT_PROMPTS)
+] + [
+    Prompt(LONG_PROMPT, Turn("15:02", "3m 08s", ["src/debounce.ts", "README.md"])),
+    Prompt("Also document the flush() option", Turn("15:09", "34s", ["README.md"])),
+    Prompt("Run the release checks", Turn("15:11", "18s")),
+]
+CARD_INDEX = len(SHORT_PROMPTS)
+
+
+def still_card_above(path: Path) -> None:
+    """A card taller than the room below opens above its row: the whole prompt
+    from line one, the row blank, and a scrollbar for the lines past the window."""
+    width, height = 1000, 640
+    img, d = window(width, height)
+    lines, starts = build_lines(CARD_SCENE, 68)
+    img.paste(
+        draw_transcript(lines, 616, 460, starts[CARD_INDEX] - 4, 68),
+        (s(24), s(56)),
+    )
+    line(d, 650, 44, 650, height - 12, BORDER)
+    draw_rail(d, 672, 64, 33, CARD_SCENE, CARD_INDEX, CARD_INDEX, rows=23)
+    draw_composer(d, 24, 528, 616, "Ask Claude to change something…")
     img.save(path, optimize=True)
 
 
@@ -574,13 +772,14 @@ def demo_frame(
     pointer_at: tuple[float, float] | None,
     ring: float | None,
     caption: str,
+    pulse: int | None = None,
 ) -> Image.Image:
     page, _ = frame_page(caption)
     win, d = window(768, 420, title="~/demo")
     lines, _ = build_lines(DEMO_PROMPTS, 54)
     win.paste(draw_transcript(lines, 470, 260, top, 54), (s(20), s(50)))
     line(d, 482, 44, 482, 410, BORDER)
-    draw_rail(d, 500, 50, 26, DEMO_PROMPTS, current, hover)
+    draw_rail(d, 500, 50, 26, DEMO_PROMPTS, current, hover, pulse=pulse)
     draw_composer(d, 20, 344, 470, "Ask Claude to change something…", status=False)
     draw_mode_line(d, 20, 386)
     if pointer_at is not None:
@@ -602,6 +801,7 @@ def make_demo(path: Path) -> None:
     origin = (700, 390)
     click_at = (570, row_two)
     for frame in range(total):
+        pulse = 1 if 19 <= frame <= 24 else None
         if frame <= 7:
             t = ease(frame / 7)
             at = (origin[0] + (click_at[0] - origin[0]) * t, origin[1] + (click_at[1] - origin[1]) * t)
@@ -620,7 +820,58 @@ def make_demo(path: Path) -> None:
             at = (click_at[0] + (target[0] - click_at[0]) * t, click_at[1] + (target[1] - click_at[1]) * t)
             hover, current, top, ring = (4 if frame >= 49 else None), 1, end, None
         caption = "hover to read a prompt  ·  click to jump"
-        frames.append(demo_frame(current, hover, top, at, ring, caption))
+        frames.append(demo_frame(current, hover, top, at, ring, caption, pulse))
+    save_gif(frames, path)
+
+
+ABOVE_DEMO_PROMPTS = [
+    Prompt(text, Turn(f"14:{2 + index:02d}", f"{6 + index * 2}s"))
+    for index, text in enumerate(SHORT_PROMPTS[:10])
+] + [
+    Prompt(LONG_PROMPT, Turn("15:02", "3m 08s", ["src/debounce.ts", "README.md"])),
+    Prompt("Also document the flush() option", Turn("15:09", "34s", ["README.md"])),
+]
+ABOVE_INDEX = 10
+
+
+def above_frame(top: float, offset: int, pointer_at: tuple[float, float] | None) -> Image.Image:
+    page, _ = frame_page("a tall card opens above its row  ·  the wheel scrolls it")
+    win, d = window(768, 420)
+    lines, _ = build_lines(ABOVE_DEMO_PROMPTS, 54)
+    win.paste(draw_transcript(lines, 470, 260, top, 54), (s(20), s(50)))
+    line(d, 482, 44, 482, 410, BORDER)
+    draw_rail(d, 500, 50, 26, ABOVE_DEMO_PROMPTS, ABOVE_INDEX, ABOVE_INDEX, rows=14, offset=offset)
+    draw_composer(d, 20, 344, 470, "Ask Claude to change something…", status=False)
+    draw_mode_line(d, 20, 386)
+    if pointer_at is not None:
+        pointer(d, pointer_at[0], pointer_at[1])
+    page.paste(win, (s(16), s(14)))
+    return page
+
+
+def make_card_above(path: Path) -> None:
+    lines, starts = build_lines(ABOVE_DEMO_PROMPTS, 54)
+    del lines
+    drop = 50 + ABOVE_INDEX * LINE + LINE / 2
+    at = (500 + 7 * CELL, drop)
+    origin = (700, 390)
+    # The scroll window the frame function computes: enough lines to fill the
+    # rail above the row, out of the card's full length.
+    total = len(card_lines(ABOVE_DEMO_PROMPTS[ABOVE_INDEX], 26, whole=True))
+    window = ABOVE_INDEX
+    last = max(0, total - window)
+    frames: list[Image.Image] = []
+    for frame in range(56):
+        if frame <= 7:
+            t = ease(frame / 7)
+            pos = (origin[0] + (at[0] - origin[0]) * t, origin[1] + (at[1] - origin[1]) * t)
+            offset = 0
+        elif frame <= 22:
+            pos, offset = at, 0
+        else:
+            pos = at
+            offset = round(last * ease((frame - 22) / 24))
+        frames.append(above_frame(starts[ABOVE_INDEX] - 3, offset, pos))
     save_gif(frames, path)
 
 
@@ -686,7 +937,7 @@ def below_frame(current: int, hover: int | None, top: float, pointer_at: tuple[f
     else:
         prompt = DEMO_PROMPTS[hover]
         card = f"#{hover + 1} {prompt.text} · {summary(prompt)}"
-        label(d, card_x, row_y, cut(card, 62), TEXT)
+        panel_label(d, card_x, row_y, cut(card, 62), width=748 - card_x)
     if pointer_at is not None:
         pointer(d, pointer_at[0], pointer_at[1], ring)
     page.paste(win, (s(16), s(14)))
@@ -715,8 +966,10 @@ def main() -> None:
         "vertical": (still_vertical, HERE / "vertical.png"),
         "horizontal": (still_horizontal, HERE / "horizontal.png"),
         "below": (still_below, HERE / "below.png"),
+        "card-above": (still_card_above, HERE / "card-above.png"),
         "demo": (make_demo, HERE / "demo.gif"),
         "below-gif": (make_below, HERE / "below.gif"),
+        "above-gif": (make_card_above, HERE / "card-above.gif"),
     }
     for name, (run, path) in jobs.items():
         if wanted and name not in wanted:

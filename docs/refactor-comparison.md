@@ -13,9 +13,9 @@
 | 项 | 原项目 | 重构后 |
 | --- | --- | --- |
 | 测试命令 | `claude plugin test plugins/prompt-rail` | `claude plugin test plugins/session-rail` |
-| 结果 | 142 pass / 0 fail | 202 pass / 0 fail |
-| 耗时 | 4.5s | 5.9s |
-| 新增测试 | — | 60（15 个注入引擎列表场景 + 45 个纯函数/压缩/竞态场景） |
+| 结果 | 142 pass / 0 fail | 229 pass / 0 fail |
+| 耗时 | 4.5s | 8.9s |
+| 新增测试 | — | 87（15 个注入引擎列表场景、纯函数/压缩/竞态场景，以及悬停卡片布局与滚动的单元与挂载测试） |
 
 原项目的 142 个测试全部保留并通过，因此 UI、布局、命令、转场、轨道绘制的行为没有回退。
 
@@ -111,7 +111,9 @@
 - **插件从源码目录加载时找不到 transcript（HIGH）**：`configDirOf(root)` 只认出 `<config>/plugins/cache/...` 形状的 root；用 `--plugin-dir` 或 reload 直接读源码目录时返回 `undefined`，于是不读 transcript，所有 restored 行都没有 uuid。现在在没有 classic hooks 命名 transcript 时，用 `CLAUDE_CONFIG_DIR`，否则用 `HOME`/`USERPROFILE` 下的 `.claude` 兜底。
 - **restored 行没有 origin 戳（HIGH）**：这类行被引擎画成 `unclassified`，插件的 `UserMessage` 钩子原先不记录它的 requestId，导致该提示词永远没有跳转目标。现在记录当前绘制所用的 id，按文本把这条引擎提示词与引擎列表唯一对应，并优先用“当前绘制的行 id”，而不是早先记住的 id。
 
-这两条修复都有真实会话复现与回归测试；`claude plugin test` 保持 202 pass / 0 fail，`claude plugin validate` 通过。
+这两条修复都有真实会话复现与回归测试；`claude plugin test` 当时保持 202 pass / 0 fail，`claude plugin validate` 通过。
+
+0.12.0 又针对三类真实运行故障做了修复，均以纯函数或挂载测试守住：运行中的提示词在输入框里以临时 id（`placeholder` / `placeholder-N`）回显，点击不应把它当作跳转目标；跳到运行中的提示词应落在 transcript 的活动末端而不是提示词自身行的顶部；卡的发送时间应按机器时区而不是会话 `TZ` 显示（后者在沙箱里会被改成 UTC）。
 
 ## 7. 已知限制
 
@@ -120,7 +122,8 @@
 - 没有 transcript 时，跳转只能指向已经渲染过一次的行（引擎列表没有行 id）；插件现在会记录当前绘制的 requestId 并按文本唯一匹配引擎列表兜底，但行从未绘制过时仍没有目标。
 - 测试框架的 `$.plugin.root` 不是 marketplace 形状，`reconsiderTranscript` 找到新路径后的“采纳并重读”分支无法在单测里走到；其决策逻辑有纯函数测试，真实路径需在 marketplace 安装环境下验证。
 - 若引擎异常地对同一 `turnId` 重复投递 `turn.complete`，且期间已列出新提示词，重复的时长仍会记到最新提示词。这是重构前就有的行为；正常引擎不会重复投递，本次未改动。
-- 未做交互式 TUI 的人工验收；布局与交互由原项目的 142 个测试覆盖。
+- 0.12.0 的悬停卡片为此做了一轮**真实终端**验收：在 tmux 的 PTY 里注入 SGR 鼠标事件（不移动本机指针），按 SGR 属性核对整行底色、省略号隐藏、滚动条与滚轮响应；浅色主题下的默认深蓝面板尚未人工确认，可在 `/config` 改色。
+- 其余布局与交互由原项目的 142 个测试与新增的挂载测试覆盖。
 
 ## 8. 复现
 

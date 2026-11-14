@@ -1,6 +1,6 @@
 {
   "name": "session-rail",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one in full with when it was sent, click to jump to it. Fork of prompt-rail, with the engine's own message list as the primary history source.",
   "author": {
     "name": "hfwang, based on prompt-rail by oikon48"
@@ -38,6 +38,30 @@
       "title": "Expand on hover",
       "description": "Hovering a prompt opens its card: the whole prompt when its row or bar cuts it, and when it was sent, how long its turn took, how it ended and the files it edited. Off leaves the rail as it is, with no card; a prompt the rail cuts is then read only in part.",
       "default": true
+    },
+    "scrollOnHover": {
+      "type": "boolean",
+      "title": "Scroll on hover",
+      "description": "With Expand on hover on, a prompt the rail cuts scrolls in place on one line instead of taking the card's lines: in the pane the hovered row scrolls and keeps only the sent time and the turn's details on a line beneath; in the band the card's line scrolls the prompt beside them. Off, the pane's card wraps the whole prompt.",
+      "default": false
+    },
+    "cardBackground": {
+      "type": "string",
+      "title": "Hover card background",
+      "description": "The background of a hover card in every layout, and of the row or bar under the pointer: a theme key (e.g. inactive) or a raw color (a name such as red, or hex). In the pane the hovered row's ellipsis is covered by this same color, so the card reads as continuing its sentence. Default #264f78 is a deep blue chosen for dark themes and may be changed for a light one.",
+      "default": "#264f78"
+    },
+    "cardText": {
+      "type": "string",
+      "title": "Hover card text",
+      "description": "The text color of a hover card in every layout, and of the row or bar under the pointer: a theme key or a raw color. Pick one that reads against Hover card background.",
+      "default": "#f2f2f2"
+    },
+    "cardStatsText": {
+      "type": "string",
+      "title": "Hover card stats text",
+      "description": "The color of a pane card's stats line, which reads as a sentence: when the prompt was sent, how long its turn ran, how it ended and what it changed. A step quieter than Hover card text sets it apart; a theme key or a raw color, chosen to read against Hover card background.",
+      "default": "#9fbad6"
     }
   }
 }

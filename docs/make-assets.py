@@ -45,6 +45,8 @@ TEXT = "#d7d8da"
 DIM = "#8b8e94"
 FAINT = "#5f636b"
 ACCENT = "#d97757"
+# The pane's times: the conversation's start and each resume line.
+TIME = "#b6bd68"
 GREEN = "#4eba65"
 YELLOW = "#e5c07b"
 RED = "#f07171"
@@ -407,10 +409,15 @@ class RailRow:
     height: float
 
 
+# The pane opens with when the conversation started; the list stacks under it.
+START_STAMP = "2026-09-24 14:01:58"
+HEAD_ROWS = 1
+
+
 def rail_rows(entries: list[Prompt], current: int, hover: int | None, width_cells: int, expand: bool) -> list[RailRow]:
     """Rows as they stack: a hover card floats over them and moves none."""
     rows: list[RailRow] = []
-    top = 0.0
+    top = HEAD_ROWS * LINE
     for index, prompt in enumerate(entries):
         if index > 0 and prompt.break_before:
             rows.append(RailRow(-1, top, LINE))
@@ -479,6 +486,11 @@ def draw_rail(
     stack = rail_rows(entries, current, hover, width_cells, expand)
     hover_row = next((row for row in stack if row.index == hover), None)
 
+    # The pane's head: when the conversation opened. It starts at the text
+    # column, as the resume and compacted lines do, so a card opening above
+    # covers it whole.
+    label(d, x + 3 * CELL, y + LINE / 2, f"started at {START_STAMP}", TIME)
+
     # Where the card opens, mirroring the plugin's cardFit.
     lines: list[tuple[str, bool]] = []
     side = "below"
@@ -506,7 +518,7 @@ def draw_rail(
 
     for row in stack:
         if row.index == -1:
-            label(d, x + CELL, y + row.top + LINE / 2, "─ compacted ─", ACCENT)
+            label(d, x + 3 * CELL, y + row.top + LINE / 2, "compacted", ACCENT)
             continue
         index = row.index
         prompt = entries[index]

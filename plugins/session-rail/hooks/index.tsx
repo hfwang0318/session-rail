@@ -3,6 +3,26 @@ import { matchText, mergePrompts, promptsFromMessages, type EngineMessage, type 
 import { cardRows, cellWidth, dropFirstRow, marqueeText, oneLine, padTo } from './text.ts'
 
 const PANE = 'session-rail'
+// Bring the prompt being read into the pane's own window, so its heavy row is
+// one the person can see when the list is taller than the pane. `block:
+// 'nearest'` moves nothing while the row already shows; 'end' names the newest
+// row, for a list no report has placed yet. A report burst follows once, on
+// the prompt it settles at, and the wait lets the engine register the rows the
+// pane drew: a key addressed in its draw's own dispatch is not there yet.
+const FOLLOW_MS = 50
+let followTimer: Timer | undefined
+function followCurrent($: EngineInterface, target: string) {
+  followTimer?.cancel()
+  try {
+    followTimer = $.clock.after(FOLLOW_MS, () => {
+      followTimer = undefined
+      void $.ui.scroll({ in: PANE, to: target === 'end' ? 'end' : { key: target }, block: 'nearest' }).catch(() => {})
+    }) ?? undefined
+  } catch {
+    followTimer = undefined
+  }
+}
+
 // Rows the person typed (terminal composer, desktop/remote bridge, SDK host).
 const PROMPT_KINDS = new Set(['composer', 'bridge', 'sdk'])
 // Columns the docked rail asks for: a tick and a little air.
@@ -64,8 +84,105 @@ const INTERRUPTED = /^\[Request interrupted by user/
 // carries no isCompactSummary flag, so the wrapper's fixed wording is the tell;
 // the summary, not the person, wrote it.
 const COMPACT_SUMMARY = /This session is being continued from (?:a previous conversation|another machine)/
+// A slash command's stored row: the tags the engine writes around the command
+// the person typed. A command it sends to the model or a skill (the message tag
+// first) is a prompt with arguments, read as the command line; a local command
+// (/model, /config, /clear: the name tag first) runs in the surface, and a bare
+// command is not a prompt either.
+const COMMAND_NAME = '<command-name>'
+const COMMAND_NAME_END = '</command-name>'
+const COMMAND_ARGS = '<command-args>'
+const COMMAND_ARGS_END = '</command-args>'
+const COMMAND_MESSAGE = '<command-message>'
+// The text between the first opening tag and the closing tag after it, trimmed.
+// Linear: a long row that repeats an opening tag a thousand times costs one
+// scan, not one per tag, so neither a transcript nor a delivery stalls the TUI.
+const tagText = (text: string, open: string, close: string) => {
+  const start = text.indexOf(open)
+  if (start < 0) return undefined
+  const end = text.indexOf(close, start + open.length)
+  return end < 0 ? undefined : text.slice(start + open.length, end).trim()
+}
+// A command's own text can come from another service, so its control
+// characters are turned into spaces before the rail draws it: an escape
+// sequence would otherwise reach the host's Text unchanged.
+const CONTROL = /[\u0000-\u001f\u007f-\u009f]/g
+const promptFromCommand = (text: string): string | undefined | null => {
+  if (!text.startsWith('<command-')) return null
+  const nameAt = text.indexOf(COMMAND_NAME)
+  const messageAt = text.indexOf(COMMAND_MESSAGE)
+  if (nameAt < 0 || messageAt < 0 || messageAt > nameAt) return undefined
+  const name = tagText(text, COMMAND_NAME, COMMAND_NAME_END)?.replace(CONTROL, ' ').trim()
+  const args = tagText(text, COMMAND_ARGS, COMMAND_ARGS_END)?.replace(CONTROL, ' ').trim()
+  if (!name || !args) return undefined
+  return `${name.startsWith('/') ? name : `/${name}`} ${args}`
+}
+// The text of a user row that is a prompt, or undefined for one the rail never
+// lists. The artifact context is the viewer's state, not the person's words.
+// A command with arguments is listed as what the person typed; a bare command,
+// an interruption notice and a compaction summary are not prompts.
+export const promptTextOf = (raw: string): string | undefined => {
+  const text = raw.replace(VIEW_CONTEXT, '').trim()
+  if (!text) return undefined
+  const command = promptFromCommand(text)
+  if (command !== null) return command
+  if (WRAPPER.test(text) || INTERRUPTED.test(text) || COMPACT_SUMMARY.test(text)) return undefined
+  // Some builds hand a command back without its tags: a bare command is not a
+  // prompt, one with arguments is. Its control characters are scrubbed as a
+  // tagged command's are.
+  if (text.startsWith('/')) {
+    const clean = text.replace(CONTROL, ' ').trim()
+    return /\s/.test(clean.slice(1)) ? clean : undefined
+  }
+  return text
+}
 // A message uuid, as the transcript stores it (see rowKey).
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// A short key for a prompt's normalized text. The engine's session state can
+// be read by any plugin, so the count of prompts sent since a resume keeps a
+// hash rather than the text; the length makes a 32-bit collision rarer.
+export const promptKey = (text: string) => {
+  const flat = matchText(text)
+  let hash = 2166136261
+  for (let i = 0; i < flat.length; i++) {
+    hash ^= flat.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return `${(hash >>> 0).toString(36)}.${flat.length.toString(36)}`
+}
+// A resume moment added to a list. One resume can raise both the closing
+// conversation's end and the resumed one's start; with no prompt sent since
+// the last moment, and within RESUME_PAIR_MS, the later moment replaces it
+// rather than drawing a second line.
+export const nextResumeMoments = (moments: readonly number[], at: number, hadSince: boolean): number[] => {
+  const last = moments[moments.length - 1]
+  return !hadSince && last !== undefined && Math.abs(at - last) <= RESUME_PAIR_MS
+    ? [...moments.slice(0, -1), at]
+    : [...moments, at].slice(-RESUME_MOMENTS_CAP)
+}
+
+// Where each resume draws its line: above the first prompt sent at or after
+// that moment. Without a stored timestamp only the latest resume can be
+// placed, by the counts kept since it (`latestIndex`); the rest are left out.
+// Moments that fall on the same row share one line, the later moment winning,
+// and no line is drawn at index 0, where there is no history above it.
+export type ResumeDivider = { index: number; moment: number }
+export const resumeDividers = (
+  sentTimes: readonly (number | undefined)[],
+  moments: readonly number[],
+  latestIndex: number,
+): ResumeDivider[] => {
+  const at = new Map<number, number>()
+  const latest = moments[moments.length - 1]
+  for (const moment of moments) {
+    if (moment === latest) continue
+    const index = sentTimes.findIndex(sentAt => sentAt !== undefined && sentAt >= moment)
+    if (index > 0) at.set(index, moment)
+  }
+  if (latest !== undefined && latestIndex > 0) at.set(latestIndex, latest)
+  return [...at].map(([index, moment]) => ({ index, moment })).sort((a, b) => a.index - b.index)
+}
+
 // The rail is drawn again this many ms after the last onScreen report, and no
 // later than SETTLE_MAX_MS after the first (see redrawRailSettled). Measured
 // on the terminal: a replayed row is corrected within 13 ms, a layout settles
@@ -75,6 +192,19 @@ const SETTLE_MAX_MS = 120
 // A row added at most this many ms before a prompt's notification may be that
 // prompt's own: the engine draws a queued prompt's first row as it notifies.
 const LATELY_MS = 250
+// The most texts a resumed session's boundary keeps counts for. A prompt the
+// transcript has stamped needs no count, and past this many the first text
+// counted goes: a very long resumed session then writes a small value, not one
+// that grows without bound.
+const SINCE_CAP = 256
+// The pane's times — the conversation's start and each resume line — take this
+// quiet olive, apart from the accent the rest of the rail uses.
+const TIME_COLOR = '#b6bd68'
+// The most resume moments one conversation keeps, and how close two moments
+// may be and still be one resume reported by both the closing conversation's
+// `session.end` and the resumed one's classic `SessionStart`.
+const RESUME_MOMENTS_CAP = 256
+const RESUME_PAIR_MS = 5_000
 // Cells kept left of the horizontal rail: off the window's edge, a pointer
 // leaving the first bar crosses a cell and the surface sees the hover end.
 const RAIL_INSET = 2
@@ -94,6 +224,9 @@ const UNSCROLLABLE_TOAST = 'jumps cannot land here: this view does not let a plu
 // also draws every transcript row this module hooks, and rows drawn again
 // while the person scrolls just after a jump move the viewport a turn away.
 const MOVED = { plugin: 'session-rail', key: 'moved' } as const
+// The resume boundary, in the engine's session state: kept across a hot reload
+// of this module and gone with the session, so a new process starts with none.
+const RESUME = { plugin: 'session-rail', key: 'resume' } as const
 // How long the band's text line shows the card of the bar the focus ring is
 // on after the ring last moved: no event says the ring left the band.
 const RING_CARD_MS = 4000
@@ -302,6 +435,7 @@ const formatterOf = (timeZone: string) => {
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+      second: '2-digit',
       hourCycle: 'h23',
     })
     formatters.set(timeZone, formatter)
@@ -309,28 +443,50 @@ const formatterOf = (timeZone: string) => {
   return formatter
 }
 
+const pad2 = (value: number) => String(value).padStart(2, '0')
+// A moment's date and clock in the person's zone. The session's own
+// environment may set TZ (a sandbox does), so the process's clock is not the
+// person's: the machine's zone names it.
+const timePartsOf = (date: Date, timeZone?: string) => {
+  if (timeZone !== undefined && typeof Intl !== 'undefined') {
+    try {
+      const parts = formatterOf(timeZone).formatToParts(date)
+      const get = (type: string) => {
+        const value = parts.find(part => part.type === type)?.value
+        return value === undefined ? Number.NaN : Number(value)
+      }
+      const at = { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute'), second: get('second') }
+      // A partial locale would print `NaN` in the pane's head: read the
+      // process's own clock instead.
+      if (Object.values(at).some(value => !Number.isFinite(value))) throw new Error('incomplete date parts')
+      return at
+    } catch {
+      // A zone the host names but this engine cannot read: the process's own.
+    }
+  }
+  return { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate(), hour: date.getHours(), minute: date.getMinutes(), second: date.getSeconds() }
+}
+
 // When a prompt was sent: local `HH:MM` today, else `MM-DD HH:MM`.
 export const sentLabel = (ms: number, now = new Date(), timeZone?: string) => {
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const partsOf = (date: Date) => {
-    // The session's own environment may set TZ (a sandbox does), so the
-    // process's clock is not the person's: the machine's zone names it.
-    if (timeZone !== undefined && typeof Intl !== 'undefined') {
-      try {
-        const parts = formatterOf(timeZone).formatToParts(date)
-        const get = (type: string) => Number(parts.find(part => part.type === type)?.value)
-        return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute') }
-      } catch {
-        // A zone the host names but this engine cannot read: the process's own.
-      }
-    }
-    return { year: date.getFullYear(), month: date.getMonth() + 1, day: date.getDate(), hour: date.getHours(), minute: date.getMinutes() }
-  }
-  const at = partsOf(new Date(ms))
-  const current = partsOf(now)
-  const clock = `${pad(at.hour)}:${pad(at.minute)}`
+  const at = timePartsOf(new Date(ms), timeZone)
+  const current = timePartsOf(now, timeZone)
+  const clock = `${pad2(at.hour)}:${pad2(at.minute)}`
   const sameDay = at.year === current.year && at.month === current.month && at.day === current.day
-  return sameDay ? clock : `${pad(at.month)}-${pad(at.day)} ${clock}`
+  return sameDay ? clock : `${pad2(at.month)}-${pad2(at.day)} ${clock}`
+}
+
+// A whole moment to the second: when the conversation opened. The pane's head
+// shows it, so a resumed session's history can be told from the one running now.
+export const stampLabel = (ms: number, timeZone?: string) => {
+  const at = timePartsOf(new Date(ms), timeZone)
+  return `${at.year}-${pad2(at.month)}-${pad2(at.day)} ${pad2(at.hour)}:${pad2(at.minute)}:${pad2(at.second)}`
+}
+
+// The same moment short enough for a divider at the pane's narrowest width.
+export const stampShort = (ms: number, timeZone?: string) => {
+  const at = timePartsOf(new Date(ms), timeZone)
+  return `${pad2(at.month)}-${pad2(at.day)} ${pad2(at.hour)}:${pad2(at.minute)}`
 }
 
 // The zone name in a path that points into a host's zoneinfo tree, as
@@ -599,8 +755,8 @@ const indexRows = (rows: any[]): TranscriptIndex => {
     if (row.type === 'attachment' && row.attachment?.type === 'queued_command') {
       if (isOthers(row.attachment)) continue
       const prompt = row.attachment.prompt
-      const text = typeof prompt === 'string' ? prompt.replace(VIEW_CONTEXT, '').trim() : ''
-      if (!text || WRAPPER.test(text) || text.startsWith('/')) continue
+      const text = typeof prompt === 'string' ? promptTextOf(prompt) : undefined
+      if (text === undefined) continue
       const sentAt = Date.parse(row.timestamp)
       prompts.push({
         id: row.uuid,
@@ -633,15 +789,16 @@ const indexRows = (rows: any[]): TranscriptIndex => {
       continue
     }
     if (Array.isArray(content) && content.some((block: any) => block?.type === 'tool_result')) continue
-    // A slash command's own row is not a prompt: the render hook skips it too,
-    // so it is never drawn and could not be scrolled to.
-    // Some builds wrote a compaction summary without the flag that names it;
-    // its fixed wording still tells the engine's.
-    if (!text || WRAPPER.test(text) || COMPACT_SUMMARY.test(text) || text.startsWith('/')) continue
+    // A slash command carries its arguments in the row's tags: with them the
+    // row is a prompt; a bare command, a wrapper and a compaction summary are
+    // not. Some builds wrote a summary without the flag that names it, and its
+    // fixed wording still tells the engine's.
+    const promptText = promptTextOf(text)
+    if (promptText === undefined) continue
     const at = Date.parse(row.timestamp)
     prompts.push({
       id: row.uuid,
-      text,
+      text: promptText,
       ...(Number.isFinite(at) ? { sentAt: at } : {}),
       ...(afterBreak ? { breakBefore: true } : {}),
     })
@@ -892,8 +1049,67 @@ async function readTranscript($: EngineInterface, path: string, seen: Seen, when
   }
 }
 
+// The value kept under `transcript:<session id>`.
+type TranscriptRecord = { path?: unknown; at?: unknown }
+
 // Remember this session's transcript path under its own key, then drop all
 // but the newest few sessions' keys.
+// The resume moments a conversation was told of, kept in the store so a new
+// process can draw the lines its earlier processes drew, and how many sessions
+// of them the store keeps.
+const RESUME_STORE_PREFIX = 'resume-moments:'
+const KEPT_RESUME_SESSIONS = 20
+
+export const isResumeMoment = (moment: unknown): moment is number =>
+  typeof moment === 'number' && Number.isInteger(moment) && moment >= 0 && moment <= 8.64e15
+
+// Many lists of moments into one: valid values only, oldest first, the most
+// recent RESUME_MOMENTS_CAP kept.
+export const mergeMoments = (lists: readonly (readonly unknown[])[]): number[] => {
+  const valid = lists.flat().filter(isResumeMoment)
+  return [...new Set(valid)].sort((a, b) => a - b).slice(-RESUME_MOMENTS_CAP)
+}
+
+async function rememberedMoments($: EngineInterface, sessionId: string) {
+  try {
+    const value = (await $.store.get(`${RESUME_STORE_PREFIX}${sessionId}`)) as { moments?: unknown } | undefined
+    return Array.isArray(value?.moments) ? mergeMoments([value.moments]) : []
+  } catch {
+    // A refused read only loses the older lines; the rail draws the rest.
+    return []
+  }
+}
+
+// A /clear starts the conversation over, so the moments its old list drew are
+// no longer this conversation's.
+async function forgetMoments($: EngineInterface, sessionId: string) {
+  try {
+    await $.store.delete(`${RESUME_STORE_PREFIX}${sessionId}`)
+  } catch {
+    // A refused delete only leaves older lines; nothing else depends on it.
+  }
+}
+
+// Keep this conversation's moments for the next process, and let go of the
+// oldest sessions' lists past the cap.
+async function rememberMoments($: EngineInterface, sessionId: string, moments: number[]) {
+  try {
+    await $.store.set(`${RESUME_STORE_PREFIX}${sessionId}`, { moments, at: Date.now() })
+    const keys = (await $.store.keys()).filter(key => key.startsWith(RESUME_STORE_PREFIX))
+    if (keys.length <= KEPT_RESUME_SESSIONS) return
+    const dated = await Promise.all(
+      keys.map(async key => {
+        const value = (await $.store.get(key)) as { at?: unknown } | undefined
+        return { key, at: typeof value?.at === 'number' && Number.isFinite(value.at) ? value.at : 0 }
+      }),
+    )
+    dated.sort((x, y) => y.at - x.at)
+    await Promise.all(dated.slice(KEPT_RESUME_SESSIONS).map(({ key }) => $.store.delete(key)))
+  } catch {
+    // The lines are a convenience; the rest of the rail still draws.
+  }
+}
+
 async function rememberTranscript($: EngineInterface, sessionId: string, transcriptPath: string) {
   await $.store.set(`${TRANSCRIPT_KEY_PREFIX}${sessionId}`, { path: transcriptPath, at: Date.now() })
   const keys = (await $.store.keys()).filter(key => key.startsWith(TRANSCRIPT_KEY_PREFIX))
@@ -901,7 +1117,7 @@ async function rememberTranscript($: EngineInterface, sessionId: string, transcr
   const dated = await Promise.all(
     keys.map(async key => {
       const value = (await $.store.get(key)) as { at?: unknown } | undefined
-      return { key, at: typeof value?.at === 'number' ? value.at : 0 }
+      return { key, at: typeof value?.at === 'number' && Number.isFinite(value.at) ? value.at : 0 }
     }),
   )
   dated.sort((x, y) => y.at - x.at)
@@ -1117,9 +1333,86 @@ function afterReport<Row>($: EngineInterface, settle: Settle, cut: Row | undefin
 
 // The transcript path remembered for this session, if any.
 async function rememberedTranscript($: EngineInterface) {
-  const value = (await $.store.get(`${TRANSCRIPT_KEY_PREFIX}${await $.session.id()}`)) as { path?: unknown } | undefined
+  const value = (await $.store.get(`${TRANSCRIPT_KEY_PREFIX}${await $.session.id()}`)) as TranscriptRecord | undefined
   return typeof value?.path === 'string' ? value.path : undefined
 }
+
+// The resume boundary the engine's session state keeps: the session it belongs
+// to, every moment it was resumed at, the latest of those, the total sent
+// since the latest, and how many of each short text key were sent (the walk
+// uses those; the total keeps the line right when the key map drops its oldest
+// past SINCE_CAP). A hot reload reads it back; another session's value is left
+// alone.
+type ResumeState = {
+  sessionId: string | null
+  at: number
+  moments: number[]
+  // Whether `total` and `since` describe every prompt sent since `at`. False
+  // when the moments came from the store of an earlier process, whose sends
+  // this one never counted.
+  counts: boolean
+  total: number
+  since: [string, number][]
+}
+
+async function rememberedResume($: EngineInterface) {
+  let value: unknown
+  try {
+    ;({ value } = await $.state.get(RESUME))
+  } catch {
+    // A refused read only loses the line; the rail draws the rest.
+    return undefined
+  }
+  if (value === null || typeof value !== 'object') return undefined
+  const kept = value as { sessionId?: unknown; at?: unknown; moments?: unknown; counts?: unknown; total?: unknown; since?: unknown }
+  // A null id is a resume the closing session marked pending for whichever
+  // conversation comes next.
+  if (kept.sessionId !== null && typeof kept.sessionId !== 'string') return undefined
+  // A moment outside the Date range would draw NaN, so it is not adopted.
+  if (!isResumeMoment(kept.at)) return undefined
+  // The moments a resume was told of, oldest first, with the latest one the
+  // `at` above. A state written before this list existed has only the latest.
+  const moments = mergeMoments([Array.isArray(kept.moments) ? kept.moments : [], [kept.at]])
+  // Another plugin can write this key, so the read holds the same bounds the
+  // writer keeps: at most SINCE_CAP pairs, each a short key and a positive
+  // count. A value this module never wrote is left mostly out.
+  const items = Array.isArray(kept.since) ? kept.since.slice(0, SINCE_CAP) : []
+  const since: [string, number][] = []
+  for (const item of items) {
+    if (!Array.isArray(item)) continue
+    const [text, count] = item
+    if (typeof text === 'string' && text.length <= 64 && typeof count === 'number' && Number.isInteger(count) && count > 0) {
+      since.push([text, count])
+    }
+  }
+  // The total is what places the line, so a value without one falls back to
+  // the counts the map still holds. A fractional total would match no row and
+  // hide the line, so only an integer is taken.
+  const held = since.reduce((sum, [, count]) => sum + count, 0)
+  const fallback = Number.isSafeInteger(held) ? held : 0
+  const total =
+    typeof kept.total === 'number' && Number.isSafeInteger(kept.total) && kept.total >= 0 ? kept.total : fallback
+  // A state written before this flag existed had its counts from this process.
+  const counts = kept.counts !== false
+  return { sessionId: kept.sessionId, at: kept.at, moments, counts, total, since }
+}
+
+// Keep the boundary for a hot reload; null clears it. A refused write must not
+// break the hook chain the event runs through, so it is let go.
+async function saveResume($: EngineInterface, value: ResumeState | null) {
+  try {
+    await $.state.set(RESUME, value)
+  } catch {
+    // The line is a convenience; the rest of the rail still draws.
+  }
+}
+
+// The conversation a prompt handler was counting in, taken before it awaits a
+// redraw: the session, the boundary moment, and the two counters a reset
+// bumps. The boundary is written only while all of them still match.
+export type BoundaryToken = { id: string | undefined; at: number | undefined; generation: number; epoch: number }
+export const sameBoundary = (taken: BoundaryToken, now: BoundaryToken) =>
+  taken.id === now.id && taken.at === now.at && taken.generation === now.generation && taken.epoch === now.epoch
 
 // This session's transcript where the engine files it (see
 // transcriptCandidates), for the directory the session started in or the one
@@ -1308,6 +1601,9 @@ export const register: Register = (on, options) => {
   // The prompt the rail last drew as being read, and the redraw waiting for
   // reports to settle.
   let drawnCurrent = -1
+  // The prompt the pane's window was last brought to (see followCurrent);
+  // undefined until the first draw.
+  let followedCurrent: number | undefined
   const settle: Settle = {}
   // The prompt a jump landed on, read while the rows that came into view as it
   // landed are all that show: one near the end cannot reach the viewport's
@@ -1402,6 +1698,36 @@ export const register: Register = (on, options) => {
   // follows, so the turn's end leaves them pending no more.
   const notifiedAt = new Map<string, number>()
   const delivered = new Set<string>()
+  // When this session was resumed: the boundary between the history it brought
+  // and the prompts sent since. Undefined on a fresh conversation. The texts
+  // sent since then date those prompts even before the transcript does, so the
+  // boundary does not fall below them.
+  let resumedAt: number | undefined
+  // Every resume moment this conversation was told of, oldest first: each
+  // draws a line above the first prompt sent after it.
+  let resumeMoments: number[] = []
+  // Whether the counts below describe every prompt sent since the latest
+  // moment. True when the session state or a resume in this process gave them;
+  // false when the moments came only from the store, where the transcript's
+  // timestamps have to place the line instead.
+  let sinceKnown = false
+  // Whether this conversation's moments were already merged from the store;
+  // the next process may have kept ones this one has not seen.
+  let momentsLoaded = false
+  // How many prompts were sent since the resume for each short text key: a
+  // prompt without a transcript timestamp is still placed below the boundary,
+  // and repeats count from the newest end (see resumeIndex).
+  let sinceResume = new Map<string, number>()
+  // Every prompt sent since the resume, including ones whose text key the map
+  // dropped at its cap: the line's fallback position counts these.
+  let sinceTotal = 0
+  // Bumped whenever the boundary starts over, even under the same session id
+  // (a classic resume), so a prompt handler that awaited a redraw cannot write
+  // the counts it took before the reset.
+  let resumeEpoch = 0
+  // Bumped when a count is added, so a prompt handler writes the state only
+  // when it changed (a receive+submit pair writes once).
+  let sinceVersion = 0
 
   const pendingWith = (text: string) => entries.find(entry => pending.has(entry.id) && entry.text === text)
   // The entry a drawn row belongs to, by its own key or as another name.
@@ -1413,9 +1739,22 @@ export const register: Register = (on, options) => {
 
   // A prompt with `text` was sent: its rows are pending until the stored one
   // is drawn. True when the list changed.
-  const noteSent = (text: string) => {
+  // `isSubmit` counts the prompt as sent since a resume: every prompt is
+  // submitted exactly once, while a Remote Control one raises session.receive
+  // as well, so only the submit event counts.
+  const noteSent = (text: string, isSubmit: boolean) => {
     waiting.add(text)
     const now = Date.now()
+    if (resumedAt !== undefined && isSubmit) {
+      const key = promptKey(text)
+      if (!sinceResume.has(key) && sinceResume.size >= SINCE_CAP) {
+        const oldest = sinceResume.keys().next().value
+        if (oldest !== undefined) sinceResume.delete(oldest)
+      }
+      sinceResume.set(key, (sinceResume.get(key) ?? 0) + 1)
+      sinceTotal++
+      sinceVersion++
+    }
     notifiedAt.set(text, now)
     const fresh = new Set(lately.filter(item => now - item.at <= LATELY_MS).map(item => item.id))
     lately = []
@@ -1427,6 +1766,15 @@ export const register: Register = (on, options) => {
     for (const id of others) aliases.set(rowKey(id), held.id)
     entries = entries.filter(entry => !others.has(entry.id))
     return others.size > 0
+  }
+
+  // Record a resume the module was told of; `hadSince` says whether prompts
+  // were sent since the moment before it. One resume can raise both the
+  // closing conversation's end and the resumed one's start, and with no prompt
+  // between them the later moment replaces the earlier rather than drawing a
+  // second line.
+  const noteResumeMoment = (at: number, hadSince: boolean) => {
+    resumeMoments = nextResumeMoments(resumeMoments, at, hadSince)
   }
 
   // List a prompt row as it is drawn; true when the list changed.
@@ -1548,7 +1896,13 @@ export const register: Register = (on, options) => {
       if (landed && !isLandedShown()) landed = undefined
       return undefined
     }
-    const row = { name, key: rowKey(id), first: place.first, order: ++reports }
+    // A row drawn again where it was (a streaming reply, a remount replaying
+    // its last place) is no newer report: the order marks when it last said
+    // something new, so a stale cut cannot pull the reader back from rows that
+    // entered since.
+    const prior = onScreen.get(name)
+    const order = prior !== undefined && prior.first === place.first ? prior.order : ++reports
+    const row = { name, key: rowKey(id), first: place.first, order }
     onScreen.set(name, row)
     noteLandedRow(row.key)
     return row.first > 0 ? row : undefined
@@ -1596,13 +1950,18 @@ export const register: Register = (on, options) => {
     return i >= 0 && [...onScreen.values()].some(row => indexOfRow(row.key, promptIndex) === i)
   }
   // A row of a prompt that was not in view as the jump landed: the person
-  // scrolled, so the top row says who is read again.
+  // scrolled, so the top row says who is read again. While the jump settles,
+  // its own draws report too; those prompts are remembered, and one above the
+  // landed prompt releases the jump (see currentIndex).
   const noteLandedRow = (key: string) => {
     if (!landed) return
     const i = indexOfRow(key, promptIndexes())
     if (i === undefined) return
-    if (!landed.isSettled) landed.shown.add(i)
-    else if (!landed.shown.has(i)) landed = undefined
+    if (!landed.isSettled) {
+      landed.shown.add(i)
+      return
+    }
+    if (i < landedIndex() || !landed.shown.has(i)) landed = undefined
   }
 
   // The prompt of the row that last said it is cut at the viewport's top: that
@@ -1643,6 +2002,13 @@ export const register: Register = (on, options) => {
   // Where the person is reading: the prompt that the topmost row on screen
   // belongs to. Kept while no known row shows.
   const currentIndex = () => {
+    // A jump's own draws report as it settles, so a prompt shown above the one
+    // it landed on means the person scrolled up meanwhile: the top row says
+    // who is read again, not the prompt jumped to.
+    if (landed?.isSettled) {
+      const at = landedIndex()
+      if (at >= 0 && [...landed.shown].some(i => i < at)) landed = undefined
+    }
     const jumped = landedIndex()
     if (jumped >= 0) {
       reading = landed?.key
@@ -1731,6 +2097,10 @@ export const register: Register = (on, options) => {
   // clock is not the person's.
   let timeZone: string | undefined
   let zoneRead: Promise<string | undefined> | undefined
+  // When the conversation opened: the module's start, pulled back to the first
+  // prompt the transcript holds. A resumed session's first prompt is older, so
+  // the pane's head names the conversation the history belongs to.
+  let startAt = Date.now()
   // The subagent whose transcript is in view, as the rail's sites last drew;
   // undefined for the main conversation, whose rows alone the rail lists.
   let viewAgent: string | undefined
@@ -1764,6 +2134,7 @@ export const register: Register = (on, options) => {
     landed = undefined
     reading = undefined
     drawnCurrent = -1
+    followedCurrent = undefined
     unreachable.clear()
     notices.isUnscrollableSaid = false
     drawn.clear()
@@ -1773,6 +2144,15 @@ export const register: Register = (on, options) => {
     lastMessages = undefined
     activeTurnAt = 0
     lastStartedTurn = undefined
+    startAt = Date.now()
+    resumedAt = undefined
+    resumeMoments = []
+    sinceKnown = false
+    momentsLoaded = false
+    sinceResume = new Map()
+    sinceTotal = 0
+    sinceVersion = 0
+    resumeEpoch++
     engineMode = false
     listedEngine = new Set<string>()
     pending.clear()
@@ -1847,6 +2227,30 @@ export const register: Register = (on, options) => {
       // isElsewhere started the list over; this handler owns the new one.
       at = generation
     }
+    // A hot reload starts with no boundary in the module: the engine's session
+    // state keeps the one the last instance drew, for this session alone. A
+    // classic resume may set a fresher one while the read runs.
+    if (resumedAt === undefined) {
+      const epoch = resumeEpoch
+      const boundary = await rememberedResume($)
+      // A /clear or resume during the read starts the boundary over; the
+      // value read before it is not adopted, and its write is not repeated.
+      if (
+        resumedAt === undefined && resumeEpoch === epoch && boundary !== undefined &&
+        (boundary.sessionId === null || boundary.sessionId === id)
+      ) {
+        resumedAt = boundary.at
+        resumeMoments = boundary.moments
+        sinceResume = new Map(boundary.since)
+        sinceTotal = boundary.total
+        sinceKnown = boundary.counts
+      }
+    }
+    // The moments earlier processes kept for this conversation: a new process
+    // starts with no session state, and without them only the last resume's
+    // line would survive. Started here and awaited after the transcript's
+    // read, so it cannot delay the claim on that read.
+    const momentsRead = rememberedMoments($, id)
     const before = generation
     if (session?.path === undefined) {
       const found = await transcriptOf($, id, launchCwd)
@@ -1856,6 +2260,10 @@ export const register: Register = (on, options) => {
     if (generation !== before || session?.id !== id) return next(e)
     at = generation
     const transcriptPath = session?.path
+    if (resumedAt !== undefined) {
+      await saveResume($, { sessionId: id, at: resumedAt, moments: resumeMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+      await rememberMoments($, id, resumeMoments)
+    }
     const isCurrent = () => session?.id === id && session?.path === transcriptPath
     const index = transcriptPath === undefined ? undefined : await readTranscript($, transcriptPath, seen, index => {
       if (!isCurrent()) return
@@ -1864,6 +2272,27 @@ export const register: Register = (on, options) => {
     })
     if (index && isCurrent() && merge(index)) await redrawRail($)
     tellNotice($, seen, isBound)
+    // Merge the moments earlier processes kept, now that the read is done;
+    // with no state to place the line, the transcript's timestamps do.
+    if (generation === at && (session === undefined || session.id === id)) {
+      const remembered = await momentsRead
+      momentsLoaded = true
+      if (generation === at && (session === undefined || session.id === id) && remembered.length > 0) {
+        const beforeCount = resumeMoments.length
+        const merged = mergeMoments([resumeMoments, remembered])
+        const placed = resumedAt
+        if (placed === undefined) {
+          resumedAt = merged[merged.length - 1]
+          sinceKnown = false
+        }
+        resumeMoments = merged
+        if (placed === undefined || merged.length !== beforeCount) {
+          await saveResume($, { sessionId: id, at: resumedAt!, moments: merged, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+          await rememberMoments($, id, merged)
+        }
+        if (merged.length !== beforeCount) await redrawRail($)
+      }
+    }
     // A session that started or cleared while the read ran owns none of this.
     if (!seen.isReading && generation === at && session?.id === id) {
       const recheck = await reconsiderTranscript($, id, launchCwd, session.path, seen.isMissing, entries.length > 0)
@@ -2004,16 +2433,15 @@ export const register: Register = (on, options) => {
     lastIndex = index
     owners = new Map(index.owners.map(([id, i]) => [rowKey(id), rowKey(index.prompts[i]?.id ?? '')]))
     turns = new Map(index.prompts.map((entry, i) => [entry.id, index.turns[i] ?? { files: [] }]))
+    // The conversation opened no later than its first stored prompt: a resumed
+    // session's history keeps its original start, not the moment of the resume.
+    const first = index.prompts.find(prompt => prompt.sentAt !== undefined)?.sentAt
+    if (first !== undefined) startAt = Math.min(startAt, first)
   }
 
-  // The text of the engine's user message that is a prompt, or undefined for a
-  // row the rail never lists. The engine already leaves meta and virtual rows
-  // out; the artifact context is the viewer's state, not the person's words.
-  const preparePrompt = (raw: string) => {
-    const text = raw.replace(VIEW_CONTEXT, '').trim()
-    if (!text || WRAPPER.test(text) || INTERRUPTED.test(text) || COMPACT_SUMMARY.test(text) || text.startsWith('/')) return undefined
-    return text
-  }
+  // The engine already leaves meta and virtual rows out; a slash command's row
+  // is read as the command line the person typed.
+  const preparePrompt = (raw: string) => promptTextOf(raw)
 
   // The prompts the engine's own message list holds, in its order, enriched
   // with the transcript's uuids and turn details where it matched them. This
@@ -2190,12 +2618,30 @@ export const register: Register = (on, options) => {
         at = generation
       }
       const isCurrent = () => generation === at && session?.id === e.session_id && session?.path === e.transcript_path
+      // This event's own moment, not whatever the shared state holds after the
+      // awaits below: another conversation may have taken over meanwhile.
+      const resumeAt = e.source === 'resume' ? Date.now() : undefined
+      // Whether the segment ending here had prompts of its own: a resume after
+      // them is a new line, one right after another resume is the same line.
+      const hadSince = sinceTotal > 0 || sinceResume.size > 0
       if (e.source === 'clear') {
         forget()
         at = generation
         session = { id: e.session_id, path: e.transcript_path }
+        await saveResume($, null)
+        await forgetMoments($, e.session_id)
         await redrawRail($)
       } else {
+        // A resumed conversation keeps the history it brought; the pane marks
+        // where that history ends.
+        if (resumeAt !== undefined) {
+          resumedAt = resumeAt
+          sinceResume = new Map()
+          sinceTotal = 0
+          sinceKnown = true
+          resumeEpoch++
+          noteResumeMoment(resumeAt, hadSince)
+        }
         // The path named here outranks one found on disk.
         session = { id: e.session_id, path: e.transcript_path }
         const index = await readTranscript($, e.transcript_path, seen, index => {
@@ -2210,6 +2656,23 @@ export const register: Register = (on, options) => {
       if (applyEngineRead(read, e.session_id, at)) await redrawRail($)
       if (generation === at) listedAtRest = entries.length
       await rememberTranscript($, e.session_id, e.transcript_path)
+      // Only the conversation still in view saves its boundary; one that took
+      // over while the read ran has saved its own.
+      if (resumeAt !== undefined && generation === at && session?.id === e.session_id) {
+        // Merge what earlier processes kept for this conversation, so their
+        // lines are drawn again, then keep the whole list for the next one.
+        const remembered = await rememberedMoments($, e.session_id)
+        if (generation === at && session?.id === e.session_id) {
+          momentsLoaded = true
+          const beforeCount = resumeMoments.length
+          resumeMoments = mergeMoments([resumeMoments, remembered])
+          await saveResume($, { sessionId: e.session_id, at: resumeAt, moments: resumeMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+          await rememberMoments($, e.session_id, resumeMoments)
+          // The lines of the earlier processes were not part of the draws
+          // above, so the pane is drawn again now that they are in the list.
+          if (resumeMoments.length !== beforeCount) await redrawRail($)
+        }
+      }
       return next(e)
     })
 
@@ -2249,6 +2712,22 @@ export const register: Register = (on, options) => {
     // A /clear or resume during the lookup owns the conversation now.
     if (generation !== before || session?.id !== id) return next(e)
     at = generation
+    // A /resume with the classic hooks passed over raises no session.start:
+    // this is where the new conversation's id becomes known, so its moments
+    // are merged from the store and kept under that id for the next process.
+    if (!momentsLoaded) {
+      const remembered = await rememberedMoments($, id)
+      if (generation === at && session?.id === id) {
+        momentsLoaded = true
+        const beforeCount = resumeMoments.length
+        resumeMoments = mergeMoments([resumeMoments, remembered])
+        if (resumeMoments.length !== beforeCount) await redrawRail($)
+      }
+    }
+    if (resumedAt !== undefined && generation === at && session?.id === id) {
+      await saveResume($, { sessionId: id, at: resumedAt, moments: resumeMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+      await rememberMoments($, id, resumeMoments)
+    }
     const path = session?.path
     if (path === undefined && unfoundFor !== id) {
       unfoundFor = id
@@ -2403,6 +2882,26 @@ export const register: Register = (on, options) => {
       const ended = (e as { sessionId?: unknown }).sessionId
       if (typeof ended === 'string' && session !== undefined && session.id !== ended) return next(e)
       forget()
+      // A resume brings the old conversation on: the moment is the boundary
+      // between the history it lists and the prompts sent since. A /clear
+      // starts empty, so it has none.
+      if (e.reason === 'resume') {
+        const at = Date.now()
+        resumedAt = at
+        sinceResume = new Map()
+        sinceTotal = 0
+        sinceKnown = true
+        resumeEpoch++
+        // forget started the list over, so this moment is its first; the
+        // classic start that may follow replaces it rather than adding a line.
+        noteResumeMoment(at, false)
+        // The engine still names the closing session here; the next
+        // conversation adopts this pending moment under its own id.
+        await saveResume($, { sessionId: null, at, moments: resumeMoments, counts: sinceKnown, total: 0, since: [] })
+      } else {
+        await saveResume($, null)
+        if (typeof ended === 'string') await forgetMoments($, ended)
+      }
       await redrawRail($)
     }
     return next(e)
@@ -2412,19 +2911,49 @@ export const register: Register = (on, options) => {
   // before the stored one are pending (see listDrawn).
   on('prompt.submit', async ($, e, next) => {
     unring()
-    if (PROMPT_KINDS.has(e.origin.kind) && noteSent(e.text.replace(VIEW_CONTEXT, '').trim())) await redrawRail($)
+    // Read the text only for an origin that can be a prompt; another origin
+    // is untrusted and can be long, and parsing it is work no rail row needs.
+    if (PROMPT_KINDS.has(e.origin.kind)) {
+      const text = promptTextOf(e.text)
+      const counted = sinceVersion
+      // The conversation and boundary before the redraw awaits; the new count
+      // is synchronous, so it is read just after.
+      const id = session?.id
+      const at = resumedAt
+      const token: BoundaryToken = { id, at, generation, epoch: resumeEpoch }
+      const changed = text !== undefined && noteSent(text, true)
+      if (changed) await redrawRail($)
+      // This is the one event that counts a prompt (see noteSent). A /clear
+      // or /resume during the redraw starts the counts over, so the write is
+      // refused then; otherwise the counts are read now, after the await, so
+      // a submit that landed meanwhile is not dropped.
+      if (
+        id !== undefined && at !== undefined && sinceVersion !== counted &&
+        sameBoundary(token, { id: session?.id, at: resumedAt, generation, epoch: resumeEpoch })
+      ) {
+        await saveResume($, { sessionId: id, at, moments: resumeMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+      }
+    }
     return next(e)
   })
   on('session.receive', async ($, e, next) => {
-    if (PROMPT_KINDS.has(e.origin.kind) && noteSent(e.text.replace(VIEW_CONTEXT, '').trim())) await redrawRail($)
+    if (PROMPT_KINDS.has(e.origin.kind)) {
+      const text = promptTextOf(e.text)
+      // Its row is listed, but the submit that follows owns the count and the
+      // state write.
+      if (text !== undefined && noteSent(text, false)) await redrawRail($)
+    }
     return next(e)
   })
 
   // Record every prompt row as it is drawn, and which rows the viewport shows.
   on('ui.render', { component: 'UserMessage' }, ($, e, next) => {
-    // A slash command's row is drawn as a user row too; it is not a prompt.
-    const text = e.props.text.replace(VIEW_CONTEXT, '').trim()
-    if (PROMPT_KINDS.has(e.props.origin.kind) && text && !text.startsWith('/') && !WRAPPER.test(text)) {
+    // A slash command's row is drawn as a user row too; with arguments it is a
+    // prompt, read as the command line the person typed.
+    const raw = e.props.text.replace(VIEW_CONTEXT, '').trim()
+    if (PROMPT_KINDS.has(e.props.origin.kind)) {
+      const text = promptTextOf(raw)
+      if (text === undefined) return next(e)
       // While a prompt's turn runs, the prompt box echoes it under a
       // provisional id (`placeholder`, `placeholder-N`). That is no transcript
       // row, so it names no jump target: the stored row's id stands. Its text
@@ -2457,7 +2986,9 @@ export const register: Register = (on, options) => {
     // uuids (the engine's own list), by a text exactly one prompt has.
     // Remember where it is drawn, so a jump lands on it and scrolling to it
     // places the reader. List nothing new from it.
-    const wanted = matchText(text)
+    // The entry holds the normalized text, so a slash command's tags are read
+    // as the command line before matching.
+    const wanted = matchText(promptTextOf(raw) ?? '')
     const same = engineMode && wanted ? entries.filter(entry => entry.id.startsWith('engine:') && matchText(entry.text) === wanted) : []
     const listed = entries.find(entry => rowKey(entry.id) === rowKey(e.requestId)) ?? (same.length === 1 ? same[0] : undefined)
     if (listed !== undefined) {
@@ -2609,10 +3140,37 @@ export const register: Register = (on, options) => {
       return <Text dimColor wrap="truncate-end">{hasRoom ? 'Prompts of the main conversation only' : '·'}</Text>
     }
     if (entries.length === 0) {
-      return <Text dimColor>{isRail ? '·' : 'No prompts yet'}</Text>
+      // A conversation with no prompt yet still says when it opened, so the
+      // person knows a fresh session from a resumed one.
+      if (!isRail) return <Text dimColor>No prompts yet</Text>
+      // An emptied list has no prompt being read; a settle that still sees the
+      // last drawn one must not keep redrawing.
+      drawnCurrent = -1
+      // No head where there is no room for text, as in the list below, nor on
+      // a pane shorter than the lines it would draw.
+      const emptyRows = e.props.scroll?.bodyRows ?? 20
+      const emptyLines = resumedAt !== undefined ? 2 : 1
+      if (e.props.bodyColumns < INLINE_REVEAL_MIN_COLUMNS || emptyRows < emptyLines) return <Text dimColor>·</Text>
+      const startLabel = stampLabel(startAt, timeZone)
+      return (
+        <Box flexDirection="column">
+          <Text color={TIME_COLOR} wrap="truncate-end">{`   ${oneLine(`started at ${startLabel}`, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+          {resumedAt !== undefined ? (
+            <Text color={TIME_COLOR} wrap="truncate-end">
+              {`   ${oneLine(`resumed at ${stampLabel(resumedAt, timeZone)}`, Math.max(1, e.props.bodyColumns - 3))}`}
+            </Text>
+          ) : null}
+        </Box>
+      )
     }
     const current = currentIndex()
     drawnCurrent = current
+    // The list may be taller than the pane: bring the row being read into the
+    // pane's window when it moves, so the heavy mark is always one row shown.
+    if (isRail && current !== followedCurrent) {
+      followedCurrent = current
+      followCurrent($, current < 0 ? 'end' : `row-${current}`)
+    }
     if (hasRunning()) keepSpinning($)
     // Docked on the terminal: one row per prompt, its tick and its text, the
     // whole row pressable. Too narrow for text, ticks alone (the band shows it).
@@ -2623,10 +3181,85 @@ export const register: Register = (on, options) => {
       // hover card opens under its own row, and follows it as the list scrolls.
       const bodyRows = e.props.scroll?.bodyRows ?? 20
       const scrollOffset = e.props.scroll?.offset ?? 0
+      // The pane opens with when the conversation started; the list's rows
+      // start below it. No head is drawn where there is no room for text, nor
+      // on a pane too short to show the head and a row under it.
+      const headRows = hasRoom && bodyRows >= 2 ? 1 : 0
+      // Only the head draws the start, so only it formats the stamp.
+      const startLabel = headRows > 0 ? `started at ${stampLabel(startAt, timeZone)}` : ''
+      // Where the resume boundary falls: before the first prompt sent at or
+      // after the resume, or after the last when none has been sent since. A
+      // prompt sent since shares its text in `sinceResume` until the transcript
+      // stamps it, so the boundary stays above it even with no transcript.
+      const resumed = resumedAt
+      // The latest resume's line is placed by the prompts sent since it, so a
+      // clock ahead or behind cannot put it on the wrong side; every earlier
+      // resume is placed by the transcript's timestamps, and left out when
+      // there is none to read.
+      const latestIndex =
+        resumed === undefined
+          ? 0
+          : !sinceKnown
+            ? (() => {
+                // No counts describe this process's sends: the transcript's
+                // timestamps place the line. Without any timestamp it cannot
+                // be placed, and no line is drawn rather than a wrong one.
+                const first = entries.findIndex(entry => entry.sentAt !== undefined && entry.sentAt >= resumed)
+                if (first >= 0) return first
+                return entries.some(entry => entry.sentAt !== undefined) ? entries.length : 0
+              })()
+            : (() => {
+              // Prompts sent since the resume are the newest ones: walk back
+              // while each entry is one, by its timestamp or by a send still
+              // unconsumed. The first history entry ends the suffix, so a
+              // repeated text in the history stays above the line.
+              const left = new Map(sinceResume)
+              let boundary = entries.length
+              for (let i = entries.length - 1; i >= 0; i--) {
+                const entry = entries[i]!
+                if (entry.sentAt !== undefined) {
+                  // A timed prompt sent since spends its count too, so an
+                  // older undated copy of the same text cannot spend it later.
+                  const key = promptKey(entry.text)
+                  const count = left.get(key) ?? 0
+                  // An entry stamped before the resume is history, unless a
+                  // send for its text is still unconsumed: a transcript
+                  // written by a clock behind the host is still sent since.
+                  if (entry.sentAt < resumed && count === 0) break
+                  if (count > 0) left.set(key, count - 1)
+                } else {
+                  const key = promptKey(entry.text)
+                  const count = left.get(key) ?? 0
+                  if (count === 0) break
+                  left.set(key, count - 1)
+                }
+                boundary = i
+              }
+              // History is everything not sent since the resume: a transcript
+              // written by a clock ahead cannot pass it off as new, and a list
+              // that grows or drops at the top moves the line with it.
+              const floor = Math.max(0, entries.length - sinceTotal)
+              const held = [...sinceResume.values()].reduce((sum, count) => sum + count, 0)
+              // When the cap dropped keys, the walk cannot see the oldest
+              // sends and stops too low; the total puts the line above them.
+              // Otherwise the walk wins, since it alone knows a skewed clock.
+              return sinceTotal > held ? Math.min(boundary, floor) : Math.max(boundary, floor)
+            })()
+      const dividerAt = new Map<number, number>(
+        resumed === undefined
+          ? []
+          : resumeDividers(
+              entries.map(entry => entry.sentAt),
+              resumeMoments.length > 0 ? resumeMoments : [resumed],
+              latestIndex,
+            ).map(divider => [divider.index, divider.moment] as [number, number]),
+      )
+      const resumeText = (moment: number) => `resumed at ${stampLabel(moment, timeZone)}`
       const contentTops: number[] = []
       {
-        let y = 0
+        let y = headRows
         entries.forEach((entry, i) => {
+          if (dividerAt.has(i)) y++
           if (i > 0 && entry.breakBefore) y++
           contentTops.push(y)
           y++
@@ -2668,7 +3301,7 @@ export const register: Register = (on, options) => {
                 ...summaryLines.map(text => ({ text, stats: true, kind: 's' as const })),
               ]
             }
-            const rowTop = (contentTops[i] ?? i) - scrollOffset
+            const rowTop = (contentTops[i] ?? headRows + i) - scrollOffset
             const belowSpace = Math.max(0, bodyRows - (rowTop + 1))
             const aboveSpace = Math.max(0, rowTop)
             const continuation = linesAt(cardWidth, true)
@@ -2703,6 +3336,14 @@ export const register: Register = (on, options) => {
       // keeps a clock of its own, and a row with neither draws as a Button.
       return (
         <Box flexDirection="column">
+          {/* The pane's head: the conversation's start to the second, and the
+              prompt being read, so the turn in view is named even when its row
+              sits below the fold. */}
+          {headRows > 0 ? (
+            <Box key="rail-head" flexDirection="column">
+              <Text key="rail-head-start" color={TIME_COLOR} wrap="truncate-end">{`   ${oneLine(startLabel, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+            </Box>
+          ) : null}
           {entries.map((entry, i) => {
             // The row holds the whole prompt already: the card repeats only the
             // stats. A prompt the row cuts, or one whose line breaks it flattens,
@@ -2724,7 +3365,12 @@ export const register: Register = (on, options) => {
             const blankOnHover = cardLayouts[i] !== undefined && cardLayouts[i]!.side !== 'below' && !scrolls
             return (
               <Box key={`row-${i}`} flexDirection="column">
-                {i > 0 && entry.breakBefore ? <Text color="claude"> ─ compacted ─</Text> : null}
+                {dividerAt.has(i) ? (
+                  <Text color={TIME_COLOR} wrap="truncate-end">{`   ${oneLine(resumeText(dividerAt.get(i)!), Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+                ) : null}
+                {i > 0 && entry.breakBefore ? (
+                  <Text color="claude" wrap="truncate-end">{`   ${oneLine('compacted', Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+                ) : null}
                 {scrolls && Client !== undefined ? (
                   <Client
                     key={`scroll-${i}`}
@@ -2776,7 +3422,7 @@ export const register: Register = (on, options) => {
                         {` ${tickOf(i, current)}${isPulsed(i) && hasRoom ? ` ${shownLine}` : ''}`}
                       </Text>
                       {hasRoom && !isPulsed(i) ? (
-                        <Text>
+                        <Text key={`text-${i}`} bold={i === current || undefined}>
                           {` ${headText}`}
                         </Text>
                       ) : null}
@@ -2829,6 +3475,11 @@ export const register: Register = (on, options) => {
               </Box>
             )
           })}
+          {/* A resume whose history is the whole list still marks where the new
+              prompts will start. */}
+          {dividerAt.has(entries.length) ? (
+            <Text key="resume-tail" color={TIME_COLOR} wrap="truncate-end">{`   ${oneLine(resumeText(dividerAt.get(entries.length)!), Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+          ) : null}
           {/* The hover card floats over the pane's foot, pinned there, so
               opening one takes no line from the rows: the row under the
               pointer never moves away from it. It keeps the prompt whole,

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.0
+
+- Added the moments a conversation was resumed to the vertical pane: a `resumed at 2026-11-14 19:52:00` line at the prompt text's column, in olive, above the first prompt sent after each `/resume` the module is told of, so the prompts of each resumed run stay together. A resumed session's head keeps the original conversation's start. The latest line is placed by the prompts sent since that resume and the older ones by the transcript's timestamps; a resume with nothing from before it above draws no line, and an empty list still shows the latest. The moments survive a hot reload in the engine's session state and the next process in the mod's store, for the 20 most recent sessions, and a `/clear` removes them; up to 256 moments and 256 distinct prompt texts are kept
+- Added slash commands sent with arguments to the rail, listed as the command line the person typed, such as `/impeccable …`; a local command such as `/model` or `/config` is not a prompt and is still left out
+- Changed the pane's head to read `started at 2026-11-14 14:41:10`, when the conversation started, to the second, and removed the head's line naming the prompt being read: that prompt's own row is already the bold one
+- Changed the rail's own rows — `started at …`, `resumed at …` and the `compacted` divider — to start at the prompt text's column, with the times in olive and no `─ … ─` wrapping, so they read as the rail's rows, not transcript lines
+- Fixed the heavy row sometimes not following the transcript on scroll, and sometimes moving to a prompt and dropping back to the newer one at once: a row drawn again where it was (a streaming reply, or a remount replaying its last place) was counted as a newer report, so its stale cut at the top of the viewport pulled the reader back. Such a row is no newer report now, and only a row whose place actually changed moves the reader. A jump is also released when the person scrolls above the prompt it landed on, even while the jump is still settling
+- Changed the pane to keep the prompt being read in view when the list is taller than the pane: the pane's own window moves to the heavy row (nothing moves while that row already shows), instead of leaving the mark outside the pane
+- Changed the README's pictures for the new head and divider rows
+
 ## 0.12.0
 
 - Fixed a click on the prompt whose turn is still running saying it cannot jump: Claude Code echoes that prompt in the prompt box under a provisional id (`placeholder`, or `placeholder-N` for a queued one) while the turn runs, and the rail took the echo for the row to scroll to. The echo names no transcript row, so the rail keeps the stored row's id as the jump target

@@ -51,7 +51,9 @@ Mouse works best with `"tui": "fullscreen"`.
 
 ### Vertical, beside the transcript (default)
 
-<img src="docs/vertical.png" alt="The vertical rail: one row per prompt in a pane beside the transcript; hovering a cut row expands its whole prompt, sent time, duration and files" width="800">
+<img src="docs/vertical.png" alt="The vertical rail: one row per prompt in a pane beside the transcript; the pane's head names when the conversation started, and hovering a cut row expands its whole prompt, sent time, duration and files" width="800">
+
+Where the pane has room for text and at least one row to show under it, it opens with `started at 2026-11-14 14:41:10`, when the conversation started, to the second. Scrolling the transcript back through its history makes the matching prompt's row bold, so the turn in view is marked even when its row sits below the fold; when the list is taller than the pane, the pane's own window moves to keep that row in view. A slash command sent with arguments, such as `/impeccable …`, is listed as the command line; a local command such as `/model` or `/config` is not. A resumed session shows the original conversation's start, where a transcript can be read, not the moment it was resumed, and draws a `resumed at 2026-11-14 06:05:00` line at the prompt text's column above the first prompt sent after each resume it was told of: everything over the last line is the history the session brought, and the prompts of each resumed run stay together. A line with nothing from before the resume above it is not drawn; an empty list still shows the latest, marking where the first prompt will begin. The lines survive a reload and are kept for the next process, for the 20 most recent sessions; a `/clear` removes them. A `/resume` the module is never told of adds no line for that moment, though lines kept from earlier resumes still draw.
 
 ### Below, under the prompt
 
@@ -129,12 +131,13 @@ While a prompt's turn is still running, its row sits above the reply being writt
 | `━` `┃` | The prompt you are reading |
 | `─` `│` | Any other prompt |
 | `┄` `┆` | A prompt Claude Code refused to scroll to; `next` and `prev` skip it |
-| `⌁` / `─ compacted ─` | The prompt that opens the segment after a `/compact` |
+| `⌁` / `compacted` | The prompt that opens the segment after a `/compact` |
 | `⠋` `⠙` `⠹` … | Its turn is running; the tick spins in place |
 
 | Color | Meaning |
 | --- | --- |
-| accent | The prompt you are reading, and the `─ compacted ─` divider the rail draws itself |
+| accent | The prompt you are reading, and the `compacted` divider the rail draws itself |
+| olive `#b6bd68` | The `started at …` and `resumed at …` lines |
 | green | Its turn is running |
 | yellow | The turn was interrupted |
 | red | The turn ended with an API error |
@@ -179,6 +182,7 @@ The prompt you are reading owns the topmost row on screen. The transcript is rea
 - Near the end of the transcript, `next` cannot scroll further.
 - After a compaction, the engine keeps only the summary and the most recent messages. Prompts before the boundary are listed from the transcript; where no transcript can be read at all, they cannot be listed in that session.
 - With no transcript to read, a prompt can be jumped to only after its row has been drawn once, since the engine's list carries no row id of its own.
+- A `/resume` the module is never told of — a new process launched with the classic hooks passed over — adds no line for that moment, and with no readable transcript the pane's head names the moment the module loaded rather than the conversation's original start. An in-process `/resume` is told of through `session.end`, so it draws its line. The moments a conversation was resumed at are kept in the mod's store for the 20 most recent sessions and in the engine's session state, so a hot reload and a new process keep its lines; the hash-keyed prompt counts live only in the session state, so a new process places the latest line by the transcript's timestamps. Up to 256 moments and 256 distinct prompt texts are kept.
 
 </details>
 

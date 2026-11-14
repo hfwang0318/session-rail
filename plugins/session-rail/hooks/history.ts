@@ -37,8 +37,8 @@ export const matchText = (text: string) => text.replace(/\s+/g, ' ').trim()
 
 // The person's prompts in the engine's message list, in order. `prepare`
 // strips what the rail never shows (the artifact context) and returns
-// undefined for a row that is not a prompt (wrappers, slash commands); the
-// engine already leaves meta and virtual rows out.
+// undefined for a row that is not a prompt (wrappers, local or bare slash
+// commands); the engine already leaves meta and virtual rows out.
 export const promptsFromMessages = (messages: readonly EngineMessage[], prepare: (text: string) => string | undefined): EnginePrompt[] => {
   const prompts: EnginePrompt[] = []
   messages.forEach((message, ordinal) => {

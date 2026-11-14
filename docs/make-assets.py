@@ -16,6 +16,7 @@ them. Requires Pillow.
 
 from __future__ import annotations
 
+import json
 import math
 import sys
 from dataclasses import dataclass, field
@@ -24,6 +25,9 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).resolve().parent
+# The release the pictures name, read from the plugin so bumping the version
+# redraws them without a second edit here.
+VERSION = json.loads((HERE.parent / "plugins/session-rail/.claude-plugin/plugin.json").read_text())["version"]
 
 # Terminal grid. Coordinates in this file are logical pixels (the size the
 # README shows); everything is drawn at SCALE times that and kept there for
@@ -264,7 +268,7 @@ def pill(d: ImageDraw.ImageDraw, x: float, y: float, w: float, h: float, fill: s
     rect(d, x, y, w, h, radius=h / 2, fill=fill, outline=outline, width=1 if outline else 0)
 
 
-def window(width: float, height: float, title: str = "~/demo", right: str = "session-rail 0.12.0") -> tuple[Image.Image, ImageDraw.ImageDraw]:
+def window(width: float, height: float, title: str = "~/demo", right: str = f"session-rail {VERSION}") -> tuple[Image.Image, ImageDraw.ImageDraw]:
     img = Image.new("RGB", (s(width), s(height)), WINDOW)
     d = ImageDraw.Draw(img)
     # A rounded top edge is enough to read as a window; the page colour fills

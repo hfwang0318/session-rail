@@ -5274,6 +5274,43 @@ test("a continued conversation divides its earlier session's prompts and marks t
   expect(await rail.find({ type: 'Text', text: /current session/ })).toBeDefined()
 })
 
+test('the current session heading opens after the whole parent block', async ($, on) => {
+  const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: parentId, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'u3', parentUuid: 'c0', origin: { kind: 'human' }, message: { role: 'user', content: 'own prompt' } },
+  ]))
+  disk.extra = {
+    [parentId]: jsonl([
+      { type: 'user', uuid: 'u1', origin: { kind: 'human' }, message: { role: 'user', content: 'first parent' } },
+      { type: 'user', uuid: 'u2', parentUuid: 'u1', origin: { kind: 'human' }, message: { role: 'user', content: 'second parent' } },
+    ]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  await press.press({ key: 'load-parent' })
+  await press.unmount()
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  const nodes = await rail.findAll({})
+  const label = (text: string) => nodes.findIndex((node: any) => node.type === 'Button' && String(node.props.label) === text)
+  // A block heading marks only its first row, so the block runs on to the row
+  // before this session's own: the heading must clear every parent prompt, not
+  // the first one. The pane head draws a "current session" line too, which is
+  // why the last such line is the block heading.
+  const heading = nodes
+    .map((node: any, i: number) => ({ node, i }))
+    .filter(({ node }) => node.type === 'Text' && String(node.text).startsWith('   current session'))
+    .at(-1)!.i
+  const secondParent = label(' ┄ second parent')
+  const own = label(' ─ own prompt')
+  expect(secondParent).toBeGreaterThanOrEqual(0)
+  expect(own).toBeGreaterThan(secondParent)
+  expect(heading).toBeGreaterThan(secondParent)
+  expect(heading).toBeLessThan(own)
+})
+
 test('an earlier session is read one level at a time, on a press', async ($, on) => {
   const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
   const p2 = 'bbbbbbbb-2222-4222-8222-222222222222'

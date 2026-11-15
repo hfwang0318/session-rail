@@ -1254,7 +1254,6 @@ const continueFrom = (parent: TranscriptIndex, child: TranscriptIndex, parentId:
   // copies beside them. The copies keep their ticks and jumps; only the second
   // heading goes. Nothing is cleared when the merge kept no prompt, because
   // then its heading is not drawn and the copies' is the only one.
-  let lastHeaded = -1
   if (keep.length > 0) {
     for (let i = keep.length; i < prompts.length; i++) {
       const prompt = prompts[i]!
@@ -1262,20 +1261,27 @@ const continueFrom = (parent: TranscriptIndex, child: TranscriptIndex, parentId:
       const copy = { ...prompt }
       delete copy.from
       prompts[i] = copy
-      lastHeaded = i
     }
   }
   // This session's own rows begin after the parent's, headed "current
-  // session". A deeper level's child may already be headed, its first rows
-  // naming the session it in turn came from, and a child that carries blocks of
-  // its own (a /branch of a continued session heads what it copied) has its own
-  // part further down: it opens after the last of them — or after the copies
-  // that now sit under the merge's heading.
-  let last = keep.length - 1
-  prompts.forEach((prompt, i) => {
-    if (prompt.from !== undefined) last = i
-  })
-  const own = Math.max(last + 1, lastHeaded + 1)
+  // session". A deeper level's child already knows where its own part starts,
+  // so that place is kept and only moved down by the parent's prompts.
+  // Otherwise the part opens after the last copied prompt, which `forked` marks
+  // on every row of a block — not after the last heading, which marks only the
+  // block's first row: a multi-prompt block of a branch (or of the merge, whose
+  // copies were just cleared) must not be entered mid-way. A child with no
+  // copied prompt at all opens its own part at its first row.
+  const headed = child.prompts.findIndex(prompt => prompt.currentBlock === true)
+  let own: number
+  if (headed >= 0) {
+    own = keep.length + headed
+  } else {
+    let lastCopy = -1
+    child.prompts.forEach((prompt, i) => {
+      if (prompt.forked === true) lastCopy = i
+    })
+    own = keep.length + lastCopy + 1
+  }
   if (own < prompts.length) prompts[own] = { ...prompts[own]!, currentBlock: true }
   return {
     prompts,

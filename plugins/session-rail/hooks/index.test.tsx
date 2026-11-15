@@ -5347,6 +5347,13 @@ test('a third session read on a press keeps one current session heading', async 
   // heading: it must keep that place, not work out a second one inside the
   // block the first merge headed.
   expect(lines).toEqual(['   prompts from cccccccc ⧉', '   prompts from aaaaaaaa ⧉', '   current session'])
+  // And it names the prompt that opens this session's own part, not the copy
+  // the first merge headed.
+  const nodes = await rail.findAll({})
+  const row = (text: string) => nodes.findIndex((node: any) => node.type === 'Button' && String(node.props.label) === text)
+  const heading = nodes.findIndex((node: any) => node.type === 'Text' && String(node.text) === '   current session')
+  expect(heading).toBeGreaterThan(row(' ─ copied parent prompt'))
+  expect(heading).toBeLessThan(row(' ─ own prompt'))
 })
 
 test('an earlier session is read one level at a time, on a press', async ($, on) => {

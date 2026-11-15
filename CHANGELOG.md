@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.1
+
+- Fixed the marketplace entry's description still offering the rail "beside the transcript or above the prompt", a layout 0.16.0 removed: it now reads "in a pane beside the transcript", as the plugin's own description does. The version moves only so the directory picks the new text up
+
 ## 0.16.0
 
 - Fixed the hover cards of a scrolled pane: the slot the cards hang in stood at the tree's first row, and the engine scrolls the tree itself, so once the list had scrolled past its top the cards were carried away with it and a hover opened one rows above the row that asked for it, or nowhere at all. The slot is now pinned to the window's first row, so a card opens under its row wherever the list has scrolled to

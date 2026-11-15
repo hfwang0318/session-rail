@@ -10,7 +10,7 @@
     {
       "name": "session-rail",
       "source": "./plugins/session-rail",
-      "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one, click to jump to it. Engine-native history.",
+      "description": "A rail of your session's prompts in a pane beside the transcript; hover to read one, click to jump to it. Engine-native history.",
       "homepage": "https://github.com/hfwang0318/session-rail"
     }
   ]

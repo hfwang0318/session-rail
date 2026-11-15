@@ -4,18 +4,16 @@ A rail of your prompts for Claude Code. Hover to read one, click to jump back to
 
 **English** · [简体中文](../../README.zh-CN.md)
 
-session-rail is a mod: a pane beside the transcript, or a row of bars above or below the prompt input, with one tick per prompt. Hover a tick to read the whole prompt and what its turn did; click it to scroll the transcript back to it. It runs entirely on your machine: no network requests and no analytics.
+session-rail is a mod: a pane beside the transcript, with one tick per prompt. Hover a tick to read the whole prompt and what its turn did; click it to scroll the transcript back to it. It runs entirely on your machine: no network requests and no analytics.
 
-## Layouts
+## Layout
 
-- **vertical** (default): one row per prompt beside the transcript. The prompt you are reading is bold; the pane's window follows it as you scroll.
-- **horizontal**: bars above the prompt input.
-- **below**: bars under the hint line (terminal; the desktop app draws them above).
+One row per prompt in a pane beside the transcript. The prompt you are reading is bold; the pane's window follows it as you scroll.
 
 ## Read and jump
 
 - Hover a cut prompt: the whole text, when it was sent, how long its turn took, how it ended and the files it edited. A card too tall for its room opens above its row with a scrollbar.
-- Click any row or bar: the transcript jumps to it. A running turn spins its tick; a prompt Claude Code refuses to scroll to turns dotted, and `next`/`prev` skip it.
+- Click any row: the transcript jumps to it. A running turn spins its tick; a prompt Claude Code refuses to scroll to turns dotted, and `next`/`prev` skip it.
 - The "Expand on hover", "Scroll on hover" and "Hover card …" rows in `/config` adjust the card.
 
 ## Long sessions
@@ -56,9 +54,7 @@ Start a new session and the rail opens on its own.
 
 | Command | What it does |
 | --- | --- |
-| `/session-rail horizontal` | Bars above the prompt input |
 | `/session-rail vertical` | A pane beside the transcript (the default) |
-| `/session-rail below` | Bars under the hint line below the prompt input (terminal; the desktop app draws them above) |
 | `/session-rail off` | Hide the rail |
 | `/session-rail next`, `prev` | Jump to the next or previous prompt |
 | `/session-rail first`, `last` | Jump to the first or the newest prompt |
@@ -68,13 +64,13 @@ Start a new session and the rail opens on its own.
 | `/session-rail-next`, `/session-rail-prev` | Jump to the next or previous prompt, for a keybinding |
 | `/session-rail-toggle` | Hide the rail, or bring it back, for a keybinding |
 | `/session-rail-preview` | Open the theme preview pane, for every card theme or the one named, as `/session-rail-preview sienna` |
-| `/session-rail` | Reopen the rail in the current layout |
+| `/session-rail` | Reopen the rail |
 
 ## Settings
 
 `/config` carries the rail's rows: "Rail mode" (kept across sessions), "Color scheme" (`auto` follows your theme, live), "Card theme" (eleven families, each with a dark and a light side), "Accent follows card theme", "Expand on hover", "Scroll on hover", "Hover card background", "Hover card text", "Hover card stats text" and "Classic hooks". `/session-rail-preview` shows the card families in the current scheme.
 
-In the horizontal layout, `ctrl+x tab` moves the focus to the bars: `←` `→` move across them, `Enter` jumps, `Esc` returns to the prompt input. A running turn's row sits above the reply being written, so a jump to it lands on the newest reply row; the prompt itself is echoed under a provisional id that names no transcript row, which is why clicking it never reports a failed jump.
+A running turn's row sits above the reply being written, so a jump to it lands on the newest reply row; the prompt itself is echoed under a provisional id that names no transcript row, which is why clicking it never reports a failed jump.
 
 "Classic hooks" keeps `classic.SessionStart` and `classic.Stop` registered (on by default). Turn it off only where managed settings pass them over; the rail then finds the transcript under `CLAUDE_CONFIG_DIR` or `~/.claude`, which misses one Claude Code keeps elsewhere.
 
@@ -90,8 +86,8 @@ session-rail makes no network requests and sends nothing anywhere, neither the t
 - It reads the current session's transcript file (the `.jsonl` file Claude Code writes for the session) to add each prompt's stored id, when it was sent, its turn details, and prompts older than the engine's 4096-entry window.
 - Where no hook names that file, as on a machine with managed settings or in a Team or Enterprise organization, where Claude Code's security default keeps the classic hooks from installed plugins, it looks for the file where Claude Code keeps it: `projects/<folder>/<session id>.jsonl` under the config folder, the folder named after the session's working directory. The config folder is the one the installed copy sits under; for a copy loaded from a folder of its own, it reads `CLAUDE_CONFIG_DIR`, else `HOME` (`USERPROFILE` on Windows) to reach `~/.claude`. It checks whether that file exists, and for a working directory whose folder name Claude Code shortens, it lists the folder names under `projects` to find the one that matches. Apart from the custom theme definition described above, it reads no other file under the config folder.
 - When a transcript is too large to read in one call, it streams the file with `tail -c +N <transcript>`, which writes the file from byte N on to the mod, so a later read takes only what is new; the first read of a resumed large session streams the whole file. On a Windows path where `tail` cannot start, it runs `powershell -NoProfile -NonInteractive` with a short script that copies the same file from that position. The output of either goes to the mod alone. It runs no other program. A transcript on a Windows network share is read over that share.
-- It writes one setting, its own `session-rail.mode` (the "Rail mode" row in `/config`), when you pick a layout. It sets no other setting and no environment variable of the session; the PowerShell fallback passes the file path and read position in that child process's own environment.
-- In the mod's own store it keeps the layout last on, the mode kept for the current session, the transcript paths of the most recent sessions, so a resumed session can find its rail again, and, for the 20 most recent sessions, the moments each was resumed at, so a new process can draw the lines its earlier processes drew. In the engine's in-memory session state, which is not written to disk but can be read by other plugins, it keeps the session id, every moment the session was resumed at, which of those began with a `/branch`, the number of prompts sent since the latest, and, for up to 256 distinct prompt texts, how many times each was sent, keyed by a short hash of the text and its length and never the text itself, so the `resumed` lines survive a hot reload; a new process starts with none of the counts, and a `/clear` writes the state away. A test build may stage a message list under one reserved store key; a normal install never writes it, and reads it only if the engine's own list cannot be read at all.
+- It writes one setting, its own `session-rail.mode` (the "Rail mode" row in `/config`), when you pick a mode. It sets no other setting and no environment variable of the session; the PowerShell fallback passes the file path and read position in that child process's own environment.
+- In the mod's own store it keeps the mode last on, the mode kept for the current session, the transcript paths of the most recent sessions, so a resumed session can find its rail again, and, for the 20 most recent sessions, the moments each was resumed at, so a new process can draw the lines its earlier processes drew. In the engine's in-memory session state, which is not written to disk but can be read by other plugins, it keeps the session id, every moment the session was resumed at, which of those began with a `/branch`, the number of prompts sent since the latest, and, for up to 256 distinct prompt texts, how many times each was sent, keyed by a short hash of the text and its length and never the text itself, so the `resumed` lines survive a hot reload; a new process starts with none of the counts, and a `/clear` writes the state away. A test build may stage a message list under one reserved store key; a normal install never writes it, and reads it only if the engine's own list cannot be read at all.
 
 Its hooks watch and do not change what passes through them:
 
@@ -100,13 +96,12 @@ Its hooks watch and do not change what passes through them:
 - `session.end` notes that a `/clear` or a resume has started another conversation, so the rail starts its list over, and passes the event on unchanged.
 - `config.set` on the `theme` row switches the palette when "Color scheme" is auto, and passes the event on unchanged; a forced scheme ignores it.
 - `prompt.submit` and `session.receive` note that a prompt was sent, and pass it on unchanged.
-- `turn.start`, `turn.complete`, and `ui.render` on transcript rows note which prompt is on screen and which turn is running, read the engine's message list and the transcript again as a turn starts and ends, and draw those rows as Claude Code does. `ui.render`, `ui.focus`, and `ui.press` on the rail's own pane and band draw the rail and take its clicks and keys; `ui.scroll` on the pane scrolls a card taller than the room beside its row, or the card of the row under the pointer, and passes every other move on unchanged. In the below layout, `ui.render` on the hint line under the prompt draws Claude Code's own line unchanged and adds the rail's row under it.
+- `turn.start`, `turn.complete`, and `ui.render` on transcript rows note which prompt is on screen and which turn is running, read the engine's message list and the transcript again as a turn starts and ends, and draw those rows as Claude Code does. `ui.render`, `ui.focus`, and `ui.press` on the rail's own pane draw the rail and take its clicks and keys; `ui.scroll` on the pane scrolls a card taller than the room beside its row, or the card of the row under the pointer, and passes every other move on unchanged. A pane too narrow to reveal a prompt beside its tick draws hidden cards in the band above the prompt instead.
 
 ## Limitations
 
-- The Claude desktop app draws the horizontal rail, but a click cannot jump there, since the app gives a plugin no way to scroll its transcript.
 - A `/compact` command's own row cannot be jumped to.
-- A session continued into another (`/resume`, a `--fork-session` fork, a context overflow) shows the earlier prompts under a `prompts from <id> ⧉` heading, and this session's own part under `current session`; each heading carries its session's start time at the pane's right edge. The `[ click to load more prompts from parent session ]` button reads one session per press, and it is drawn by the pane, so the vertical layout is where an earlier session can be asked for. Its prompts' rows are in the other transcript: they draw with the dotted tick, `next`/`prev` skip them, and pressing the heading copies the parent's full id for `/resume`. A `/branch` started inside a session needs no second transcript: the command copies the rows into the branch's own file with the session they came from, so the headings are drawn without the dotted tick or the load button.
+- A session continued into another (`/resume`, a `--fork-session` fork, a context overflow) shows the earlier prompts under a `prompts from <id> ⧉` heading, and this session's own part under `current session`; each heading carries its session's start time at the pane's right edge. The `[ click to load more prompts from parent session ]` button reads one session per press, and it is drawn by the pane. Its prompts' rows are in the other transcript: they draw with the dotted tick, `next`/`prev` skip them, and pressing the heading copies the parent's full id for `/resume`. A `/branch` started inside a session needs no second transcript: the command copies the rows into the branch's own file with the session they came from, so the headings are drawn without the dotted tick or the load button.
 - Near the end of the transcript, `next` cannot scroll further.
 - After a compaction, prompts before the boundary come from the transcript; with no transcript to read, they cannot be listed in that session.
 - With no transcript, a prompt can be jumped to only after its row has been drawn once.

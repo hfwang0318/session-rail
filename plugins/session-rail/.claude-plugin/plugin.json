@@ -1,7 +1,7 @@
 {
   "name": "session-rail",
   "version": "0.15.0",
-  "description": "A rail of your session's prompts beside the transcript or above the prompt: hover to read one in full, with when it was sent, and click to jump to it. The engine's own message list is the primary history source, with the transcript adding ids, turn details and older prompts.",
+  "description": "A rail of your session's prompts in a pane beside the transcript: hover to read one in full, with when it was sent, and click to jump to it. The engine's own message list is the primary history source, with the transcript adding ids, turn details and older prompts.",
   "author": {
     "name": "hfwang"
   },
@@ -18,13 +18,11 @@
     "mode": {
       "type": "string",
       "title": "Rail mode",
-      "description": "off: no rail. vertical: a pane beside the transcript, one row per prompt. horizontal: a row of bars above the prompt input (terminal only). below: a row of bars under the hint line below the prompt input (terminal only; the desktop app keeps it above). /session-rail off|vertical|horizontal|below changes it too and shows where the rail sits.",
+      "description": "off: no rail. vertical: a pane beside the transcript, one row per prompt. /session-rail off|vertical changes it too and shows where the rail sits.",
       "default": "vertical",
       "options": [
         "off",
-        "vertical",
-        "horizontal",
-        "below"
+        "vertical"
       ]
     },
     "colorScheme": {
@@ -72,25 +70,25 @@
     "expandOnHover": {
       "type": "boolean",
       "title": "Expand on hover",
-      "description": "Hovering a prompt opens its card: the whole prompt when its row or bar cuts it, and when it was sent, how long its turn took, how it ended and the files it edited. Off leaves the rail as it is, with no card; a prompt the rail cuts is then read only in part.",
+      "description": "Hovering a prompt opens its card: the whole prompt when its row cuts it, and when it was sent, how long its turn took, how it ended and the files it edited. Off leaves the rail as it is, with no card; a prompt the rail cuts is then read only in part.",
       "default": true
     },
     "scrollOnHover": {
       "type": "boolean",
       "title": "Scroll on hover",
-      "description": "With Expand on hover on, a prompt the rail cuts scrolls in place on one line instead of taking the card's lines: in the pane the hovered row scrolls and keeps only the sent time and the turn's details on a line beneath; in the band the card's line scrolls the prompt beside them. Off, the pane's card wraps the whole prompt.",
+      "description": "With Expand on hover on, a prompt the rail cuts scrolls in place on one line instead of taking the card's lines: in the pane the hovered row scrolls and keeps only the sent time and the turn's details on a line beneath, and the hover cards a narrow pane hands to the band scroll the prompt the same way. Off, the pane's card wraps the whole prompt.",
       "default": false
     },
     "cardBackground": {
       "type": "string",
       "title": "Hover card background",
-      "description": "The background of a hover card in every layout, and of the row or bar under the pointer: a theme key (e.g. inactive) or a raw color (a name such as red, or hex). In the pane the hovered row's ellipsis is covered by this same color, so the card reads as continuing its sentence. Empty follows the Card theme's variant for the active Color scheme (warm-taupe: #3A3531 in dark themes, #E8E1D8 in light ones).",
+      "description": "The background of a hover card, and of the row under the pointer: a theme key (e.g. inactive) or a raw color (a name such as red, or hex). In the pane the hovered row's ellipsis is covered by this same color, so the card reads as continuing its sentence. Empty follows the Card theme's variant for the active Color scheme (warm-taupe: #3A3531 in dark themes, #E8E1D8 in light ones).",
       "default": ""
     },
     "cardText": {
       "type": "string",
       "title": "Hover card text",
-      "description": "The text color of a hover card's prompt, its scrollbar thumb, padding and the band's ringed label, and — when no Hover card stats text is set — its stats line: a theme key or a raw color. Applying it also sets the hovered row. Pick one that reads against Hover card background. Empty follows the color scheme's body text (#D4D0CB in dark themes, #35312D in light ones) for the chrome, while the card's prompt takes the scheme's bright highlight (#FFFFFF in dark themes, #000000 in light ones); both are checked against the panel and fall back to whichever white or black a custom background can carry. The stats line instead draws the card theme's accent tint.",
+      "description": "The text color of a hover card's prompt, its scrollbar thumb and padding, and — when no Hover card stats text is set — its stats line: a theme key or a raw color. Applying it also sets the hovered row. Pick one that reads against Hover card background. Empty follows the color scheme's body text (#D4D0CB in dark themes, #35312D in light ones) for the chrome, while the card's prompt takes the scheme's bright highlight (#FFFFFF in dark themes, #000000 in light ones); both are checked against the panel and fall back to whichever white or black a custom background can carry. The stats line instead draws the card theme's accent tint.",
       "default": ""
     },
     "cardStatsText": {

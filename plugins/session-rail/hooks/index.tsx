@@ -39,11 +39,8 @@ const RAIL_COLUMNS = 4
 // Below this many body columns the vertical rail has no room to reveal the
 // prompt beside a tick, so the band above the prompt shows it instead.
 const INLINE_REVEAL_MIN_COLUMNS = 12
-// Cells a hover card keeps for the prompt's text beside the turn's details,
-// and the desktop's label of the prompt being read beside the bars.
+// Cells a hover card keeps for the prompt's text beside the turn's details.
 const MIN_CARD_TEXT = 12
-// Cells the desktop's bars keep however narrow the band: one bar and its marks.
-const MIN_DESKTOP_BARS = 3
 // The mode is the plugin's `mode` setting (userConfig), a row in /config. An
 // earlier version kept it in the store under this key, shared by every session.
 const LEGACY_MODE_KEY = 'mode'
@@ -51,8 +48,8 @@ const LEGACY_MODE_KEY = 'mode'
 // with no /config row for plugin fields), so a module reloaded mid-session
 // starts in it again. Keyed by session, so a later session starts clean.
 const SESSION_MODE_KEY_PREFIX = 'session-mode:'
-// The mode last on (vertical, horizontal or below), so `session-rail-toggle` turned
-// off has a mode to come back to; vertical until another was written.
+// The mode last on (vertical), so `session-rail-toggle` turned off has a mode
+// to come back to; vertical until another was written.
 const LAST_ON_KEY = 'last-on'
 // `transcript:<session id>` -> { path, at }, so a hot-reloaded module (whose
 // session.start carries no path) can rebuild its list. One key per session, so
@@ -233,9 +230,6 @@ const SINCE_CAP = 256
 // `session.end` and the resumed one's classic `SessionStart`.
 const RESUME_MOMENTS_CAP = 256
 const RESUME_PAIR_MS = 5_000
-// Cells kept left of the horizontal rail: off the window's edge, a pointer
-// leaving the first bar crosses a cell and the surface sees the hover end.
-const RAIL_INSET = 2
 // The engine's refusal when no row is drawn under an id, as for a slash
 // command's own row, which the transcript file holds but the surface skips.
 // Other refusals (a race with another move) pass, so they leave the tick be.
@@ -247,24 +241,21 @@ const UNSCROLLABLE = /not scrollable/
 // found on disk (see findTranscript).
 const UNFOUND = "this session's transcript could not be found; prompts are listed as they are drawn"
 const UNSCROLLABLE_TOAST = 'jumps cannot land here: this view does not let a plugin scroll the transcript'
-// A count the rail's sites (the pane and the band) read while drawing, so
-// bumping it draws them again, and them alone. `$.ui.invalidate('ui.render')`
+// A count the rail's pane reads while drawing, so bumping it draws it again,
+// and it alone. `$.ui.invalidate('ui.render')`
 // also draws every transcript row this module hooks, and rows drawn again
 // while the person scrolls just after a jump move the viewport a turn away.
 const MOVED = { plugin: 'session-rail', key: 'moved' } as const
 // The resume boundary, in the engine's session state: kept across a hot reload
 // of this module and gone with the session, so a new process starts with none.
 const RESUME = { plugin: 'session-rail', key: 'resume' } as const
-// How long the band's text line shows the card of the bar the focus ring is
-// on after the ring last moved: no event says the ring left the band.
-const RING_CARD_MS = 4000
 // How long a prompt stays lit after a jump landed on it: the press's answer
 // beside the scroll, which may move the transcript out of sight.
 const JUMP_PULSE_MS = 600
 // The leftmost cells of a pane row left uncovered by a hover card: the pointer
 // travels down the list through this channel without crossing the overlay.
 const CHANNEL_COLUMNS = 3
-const USAGE = '[off|vertical|horizontal|below|preview|next|prev|first|last|<n>|find <words>]'
+const USAGE = '[off|vertical|preview|next|prev|first|last|<n>|find <words>]'
 // What a preview asks for: every family, one family, or a name this build does
 // not know. `preview`, `preview theme`, `preview-theme`, `themes`, and each of
 // those followed by a family name, all land here.
@@ -284,15 +275,10 @@ const STEP_COMMANDS = [
   ['session-rail-prev', 'previous'],
 ] as const
 
-// vertical: ticks in a docked pane; horizontal: ticks in a row above the
-// prompt; below: ticks in a row under the hint line below the prompt; off: no
-// rail at all. One setting, so /config keeps a single row.
-type Mode = 'off' | 'vertical' | 'horizontal' | 'below'
-const isMode = (value: unknown): value is Mode => value === 'off' || value === 'vertical' || value === 'horizontal' || value === 'below'
-
-// Whether the band above the prompt carries the rail: horizontal, and below
-// where no terminal draws the hint line's row (the desktop app draws the band).
-const isBandMode = (mode: Mode, isTerminal: boolean) => mode === 'horizontal' || (mode === 'below' && !isTerminal)
+// vertical: ticks in a docked pane; off: no rail at all. One setting, so
+// /config keeps a single row.
+type Mode = 'off' | 'vertical'
+const isMode = (value: unknown): value is Mode => value === 'off' || value === 'vertical'
 
 // Where a mode puts the rail, drawn around the prompt input, for the answer
 // to `/session-rail <mode>`: /config draws a row's help on one line, so this
@@ -300,18 +286,6 @@ const isBandMode = (mode: Mode, isTerminal: boolean) => mode === 'horizontal' ||
 // answer with the plugin's name, so the picture does not.
 const PROMPT_BOX = ['  ────────────────────────────────', '  ❯', '  ────────────────────────────────']
 export const placePicture = (mode: Mode) => {
-  if (mode === 'below') {
-    return [
-      'below the prompt input',
-      ...PROMPT_BOX,
-      '  ? for shortcuts',
-      '  ‹│┃│ #2/3 the prompt being read   ← the rail',
-      '(on the terminal; the desktop app keeps it above the prompt)',
-    ].join('\n')
-  }
-  if (mode === 'horizontal') {
-    return ['above the prompt input', '  #2 the prompt being read', '  │┃│                              ← the rail', ...PROMPT_BOX].join('\n')
-  }
   if (mode === 'vertical') {
     return [
       'a pane beside the transcript',
@@ -413,10 +387,9 @@ export const liveWith = (live: LiveState, id: string, isEarlierTurn: boolean, te
   if (previous !== text) live.row = id
 }
 
-// A stacked rail reads rows apart; a row of ticks needs upright bars to. A
-// dotted one marks a prompt the transcript does not draw, so a jump fails.
+// A stacked rail reads rows apart. A dotted tick marks a prompt the transcript
+// does not draw, so a jump fails.
 export const tick = (isCurrent: boolean, isUnreachable = false) => (isCurrent ? '━' : isUnreachable ? '┄' : '─')
-export const bar = (isCurrent: boolean, isUnreachable = false) => (isCurrent ? '┃' : isUnreachable ? '┆' : '│')
 
 // Record what a jump to `id` answered: a landing makes it reachable, a refusal
 // for want of a drawn row unreachable, any other refusal says nothing. True
@@ -1503,11 +1476,10 @@ export function transcriptCandidates(config: { dir: string; sep: string }, cwd: 
   return folders.filter(name => name.startsWith(cut)).map(at)
 }
 
-// Open the pane where the mode draws the rail in it; close it elsewhere (off,
-// or horizontal or below on the terminal, where the band or the hint line
-// carries the rail).
-async function seatRail($: EngineInterface, mode: Mode, isTerminal: boolean) {
-  if (mode === 'off' || ((mode === 'horizontal' || mode === 'below') && isTerminal)) {
+// Open the pane where the mode draws the rail in it; close it when the rail
+// is off.
+async function seatRail($: EngineInterface, mode: Mode) {
+  if (mode === 'off') {
     await $.ui.close({ id: PANE })
   } else {
     await $.ui.open({ id: PANE, title: 'Prompts', columns: RAIL_COLUMNS })
@@ -2506,11 +2478,9 @@ export const register: Register = (on, options) => {
     return entries.some(entry => rowKey(entry.id) === id) || owners.has(id)
   }
 
-  // The rail's sites say whose transcript is in view; the rows a switch
+  // The rail's pane says whose transcript is in view; the rows a switch
   // leaves were another transcript's, and those it brings report anew.
-  // True when the view switched. The hint line under the prompt has no view
-  // of its own, so below, a switch draws the rail's sites again: the row
-  // under it leaves, or comes back, with the switch.
+  // True when the view switched.
   const noteView = (agentId: string | undefined) => {
     const isSwitched = agentId !== viewAgent
     if (isSwitched) {
@@ -2528,9 +2498,8 @@ export const register: Register = (on, options) => {
   const expandOnHover = options.expandOnHover !== false
   // Whether a prompt the rail cuts scrolls on one line instead of taking the
   // card's lines: in the pane the hovered row scrolls in place, with the turn's
-  // details on a line beneath, and in the band the card's line scrolls the
-  // prompt beside them. The cards' setting decides whether hovering opens
-  // anything at all.
+  // details on a line beneath. The cards' setting decides whether hovering
+  // opens anything at all.
   const scrollOnHover = expandOnHover && options.scrollOnHover === true
   // The hover card's panel and text: a setting overrides the palette, and an
   // empty setting follows the card theme's pair on the active side.
@@ -2578,25 +2547,10 @@ export const register: Register = (on, options) => {
   // prompt the transcript holds. A resumed session's first prompt is older, so
   // the pane's head names the conversation the history belongs to.
   let startAt = Date.now()
-  // The subagent whose transcript is in view, as the rail's sites last drew;
+  // The subagent whose transcript is in view, as the rail's pane last drew;
   // undefined for the main conversation, whose rows alone the rail lists.
   let viewAgent: string | undefined
-  // Whether the session started on the terminal, whose band carries the
-  // horizontal rail alone; elsewhere the pane stays open beside it.
-  let isTerminal = false
-  // Whether the horizontal band was last drawn on a grid of cells (the
-  // terminal); the focus event does not say which surface it came from.
-  let isBandOnGrid = true
   let railColumns = 0
-  // The horizontal bar whose card the text line shows, while the ring is on
-  // it, and the timer that stops showing it.
-  let ringed: number | undefined
-  let ringFade: Timer | undefined
-  const unring = () => {
-    ringFade?.cancel()
-    ringFade = undefined
-    ringed = undefined
-  }
 
   // Start the list over for another conversation (a /clear, a resume).
   const forget = () => {
@@ -2673,7 +2627,7 @@ export const register: Register = (on, options) => {
       // every other plugin's and the built-ins, so a generic name would collide.
       name: 'session-rail',
       description:
-        'Show the prompt rail: vertical (a pane beside the transcript), horizontal (above the prompt), below (under the prompt) or off; preview draws every card theme as colored swatches; next, prev, first, last, a number or find <words> jumps to a prompt.',
+        'Show the prompt rail: vertical (a pane beside the transcript) or off; preview draws every card theme as colored swatches; next, prev, first, last, a number or find <words> jumps to a prompt.',
       argumentHint: USAGE,
       // Runs while a turn streams, so next and prev move through it then too.
       immediate: true,
@@ -2690,7 +2644,7 @@ export const register: Register = (on, options) => {
     await Promise.all([
       $.command.register({
         name: 'session-rail-toggle',
-        description: 'Toggle the rail: off ↔ the mode last on (vertical, horizontal or below).',
+        description: 'Toggle the rail: off ↔ the mode last on (vertical).',
         immediate: true,
       }),
       $.command.register({
@@ -2699,7 +2653,6 @@ export const register: Register = (on, options) => {
         immediate: true,
       }),
     ])
-    isTerminal = e.surface === 'terminal'
     isBound = true
     tellNotice($, seen, isBound)
     // Start the theme read, but do not await it before the transcript read is
@@ -2834,7 +2787,7 @@ export const register: Register = (on, options) => {
     }
     // Unasked, the engine seats a pane only from 144 columns (110 once the
     // person has opened it with /session-rail); below that it waits undrawn.
-    await seatRail($, mode, isTerminal)
+    await seatRail($, mode)
     return next(e)
   })
 
@@ -2881,7 +2834,6 @@ export const register: Register = (on, options) => {
     if (!isStep && e.command !== 'session-rail' && e.command !== 'session-rail-toggle' && !isPreviewCommand) return next(e)
     const rawArgs = (e.args ?? '').trim()
     const asked = isStep || e.command === 'session-rail-toggle' ? '' : isPreviewCommand ? `preview ${rawArgs}`.trim() : rawArgs
-    unring()
     // A gallery of the card families, or one family's sample, drawn by the
     // preview pane's render hook below in real colors. The text is what a
     // terminal too narrow for the pane keeps, and the row the model reads.
@@ -2934,7 +2886,7 @@ export const register: Register = (on, options) => {
         await $.store.set(LAST_ON_KEY, mode)
         mode = 'off'
       }
-      await seatRail($, mode, isTerminal)
+      await seatRail($, mode)
       await redrawRail($)
       await writeMode($, mode)
       return {}
@@ -2961,11 +2913,11 @@ export const register: Register = (on, options) => {
     }
     // Reopening a rail that is off would only close it again: say how to turn it on.
     if (!asked && mode === 'off') {
-      $.ui.toast('the rail is off; /session-rail vertical, horizontal or below turns it on')
+      $.ui.toast('the rail is off; /session-rail vertical turns it on')
       return {}
     }
     if (isMode(asked)) mode = asked
-    await seatRail($, mode, isTerminal)
+    await seatRail($, mode)
     await redrawRail($)
     // Last: a changed setting reloads this module, which then starts in it.
     if (!isMode(asked)) return {}
@@ -3588,7 +3540,6 @@ export const register: Register = (on, options) => {
   // A prompt was sent: typed, or delivered from Remote Control. Its rows drawn
   // before the stored one are pending (see listDrawn).
   on('prompt.submit', async ($, e, next) => {
-    unring()
     // Read the text only for an origin that can be a prompt; another origin
     // is untrusted and can be long, and parsing it is work no rail row needs.
     if (PROMPT_KINDS.has(e.origin.kind)) {
@@ -3727,14 +3678,13 @@ export const register: Register = (on, options) => {
   })
 
   const isUnreachable = (i: number) => unreachable.has(entries[i]?.id ?? '')
-  // The prompt a jump just landed on, lit while its moment lasts. Drawn in every
-  // layout, so a press is answered even where the scroll lands out of sight.
+  // The prompt a jump just landed on, lit while its moment lasts: a press is
+  // answered even where the scroll lands out of sight.
   const isPulsed = (i: number) => pulsed !== undefined && pulsed === rowKey(entries[i]?.id ?? '')
   // A running turn's mark is a spinner drawn by its own Client (spin.tsx), so
   // the pane's rows are not redrawn while a turn runs; every other mark keeps
   // its tick.
   const tickOf = (i: number, current: number) => tick(i === current, isUnreachable(i))
-  const barOf = (i: number, current: number) => bar(i === current, isUnreachable(i))
 
   // The tick's color: a turn's failure or progress, the prompt being read, or
   // one nothing can scroll to. The status colors stay theme keys, since they
@@ -3749,8 +3699,8 @@ export const register: Register = (on, options) => {
     return undefined
   }
   // A prompt that opens the segment after a /compact boundary, or a block of
-  // prompts from an earlier session (the band and the below line have no row to
-  // head, so the arrow stands in for the pane's heading).
+  // prompts from an earlier session (a card in the band has no row to head,
+  // so the arrow stands in for the pane's heading).
   const breakMark = (i: number) =>
     i > 0 && (entries[i]?.from !== undefined || entries[i]?.currentBlock)
       ? '⇡ '
@@ -3881,12 +3831,10 @@ export const register: Register = (on, options) => {
       </Text>
     )
   }
-  // A hover card's line with the prompt scrolling instead of cut: `width`
-  // cells of the turn's number, the prompt's window and its details. The
-  // Client draws the prompt alone; the rest of the line stays still beside it.
-  // `keyPrefix` keeps the ringed line's Client apart from the hover card drawn
-  // for the same prompt, which would otherwise take the same key in one tree.
-  const marqueeLine = (Text: ElementConstructor<TextProps>, Client: ElementConstructor<ClientProps>, entry: Entry, i: number, width: number, keyPrefix = 'marquee'): RenderElement => {
+  // A band card's line with the prompt scrolling instead of cut: `width` cells
+  // of the turn's number, the prompt's window and its details. The Client draws
+  // the prompt alone; the rest of the line stays still beside it.
+  const marqueeLine = (Text: ElementConstructor<TextProps>, Client: ElementConstructor<ClientProps>, entry: Entry, i: number, width: number): RenderElement => {
     const prefix = `${breakMark(i)}#${i + 1} `
     const line = Math.max(MIN_CARD_TEXT, width - cellWidth(prefix))
     const summary = summaryOf(entry, line)
@@ -3896,7 +3844,7 @@ export const register: Register = (on, options) => {
     return (
       <>
         <Text color={cardPromptText} weight="semibold">{prefix}</Text>
-        <Client key={`${keyPrefix}-${i}`} module="./marquee.tsx" props={{ text: marqueeOf(entry), cardBackground, cardText, cardPromptText, textColor: bodyText, accentOnCard }} width={room} height={1} />
+        <Client key={`marquee-${i}`} module="./marquee.tsx" props={{ text: marqueeOf(entry), cardBackground, cardText, cardPromptText, textColor: bodyText, accentOnCard }} width={room} height={1} />
         {suffix ? <Text color={cardPromptText} weight="semibold">{suffix}</Text> : null}
         {pad > 0 ? <Text>{' '.repeat(pad)}</Text> : null}
       </>
@@ -3914,7 +3862,7 @@ export const register: Register = (on, options) => {
     // surface without one keeps the card wrapped.
     const Client = e.surface === 'terminal' ? $.ui.resolve(e).Client : undefined
     const isRail = e.props.placement === 'dock' && e.surface === 'terminal'
-    if (noteView(e.props.view.agentId) && mode === 'below') redrawRailLater($)
+    noteView(e.props.view.agentId)
     // The offer to read one more level of the earlier sessions: one level per
     // press, above the oldest prompt shown, never read unasked (see withHistory
     // and loadParent). No offer where a subagent's transcript holds the pane.
@@ -4007,7 +3955,8 @@ export const register: Register = (on, options) => {
     const current = currentIndex()
     drawnCurrent = current
     // Docked on the terminal: one row per prompt, its tick and its text, the
-    // whole row pressable. Too narrow for text, ticks alone (the band shows it).
+    // whole row pressable. Too narrow for text, ticks alone (the band shows it
+    // through the hover cards it takes from this pane).
     if (isRail) {
       const hasRoom = e.props.bodyColumns >= INLINE_REVEAL_MIN_COLUMNS
       const width = Math.max(4, e.props.bodyColumns - 4)
@@ -4202,8 +4151,7 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column">
           {/* The offer sits above the head: what it loads are prompts older
               than this session's own, so it is drawn where that block will
-              open, the way the band and the below line draw it above every
-              row. */}
+              open, above every row. */}
           {hasRoom && historyPending !== undefined ? (
             <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
           ) : null}
@@ -4508,26 +4456,23 @@ export const register: Register = (on, options) => {
     )
   })
 
-  // The band above the prompt. Horizontal: the rail itself, a
-  // row of ticks with the hovered prompt beside them. Vertical with a dock too
-  // narrow to reveal beside a tick: hidden cards the rail's ticks reveal.
+  // The band above the prompt, drawn for the vertical rail only where its dock
+  // is too narrow to reveal a prompt beside a tick: hidden cards the dock's
+  // ticks reveal.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     await $.state.get(MOVED)
     // The cards under the prompt draw sent times in the machine's zone.
     zoneRead ??= hostZone($)
     timeZone = await zoneRead
-    if (noteView(e.props.view.agentId) && mode === 'below') redrawRailLater($)
+    noteView(e.props.view.agentId)
     // Nothing while the rail is off, a survey holds the band or a subagent's transcript is in view.
     if (mode === 'off' || e.props.hasSurvey || e.props.view.agentId !== undefined || entries.length === 0) return next(e)
-    // Below the prompt on the terminal, the hint line carries the rail.
-    if (mode === 'below' && e.surface === 'terminal') return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text } = $.ui.resolve(e)
     // The terminal and desktop tables carry the Client a scrolling card is
     // drawn in; a surface without one keeps its card cut.
     const Client = e.surface === 'terminal' || e.surface === 'desktop' ? $.ui.resolve(e).Client : undefined
     // Every mod shares the band, and a tree returned here replaces what the
-    // mods after this one draw. Keep theirs, above the rail, so the bars stay
-    // beside the prompt.
+    // mods after this one draw. Keep theirs, above the cards.
     const below = await next(e)
     const stack = (rail: ReturnType<typeof Box>) => (
       <Box flexDirection="column">
@@ -4535,9 +4480,8 @@ export const register: Register = (on, options) => {
         {rail}
       </Box>
     )
-    // The card's panel takes the settings' colors in every layout, the band's
-    // included; one padded Text keeps its line whole, as the band's tests read
-    // it, while its background covers the reading line beneath.
+    // The card's panel takes the settings' colors; one padded Text keeps its
+    // line whole, while its background covers the reading line beneath.
     const cards = (width: number) =>
       entries.map((entry, i) => (
         <Box key={`card-${i}`} width={width} backgroundColor={cardBackground} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
@@ -4545,266 +4489,10 @@ export const register: Register = (on, options) => {
         </Box>
       ))
 
-    if (isBandMode(mode, e.surface === 'terminal')) {
-      // Two rows: the text line, then the bars beside the prompt. The text line
-      // shows the prompt being read, dim, and the hovered one's card painted
-      // over it; the bar of the prompt being read is heavy.
-      //
-      // Only the terminal's grid of cells hides the dim line under a card. A
-      // page (the desktop app) paints a card with no background, in a face of
-      // its own widths, so the line beneath shows through: there the text line
-      // holds the hovered card alone, and the prompt being read is named after
-      // the bars. A clicked bar keeps its native ring there beside the hovered
-      // one, so the band takes no ring at all (see the band's ui.focus).
-      const isCellGrid = e.surface === 'terminal'
-      isBandOnGrid = isCellGrid
-      const width = Math.max(8, e.props.bodyColumns - 2 - RAIL_INSET)
-      const current = currentIndex()
-      drawnCurrent = current
-      const shownRing = isCellGrid && ringed !== undefined && ringed < entries.length ? ringed : undefined
-      // Cells for the bars and their marks: the whole line, or beside the
-      // label of the prompt being read, a gap and a few words of it.
-      const barCells = isCellGrid ? width : Math.max(MIN_DESKTOP_BARS, width - 1 - MIN_CARD_TEXT)
-      // More prompts than cells: a window of bars centered on the prompt being
-      // read (the newest when none is known), `‹` and `›` marking what it hides.
-      // It stays put while the ring moves: the ring keeps its place in the row,
-      // not its bar, so a shifted window would move it to another prompt.
-      const isOverflowing = entries.length > barCells
-      const capacity = isOverflowing ? barCells - 2 : entries.length
-      const center = current >= 0 ? current : entries.length - 1
-      const first = Math.min(Math.max(0, center - Math.floor(capacity / 2)), entries.length - capacity)
-      const shown = entries.slice(first, first + capacity)
-      const hidesAfter = first + capacity < entries.length
-      const label = (i: number, room = width) => {
-        const entry = entries[i]
-        const mark = breakMark(i)
-        const text = entry === undefined ? '' : shownLineOf(entry, room - cellWidth(mark) - `#${i + 1} `.length)
-        return `${mark}#${i + 1} ${text}`
-      }
-      // The hovered prompt's card also sums up its turn and latest reply.
-      const card = (i: number) => {
-        const entry = entries[i]
-        const mark = breakMark(i)
-        return entry ? `${mark}#${i + 1} ${withTurn(entry, width - cellWidth(mark) - `#${i + 1} `.length)}` : ''
-      }
-      // A surface with no Client region draws a running bar through the rail's
-      // own redraw instead of leaving the band blank.
-      if (Client === undefined && shown.some(entry => isRunningFor(entry.id))) keepSpinning($)
-      const bars = [
-        isOverflowing ? <Text color={bodyText} dimColor>{first > 0 ? '‹' : ' '}</Text> : null,
-        ...shown.map((entry, offset) => {
-          const i = first + offset
-          const running = isRunningFor(entry.id) && !isPulsed(i)
-          // A running turn's bar spins in its own region, so the band is not
-          // redrawn while it runs.
-          if (running && Client !== undefined) {
-            return (
-              <Client
-                key={`spin-${i}`}
-                module="./spin.tsx"
-                width={1}
-                height={1}
-                props={{
-                  tickWidth: 1,
-                  jumpKey: `jump-${i}`,
-                  scope: `session-rail-${i}`,
-                  ...(colorOf(i) === undefined ? {} : { color: colorOf(i) }),
-                  isDim: i !== current,
-                  autoFocus: isCellGrid && i === center,
-                  cardBackground,
-                  cardText,
-                  cardPromptText,
-                  textColor: bodyText,
-                }}
-              />
-            )
-          }
-          const mark = running ? (SPIN[spinFrame] ?? SPIN[0]!) : barOf(i, current)
-          return (
-            <Button
-              key={`jump-${i}`}
-              plain
-              dimColor={i !== current}
-              label={mark}
-              hover={{ scope: `session-rail-${i}`, backgroundColor: cardBackground, color: cardPromptText, dimColor: false, bold: true, inverse: false }}
-              autoFocus={(isCellGrid && i === center) || undefined}
-              onPress={() => {}}
-            >
-              <Text color={colorOf(i) ?? bodyText} inverse={isPulsed(i) || undefined} hover={rowHover(i)}>
-                {mark}
-              </Text>
-            </Button>
-          )
-        }),
-        hidesAfter ? <Text color={bodyText} dimColor>›</Text> : null,
-      ]
-      if (!isCellGrid) {
-        // Each bar and mark a cell wide, then a gap.
-        const room = width - (isOverflowing ? barCells : entries.length) - 1
-        return stack(
-          <Box flexDirection="column" paddingLeft={RAIL_INSET}>
-            <Box height={1} width={width}>
-              {expandOnHover
-                ? entries.map((entry, i) => (
-                    <Box key={`card-${i}`} width={width} backgroundColor={cardBackground} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
-                      {scrollOnHover && Client !== undefined ? marqueeLine(Text, Client, entry, i, width) : cardLine(Text, entry, i, width)}
-                    </Box>
-                  ))
-                : null}
-            </Box>
-            <Box flexDirection="row">
-              {bars}
-              {/* With no prompt known on screen, the newest: bars alone read as a broken rail. */}
-              <Box marginLeft={1}>
-                <Text color={bodyText} dimColor wrap="truncate-end">{label(center, room)}</Text>
-              </Box>
-            </Box>
-          </Box>,
-        )
-      }
-      return stack(
-        <Box flexDirection="column" paddingLeft={RAIL_INSET}>
-          <Box height={1} width={width}>
-            {/* With no prompt known on screen, the newest: an empty line reads as a broken rail. */}
-            {shownRing === undefined ? (
-              <Text color={bodyText} dimColor wrap="truncate-end">{label(center)}</Text>
-            ) : scrollOnHover && Client !== undefined && entries[shownRing] ? (
-              marqueeLine(Text, Client, entries[shownRing], shownRing, width, 'shown-marquee')
-            ) : (
-              <Text wrap="truncate-end" backgroundColor={cardBackground} color={cardText} weight="semibold">{padTo(card(shownRing), width)}</Text>
-            )}
-            {expandOnHover
-              ? entries.map((entry, i) => (
-                  <Box key={`card-${i}`} position="absolute" top={0} left={0} width={width} backgroundColor={cardBackground} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
-                    {scrollOnHover && Client !== undefined ? marqueeLine(Text, Client, entry, i, width) : cardLine(Text, entry, i, width)}
-                  </Box>
-                ))
-              : null}
-          </Box>
-          <Box flexDirection="row">{bars}</Box>
-        </Box>,
-      )
-    }
-
     if (expandOnHover && railColumns > 0 && railColumns < INLINE_REVEAL_MIN_COLUMNS) {
       return stack(<Box flexDirection="column">{cards(Math.max(8, e.props.bodyColumns - 8))}</Box>)
     }
     return below
-  })
-
-  // The hint line under the prompt. Below, on the terminal: the engine's line
-  // as the engine draws it, its pills live, then a row of the rail's own: a
-  // step either way around the bars, and beside them the prompt being read,
-  // a hovered bar's card painted over it. The engine's line takes a row of
-  // its own whatever is put beside it, so the rail goes under it.
-  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    // Read in every mode, so a switch away from below draws the line again.
-    await $.state.get(MOVED)
-    // The cards beside the bars draw sent times in the machine's zone.
-    zoneRead ??= hostZone($)
-    timeZone = await zoneRead
-    const engine = await next(e)
-    if (mode !== 'below' || e.surface !== 'terminal' || viewAgent !== undefined || entries.length === 0) return engine
-    const { Box, Text, Button, Client } = $.ui.resolve(e)
-    // The engine indents the line two cells; one more is kept at the right end.
-    const width = Math.max(MIN_CARD_TEXT, (e.viewport?.columns ?? 80) - 3)
-    const current = currentIndex()
-    drawnCurrent = current
-    const center = current >= 0 ? current : entries.length - 1
-    // Up to half the row for the bars, the two steps beside them; a window
-    // centered on the prompt being read when they do not all fit.
-    const capacity = Math.min(entries.length, Math.max(1, Math.floor(width / 2) - 2))
-    const first = Math.min(Math.max(0, center - Math.floor(capacity / 2)), entries.length - capacity)
-    const shown = entries.slice(first, first + capacity)
-    // The rest of the row, past the steps and a gap.
-    const room = Math.max(MIN_CARD_TEXT, width - capacity - 3)
-    const step = (key: string, label: string, to: number) =>
-      to >= 0 ? <Button key={key} plain dimColor label={label} hover={{ scope: key, inverse: true, dimColor: false }} onPress={() => {}} /> : <Text> </Text>
-    const reading = `${breakMark(center)}#${center + 1}/${entries.length} `
-    return (
-      <Box flexDirection="column">
-        {engine}
-        <Box flexDirection="row" height={1}>
-          {step('step-prev', '‹', stepFrom(current, entries.length, -1, isUnreachable))}
-          {shown.map((entry, offset) => {
-            const i = first + offset
-            const running = isRunningFor(entry.id) && !isPulsed(i)
-            if (running && Client !== undefined) {
-              return (
-                <Client
-                  key={`spin-${i}`}
-                  module="./spin.tsx"
-                  width={1}
-                  height={1}
-                  props={{
-                    tickWidth: 1,
-                    jumpKey: `jump-${i}`,
-                    scope: `session-rail-${i}`,
-                    ...(colorOf(i) === undefined ? {} : { color: colorOf(i) }),
-                    isDim: i !== current,
-                    cardBackground,
-                    cardText,
-                    cardPromptText,
-                    textColor: bodyText,
-                  }}
-                />
-              )
-            }
-            const mark = running ? (SPIN[spinFrame] ?? SPIN[0]!) : barOf(i, current)
-            return (
-              <Button
-                key={`jump-${i}`}
-                plain
-                dimColor={i !== current}
-                label={mark}
-                hover={{ scope: `session-rail-${i}`, backgroundColor: cardBackground, color: cardPromptText, dimColor: false, bold: true, inverse: false }}
-                onPress={() => {}}
-              >
-                <Text color={colorOf(i) ?? bodyText} inverse={isPulsed(i) || undefined} hover={rowHover(i)}>
-                  {mark}
-                </Text>
-              </Button>
-            )
-          })}
-          {step('step-next', '›', stepFrom(current, entries.length, 1, isUnreachable))}
-          <Box marginLeft={1} width={room} height={1}>
-            {/* With no prompt known on screen, the newest: bars alone read as a broken rail. */}
-            <Text color={bodyText} dimColor wrap="truncate-end">{`${reading}${entries[center] === undefined ? '' : shownLineOf(entries[center], room - reading.length)}`}</Text>
-            {expandOnHover
-              ? shown.map((entry, offset) => {
-                  const i = first + offset
-                  return (
-                    <Box key={`card-${i}`} position="absolute" top={0} left={0} width={room} backgroundColor={cardBackground} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }}>
-                      {scrollOnHover ? marqueeLine(Text, Client, entry, i, room) : cardLine(Text, entry, i, room)}
-                    </Box>
-                  )
-                })
-              : null}
-          </Box>
-        </Box>
-      </Box>
-    )
-  })
-
-  // The band holds the keyboard after a click or ctrl+x tab: the ring starts
-  // on the bar of the prompt being read, the arrows move it, Enter jumps. A
-  // scroll is refused here (it is no press), so the text line shows the
-  // ringed prompt's card instead, for RING_CARD_MS after each move.
-  on('ui.focus', { component: 'AbovePrompt', plugin: 'session-rail' }, async ($, e, next) => {
-    if (!isBandMode(mode, isBandOnGrid)) return next(e)
-    // A page keeps a clicked bar's ring beside the hovered one: two lit at once.
-    if (!isBandOnGrid) return { deny: 'session-rail: on this surface the bars take clicks, not the focus ring' }
-    const result = await next(e)
-    const index = Number(/^jump-(\d+)/.exec(e.element ?? '')?.[1])
-    if (result.deny || !Number.isInteger(index)) return result
-    unring()
-    ringed = index
-    ringFade = $.clock.after(RING_CARD_MS, () => {
-      unring()
-      void redrawRail($)
-    })
-    await redrawRail($)
-    return result
   })
 
   // In the pane, a ringed row and the row under the pointer light at once and
@@ -4885,10 +4573,7 @@ export const register: Register = (on, options) => {
       }
       return next(e)
     }
-    // The steps beside the bars under the prompt name no prompt of their own.
-    const dir = e.element === 'step-next' ? 1 : e.element === 'step-prev' ? -1 : 0
-    const index = dir === 0 ? Number(/^(?:row-)?jump-(\d+)/.exec(e.element)?.[1]) : stepFrom(currentIndex(), entries.length, dir, isUnreachable)
-    unring()
+    const index = Number(/^(?:row-)?jump-(\d+)/.exec(e.element)?.[1])
     const entry = entries[index]
     const plan = jumpPlan(entry)
     if (entry?.beside) $.ui.toast(BESIDE_TOAST)

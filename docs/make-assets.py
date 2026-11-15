@@ -311,20 +311,6 @@ def label(
     d.text((sx(x), sx(y_center)), text, font=BOLD if bold else REGULAR, fill=color, anchor=anchor)
 
 
-def panel_label(
-    d: ImageDraw.ImageDraw,
-    x: float,
-    y_center: float,
-    text: str,
-    color: str = CARD_PROMPT,
-    width: float | None = None,
-) -> None:
-    """A band card's line on its panel, bold, its background behind it."""
-    w = width if width is not None else REGULAR.getlength(text) / SCALE + CELL
-    rect(d, x - CELL / 2, y_center - LINE / 2, w, LINE, fill=CARD_BG)
-    label(d, x, y_center, text, color, bold=True)
-
-
 def pill(d: ImageDraw.ImageDraw, x: float, y: float, w: float, h: float, fill: str, outline: str | None = None) -> None:
     rect(d, x, y, w, h, radius=h / 2, fill=fill, outline=outline, width=1 if outline else 0)
 
@@ -472,15 +458,6 @@ def draw_tick(d: ImageDraw.ImageDraw, x: float, y_center: float, color: str, hea
     w = 10.5 if heavy else 9.0
     h = 3.6 if heavy else 2.2
     rect(d, x - w / 2, y_center - h / 2, w, h, fill=color, radius=h / 2)
-
-
-def draw_bar(d: ImageDraw.ImageDraw, x_center: float, y_center: float, color: str, heavy: bool, dotted: bool) -> None:
-    if dotted:
-        for offset in (-5.0, 0.0, 5.0):
-            rect(d, x_center - 1, y_center + offset - 1.2, 2, 2.4, fill=color, radius=1)
-        return
-    w = 4.0 if heavy else 2.0
-    rect(d, x_center - w / 2, y_center - 7, w, 14, fill=color, radius=1)
 
 
 @dataclass
@@ -862,52 +839,6 @@ def still_vertical(path: Path) -> None:
     line(d, 650, 44, 650, height - 12, BORDER)
     draw_rail(d, 672, 64, 33, PROMPTS, 2, 1)
     draw_composer(d, 24, 528, transcript_w, "Ask Claude to change something…")
-    img.save(path, optimize=True)
-
-
-def still_horizontal(path: Path) -> None:
-    width, height = 1100, 560
-    img, d = window(width, height)
-    lines, starts = build_lines(PROMPTS, 122)
-    top = starts[3] - 2
-    img.paste(draw_transcript(lines, 1052, 300, top, 122), (s(24), s(56)))
-    # The band: the hovered prompt's card over the bars.
-    hover = 3
-    prompt = PROMPTS[hover]
-    card = f"#{hover + 1} {prompt.text} · {summary(prompt)}"
-    panel_label(d, 24, 404, cut(card, 126), width=1052)
-    bars_y = 430
-    for index, entry in enumerate(PROMPTS):
-        color, heavy, dotted = tick_color(entry, index, 2)
-        draw_bar(d, 24 + index * CELL + CELL / 2, bars_y, color, heavy, dotted)
-    draw_composer(d, 24, 452, 1052, "Ask Claude to change something…")
-    img.save(path, optimize=True)
-
-
-def still_below(path: Path) -> None:
-    width, height = 1100, 520
-    img, d = window(width, height)
-    lines, starts = build_lines(PROMPTS, 122)
-    top = starts[3] - 2
-    img.paste(draw_transcript(lines, 1052, 300, top, 122), (s(24), s(56)))
-    draw_composer(d, 24, 372, 1052, "Ask Claude to change something…", status=False)
-    label(d, 24, 420, "haiku", DIM)
-    label(d, 24 + 7 * CELL, 420, "·", BORDER)
-    label(d, 24 + 9 * CELL, 420, "~/demo", DIM)
-    draw_mode_line(d, 24, 440)
-    # The rail's own row under the hint line: steps, bars, hovered card.
-    hover = 3
-    prompt = PROMPTS[hover]
-    row_y = 474
-    label(d, 24, row_y, "‹", DIM)
-    bx = 24 + 2 * CELL
-    for index, entry in enumerate(PROMPTS):
-        color, heavy, dotted = tick_color(entry, index, 2)
-        draw_bar(d, bx + index * CELL + CELL / 2, row_y, color, heavy, dotted)
-    label(d, bx + len(PROMPTS) * CELL + CELL / 2, row_y, "›", DIM)
-    card_x = bx + (len(PROMPTS) + 2) * CELL
-    card = f"#{hover + 1} {prompt.text} · {summary(prompt)}"
-    panel_label(d, card_x, row_y, cut(card, 100), width=1076 - card_x)
     img.save(path, optimize=True)
 
 
@@ -1538,77 +1469,6 @@ def make_card_above(path: Path) -> None:
     save_gif(frames, path)
 
 
-def make_below(path: Path) -> None:
-    frames: list[Image.Image] = []
-    lines, starts = build_lines(DEMO_PROMPTS, 84)
-    del lines
-    start = starts[2]
-    end = starts[3]
-    bx = 22 + 2 * CELL
-    target_four = bx + 3 * CELL + CELL / 2
-    target_two = bx + 1 * CELL + CELL / 2
-    row_y = 358
-    for frame in range(60):
-        hover = None
-        current = 2
-        top = start
-        at = None
-        ring = None
-        if frame <= 7:
-            t = ease(frame / 7)
-            at = (600 + (target_four - 600) * t, 392 + (row_y - 392) * t)
-        elif frame <= 16:
-            hover, at = 3, (target_four, row_y)
-        elif frame <= 20:
-            hover, at = 3, (target_four, row_y)
-            ring = (frame - 16) / 4
-        elif frame <= 32:
-            t = ease((frame - 20) / 12)
-            current, top, at = 3, start + (end - start) * t, (target_four, row_y)
-        elif frame <= 41:
-            current, top, at = 3, end, (target_four, row_y)
-        else:
-            t = ease((frame - 41) / 7)
-            at = (target_four + (target_two - target_four) * t, row_y)
-            current, top = 3, end
-            hover = 1 if frame >= 48 else None
-        frames.append(below_frame(current, hover, top, at, ring))
-    save_gif(frames, path)
-
-
-def below_frame(current: int, hover: int | None, top: float, pointer_at: tuple[float, float] | None, ring: float | None) -> Image.Image:
-    page, _ = frame_page("below: the rail under the hint line  ·  hover, click or step")
-    win, d = window(768, 420)
-    lines, _ = build_lines(DEMO_PROMPTS, 84)
-    win.paste(draw_transcript(lines, 720, 160, top, 84), (s(20), s(48)))
-    draw_composer(d, 20, 236, 720, "Ask Claude to change something…", status=False)
-    label(d, 22, 302, "haiku", DIM)
-    label(d, 22 + 7 * CELL, 302, "·", BORDER)
-    label(d, 22 + 9 * CELL, 302, "~/demo", DIM)
-    draw_mode_line(d, 22, 322)
-    row_y = 358
-    label(d, 22, row_y, "‹", DIM)
-    bx = 22 + 2 * CELL
-    for index, prompt in enumerate(DEMO_PROMPTS):
-        color, heavy, dotted = tick_color(prompt, index, current)
-        draw_bar(d, bx + index * CELL + CELL / 2, row_y, color, heavy, dotted)
-    label(d, bx + len(DEMO_PROMPTS) * CELL + CELL / 2, row_y, "›", DIM)
-    card_x = bx + (len(DEMO_PROMPTS) + 2) * CELL
-    if hover is None:
-        prompt = DEMO_PROMPTS[current]
-        label(d, card_x, row_y, f"#{current + 1}/{len(DEMO_PROMPTS)} {cut(prompt.text, 60)}", DIM)
-    else:
-        prompt = DEMO_PROMPTS[hover]
-        card = f"#{hover + 1} {prompt.text} · {summary(prompt)}"
-        panel_label(d, card_x, row_y, cut(card, 62), width=748 - card_x)
-    if pointer_at is not None:
-        pointer(d, pointer_at[0], pointer_at[1], ring)
-    page.paste(win, (s(16), s(14)))
-    return page
-
-
-# The chain the continued-session GIF walks: the session the person forked
-# from, then the session that one continued.
 PARENT_ONE = "4f3a9c21"
 PARENT_TWO = "3b1e77d0"
 GIF_PARENT_TWO = [
@@ -1815,8 +1675,6 @@ def main() -> None:
     jobs = {
         "banner": (still_banner, HERE / "banner.png"),
         "vertical": (still_vertical, HERE / "vertical.png"),
-        "horizontal": (still_horizontal, HERE / "horizontal.png"),
-        "below": (still_below, HERE / "below.png"),
         "card-above": (still_card_above, HERE / "card-above.png"),
         "long-session": (still_long_session, HERE / "long-session.png"),
         "resume": (still_resume, HERE / "resume.png"),
@@ -1825,7 +1683,6 @@ def main() -> None:
         "themes-light": (still_preview_light, HERE / "themes-light.png"),
         "demo": (make_demo, HERE / "demo.gif"),
         "long-session-gif": (make_long_session, HERE / "long-session.gif"),
-        "below-gif": (make_below, HERE / "below.gif"),
         "above-gif": (make_card_above, HERE / "card-above.gif"),
         "continued-gif": (make_continued, HERE / "continued.gif"),
         "themes-gif": (make_themes, HERE / "themes.gif"),

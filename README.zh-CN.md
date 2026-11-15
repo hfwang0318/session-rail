@@ -17,9 +17,9 @@
 
 ## 亮点
 
-- **会话的地图。** 每条提示词一个刻度，可以放在对话记录旁的面板里，也可以放在提示词输入框上方或下方的一排横条中；正在阅读的提示词会被标出。
+- **会话的地图。** 每条提示词一个刻度，放在对话记录旁的面板里；正在阅读的提示词会被标出。
 - **通读一条提示词。** 悬停被截断的行：看全文、发送时间、回合时长、结局和改动过的文件。
-- **一键跳回。** 点击任意一行或一根横条，或用 `next`/`prev`、编号、按词查找来移动。
+- **一键跳回。** 点击任意一行，或用 `next`/`prev`、编号、按词查找来移动。
 - **长会话不会散。** `/compact` 隔断、隔断前恢复的提示词，以及 `/resume`、fork 或上下文溢出的接缝。
 - **随你调整。** 深色与浅色色板、十一种卡片家族，以及步进用的键位绑定。
 - **只在本机。** 不发网络请求，也不做分析；[隐私政策](plugins/session-rail/README.md#privacy)列出了它读取的每个文件和写入的每个值。
@@ -53,34 +53,20 @@
 > [!TIP]
 > 鼠标操作在 `"tui": "fullscreen"` 下效果最佳。
 
-## 三种布局
+## rail
 
-### 纵向：对话记录旁（默认）
+### 纵向：对话记录旁
 
 <img src="docs/vertical.png" alt="纵向 rail：对话记录旁的面板中每条提示词占一行；面板头部标出 current session 及其开始时间，悬停被截断的行会展开完整提示词、发送时间、时长与改动文件" width="800">
 
 `/session-rail vertical`。每条提示词一行，位于对话记录旁边。粗体的那一行就是正在阅读的提示词。
-
-### 横向：提示词上方
-
-<img src="docs/horizontal.png" alt="横向 rail：悬停的提示词及其统计信息显示在一排横条上方的那一行，正在阅读的提示词以粗体标出" width="800">
-
-`/session-rail horizontal`。提示词输入框上方的一排横条。
-
-### 下方：提示行下方
-
-<img src="docs/below.png" alt="下方 rail：Claude Code 自己的提示行，其下是一排横条，悬停的提示词及其统计信息显示在横条旁边" width="800">
-
-`/session-rail below`。横条位于状态行旁、提示词输入框下方。
-
-<img src="docs/below.gif" alt="session-rail 0.12.0：悬停提示词下方的一根横条会打开与面板相同的卡片，显示全文和统计信息，点击后对话记录跳转到它" width="800">
 
 ## 悬停阅读，点击跳转
 
 <img src="docs/card-above.png" alt="高于其行下方空间的悬停卡片会打开在行上方：完整提示词从第一行开始，悬停行在卡片与其后的行之间留空，卡片右边缘有带滑块的滚动条" width="800">
 
 - **悬停**一条被截断的提示词：看到全文、发送时间、回合时长、结局和改动过的文件。
-- **点击**任意一行或一根横条：对话记录跳转过去，该行闪一下。
+- **点击**任意一行：对话记录跳转过去，该行闪一下。
 - 正在运行的回合会旋转刻度；Claude Code 拒绝滚动到的提示词会变成点线刻度，`next`/`prev` 会跳过它。
 
 <img src="docs/card-above.gif" alt="session-rail 0.12.0：一张高大的悬停卡片打开在其行上方，滚动条滑块位于顶部，该行保持空白，滚轮移动卡片文字时滑块向下移动" width="800">
@@ -88,7 +74,7 @@
 <details>
 <summary>悬停卡片细节</summary>
 
-提示词比卡片空间更高时，会在空间更大的一侧打开为带滚动条的窗口，统计信息固定在卡片底部。打开在行上方的卡片从第一行起展示完整提示词，并在悬停时把该行留空。滚轮停在卡片或其行上时滚动卡片，而不是 rail。`/config` 中的 “Expand on hover”、“Scroll on hover”（用一行跑马灯代替展开）、“Hover card background”、“Hover card text” 和 “Hover card stats text” 都可以调整它。卡片在所有布局中都会绘制；承载不了高亮提示词的自定义面板会退回它能承载的黑或白。
+提示词比卡片空间更高时，会在空间更大的一侧打开为带滚动条的窗口，统计信息固定在卡片底部。打开在行上方的卡片从第一行起展示完整提示词，并在悬停时把该行留空。滚轮停在卡片或其行上时滚动卡片，而不是 rail。`/config` 中的 “Expand on hover”、“Scroll on hover”（用一行跑马灯代替展开）、“Hover card background”、“Hover card text” 和 “Hover card stats text” 都可以调整它。卡片在面板中绘制；承载不了高亮提示词的自定义面板会退回它能承载的黑或白。
 
 </details>
 
@@ -161,9 +147,7 @@
 
 | 命令 | 作用 |
 | --- | --- |
-| `/session-rail horizontal` | 提示词输入框上方的横条 |
 | `/session-rail vertical` | 对话记录旁的面板 |
-| `/session-rail below` | 提示词输入框下方提示行下的横条 |
 | `/session-rail off` | 隐藏 rail |
 | `/session-rail next` | 跳到下一条提示词 |
 | `/session-rail prev` | 跳到上一条提示词 |
@@ -172,16 +156,16 @@
 | `/session-rail find <words>` | 跳到包含这些词的最新一条提示词 |
 | `/session-rail preview`（`preview theme`） | 打开预览面板，按当前配色方案展示每一种卡片主题的示例 |
 | `/session-rail-next`、`/session-rail-prev` | 无参数跳到下一条或上一条提示词，供键位绑定使用 |
-| `/session-rail-toggle` | 隐藏 rail，或以最后使用的布局重新显示，无参数，供键位绑定使用 |
+| `/session-rail-toggle` | 隐藏 rail，或以最后使用的模式重新显示，无参数，供键位绑定使用 |
 | `/session-rail-preview` | 打开主题预览面板，展示全部卡片主题，或指定的一个，例如 `/session-rail-preview sienna` |
-| `/session-rail` | 以当前布局重新打开 rail |
+| `/session-rail` | 重新打开 rail |
 
-布局也对应 `/config` 中的 “Rail mode”。主题相关的行有 “Color scheme”、“Card theme”、“Accent follows card theme”、“Expand on hover”、“Scroll on hover”、“Hover card background”、“Hover card text” 和 “Hover card stats text”。“Classic hooks” 保持 `classic.SessionStart` 和 `classic.Stop` 注册（默认开启）；只有在受管设置跳过它们时才关闭它，因为此后 rail 会在 `CLAUDE_CONFIG_DIR` 或 `~/.claude` 下查找对话记录。
+模式也对应 `/config` 中的 “Rail mode”。主题相关的行有 “Color scheme”、“Card theme”、“Accent follows card theme”、“Expand on hover”、“Scroll on hover”、“Hover card background”、“Hover card text” 和 “Hover card stats text”。“Classic hooks” 保持 `classic.SessionStart` 和 `classic.Stop` 注册（默认开启）；只有在受管设置跳过它们时才关闭它，因为此后 rail 会在 `CLAUDE_CONFIG_DIR` 或 `~/.claude` 下查找对话记录。
 
 <details>
 <summary>/config 各行细节</summary>
 
-“Color scheme” 行选择 rail 的色板：`auto`（默认）跟随 `/config` 主题——内置名会说清它是浅色还是深色，自定义主题则读取其定义中的 `base`——主题一变就切换，无需重启；`dark` 或 `light` 固定一种。“Card theme” 行选择悬停卡片以及指针下的行或横条的颜色家族；每个家族都带深色和浅色面板，“Color scheme” 决定画哪一侧。“Accent follows card theme” 决定 accent——正在阅读的提示词、`compacted` 隔断、`current session` 与 `prompts from <id> ⧉` 标题、`resumed at …` 线、卡片统计行和跑马灯接缝——采用家族自己的 accent，还是保持 Claude 的橙色。“Expand on hover” 开关卡片；“Scroll on hover” 改为一行滚动。“Hover card background” 和 “Hover card text” 接受主题键或原始颜色，留空则跟随当前方案下家族的变体。自定义面板承载不了高亮色时，会退回它能承载的黑或白。
+“Color scheme” 行选择 rail 的色板：`auto`（默认）跟随 `/config` 主题——内置名会说清它是浅色还是深色，自定义主题则读取其定义中的 `base`——主题一变就切换，无需重启；`dark` 或 `light` 固定一种。“Card theme” 行选择悬停卡片以及指针下的行的颜色家族；每个家族都带深色和浅色面板，“Color scheme” 决定画哪一侧。“Accent follows card theme” 决定 accent——正在阅读的提示词、`compacted` 隔断、`current session` 与 `prompts from <id> ⧉` 标题、`resumed at …` 线、卡片统计行和跑马灯接缝——采用家族自己的 accent，还是保持 Claude 的橙色。“Expand on hover” 开关卡片；“Scroll on hover” 改为一行滚动。“Hover card background” 和 “Hover card text” 接受主题键或原始颜色，留空则跟随当前方案下家族的变体。自定义面板承载不了高亮色时，会退回它能承载的黑或白。
 
 </details>
 
@@ -197,23 +181,21 @@
 }
 ```
 
-在横向布局中，`ctrl+x tab` 会把焦点移到横条上：`←` `→` 在横条间移动，`Enter` 跳转，`Esc` 回到提示词输入框。
-
 ## 刻度与颜色图例
 
 | 刻度 | 含义 |
 | --- | --- |
-| `━` `┃` | 正在阅读的提示词 |
-| `─` `│` | 其他任何提示词 |
-| `┄` `┆` | Claude Code 拒绝滚动到的提示词；`next` 和 `prev` 会跳过它 |
+| `━` | 正在阅读的提示词 |
+| `─` | 其他任何提示词 |
+| `┄` | Claude Code 拒绝滚动到的提示词；`next` 和 `prev` 会跳过它 |
 | `⌁` / `compacted` | `/compact` 之后开启新分段的提示词 |
-| `⇡` | 横条与下方行中，更早会话那一块的第一条提示词 |
+| `⇡` | 窄面板旁的横条中，更早会话那一块的第一条提示词 |
 | `⠋` `⠙` `⠹` … | 其回合正在运行；刻度原地旋转 |
 
 | 颜色 | 含义 |
 | --- | --- |
 | accent | 正在阅读的提示词、`compacted` 隔断、`current session` 与 `prompts from <id> ⧉` 标题，以及 `resumed at …` 线 |
-| card highlight | 悬停卡片的提示词和指针下的行或横条：深色主题白色，浅色主题黑色 |
+| card highlight | 悬停卡片的提示词和指针下的行：深色主题白色，浅色主题黑色 |
 | body text | rail 的行、标签和卡片的装饰文字 |
 | card panel | 悬停卡片和选中行，来自 “Card theme” 家族 |
 | green | 其回合正在运行 |
@@ -238,7 +220,7 @@ flowchart LR
 
 一次压缩会用一条摘要消息加上最近的若干行替换引擎的列表，因此 rail 会过滤掉该摘要，并从对话记录恢复边界之前的提示词。用 `/rewind` 放弃的提示词仍会消失：对话记录的读取只沿活动分支进行。
 
-一个被续接到另一会话的会话——由 `/resume` 产生、用 `claude --resume <id> --fork-session` fork 出来，或因为上下文溢出被 Claude Code 延续——自己最新的文件开头有一行摘要，指明它所续接的会话。rail 会从同一目录读取那份对话记录，把它的提示词放到本会话之前，并去掉续接时复制过来的行。读取按需进行：最上方提示词之上有一个 `[ click to load more prompts from parent session <id> ]` 主按钮，每按一次读取一层会话；若更早的会话仍存在，这一行会再次出现（最多上溯四层）。那些提示词的行在另一份对话记录里，因此以点线刻度绘制，`next`/`prev` 会跳过它们；点击其中一条会说明原因，而不是留下一次失败的滚动。这一块的上方以 `prompts from <id> ⧉` 为标题——按下它会复制完整的 id，也就是 `/resume` 所接受的那个——本会话自己的部分则以 `current session` 为标题；每个标题右侧都带着该会话的开始时间（`11-15 17:10`，与面板右缘对齐），因此各块的时间连成一列，每个会话都按它第一条提示词标出开始时间。横条和下方行没有可放标题的位置，改为在每一块的第一条提示词上画一个 `⇡`。
+一个被续接到另一会话的会话——由 `/resume` 产生、用 `claude --resume <id> --fork-session` fork 出来，或因为上下文溢出被 Claude Code 延续——自己最新的文件开头有一行摘要，指明它所续接的会话。rail 会从同一目录读取那份对话记录，把它的提示词放到本会话之前，并去掉续接时复制过来的行。读取按需进行：最上方提示词之上有一个 `[ click to load more prompts from parent session <id> ]` 主按钮，每按一次读取一层会话；若更早的会话仍存在，这一行会再次出现（最多上溯四层）。那些提示词的行在另一份对话记录里，因此以点线刻度绘制，`next`/`prev` 会跳过它们；点击其中一条会说明原因，而不是留下一次失败的滚动。这一块的上方以 `prompts from <id> ⧉` 为标题——按下它会复制完整的 id，也就是 `/resume` 所接受的那个——本会话自己的部分则以 `current session` 为标题；每个标题右侧都带着该会话的开始时间（`11-15 17:10`，与面板右缘对齐），因此各块的时间连成一列，每个会话都按它第一条提示词标出开始时间。面板窄到放不下分行时，横条中的卡片没有可放标题的位置，改为在每一块的第一条提示词上画一个 `⇡`。
 
 在会话中执行的 `/branch` 同样被画成一个对话，但依据的是另一个信号：该命令把对话的行复制进分支自己的对话记录，并给每一行标上它来自的会话，因此该会话 id 一变就会起一个新块 `prompts from <id> ⧉`。这些行就在本份对话记录里，而不是另一个文件——它们保留可跳转的刻度，`next`/`prev` 不会跳过，也不会出现加载按钮。分支起点的线写作 `current session`，时间戳对齐面板右缘——和续接会话自己的块用同一个标签——而 `/resume` 的写作 `resumed at …`。
 
@@ -256,12 +238,11 @@ flowchart LR
 <summary>已知限制</summary>
 
 - mods API 在 Claude Code 各版本之间仍可能变化。
-- 悬停卡片在所有布局中都会绘制；在纵向布局中，其提示词会按面板宽度折行。
-- 下方 rail 属于终端。Claude 桌面应用会把它画在提示词上方，与横向 rail 相同。
-- Claude 桌面应用会绘制横向 rail 及其悬停卡片，但点击无法在那里跳转。应用没有给插件提供滚动对话记录的途径，因此 rail 每个会话会提示一次。正在阅读的提示词显示在横条旁边，而不是上方那一行，因为应用会在那一行绘制卡片却不遮住其下方内容。以 Claude Code 2.1.280 检查时，应用不会绘制纵向面板。
+- 悬停卡片在面板中绘制；其提示词会按面板宽度折行。
+- 以 Claude Code 2.1.280 检查时，Claude 桌面应用不会绘制纵向面板。rail 在终端中工作。
 - 停靠区宽度由所有插件面板共享；拖动其边缘可收窄，最窄到 24 列。
 - `/compact` 命令自身的行无法跳转；首次尝试后其刻度会变为点线。
-- `click to load more prompts from parent session` 这一行由面板绘制，因此较早的会话只在纵向布局中被提供。横条和下方行在面板加载过一层之后会用 `⇡` 标出各块起点，但自身无法请求加载。
+- `click to load more prompts from parent session` 这一行由面板绘制。面板窄到放不下分行时，横条中的卡片会在加载过一层之后用 `⇡` 标出各块起点，但自身无法请求加载。
 - 在对话记录接近末尾时，`next` 无法继续滚动。
 - 压缩之后，引擎只保留摘要和最近的消息。边界之前的提示词从对话记录列出；在完全无法读取对话记录时，它们无法在该会话中列出。
 - 没有可读的对话记录时，提示词只有在它的行至少被绘制过一次之后才能跳转，因为引擎的列表本身不带行 id。
@@ -271,7 +252,7 @@ flowchart LR
 
 ## 隐私
 
-session-rail 不发起网络请求。它读取本会话自己的消息列表、对话记录文件，以及在 “Color scheme” 设为 `auto` 时读取你的 `/config` 主题；它把布局和会话被恢复的时刻保存在自己的 store 中。完整的策略——包括读取的每个文件、运行的每个程序和写入的每个值——见[插件 README 的隐私一节](plugins/session-rail/README.md#privacy)。
+session-rail 不发起网络请求。它读取本会话自己的消息列表、对话记录文件，以及在 “Color scheme” 设为 `auto` 时读取你的 `/config` 主题；它把模式和会话被恢复的时刻保存在自己的 store 中。完整的策略——包括读取的每个文件、运行的每个程序和写入的每个值——见[插件 README 的隐私一节](plugins/session-rail/README.md#privacy)。
 
 ## 开发
 

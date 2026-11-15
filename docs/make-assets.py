@@ -71,6 +71,50 @@ CARD_PROMPT = "#FFFFFF"
 ACCENT_ON_CARD = "#E6A182"
 PAGE = "#111216"
 
+# The light palette, as theme.ts draws it on a light terminal: the warm white
+# page, its body text, and the same orange accent taken deeper so it reads.
+LIGHT_WINDOW = "#FAF9F5"
+LIGHT_PANEL = "#ECE9E1"
+LIGHT_BORDER = "#D8D4CA"
+LIGHT_TEXT = "#3D3A35"
+LIGHT_RAIL_TEXT = "#35312D"
+LIGHT_DIM = "#736E66"
+LIGHT_FAINT = "#A9A39A"
+LIGHT_ACCENT = "#9E4422"
+LIGHT_CODE = "#4B4741"
+# A light card's prompt and hovered row take black, brighter than body text.
+LIGHT_CARD_PROMPT = "#000000"
+
+
+@dataclass(frozen=True)
+class Skin:
+    """The terminal's own colors: the page, its rows, and the Chrome around
+    them. The rail's card panel is not a skin; it comes from the card theme."""
+
+    window: str
+    panel: str
+    border: str
+    text: str
+    rail_text: str
+    dim: str
+    faint: str
+    accent: str
+    code: str
+
+
+DARK_SKIN = Skin(WINDOW, PANEL, BORDER, TEXT, RAIL_TEXT, DIM, FAINT, ACCENT, CODE)
+LIGHT_SKIN = Skin(
+    LIGHT_WINDOW,
+    LIGHT_PANEL,
+    LIGHT_BORDER,
+    LIGHT_TEXT,
+    LIGHT_RAIL_TEXT,
+    LIGHT_DIM,
+    LIGHT_FAINT,
+    LIGHT_ACCENT,
+    LIGHT_CODE,
+)
+
 
 def s(value: float) -> int:
     return int(round(value * SCALE))
@@ -277,22 +321,28 @@ def pill(d: ImageDraw.ImageDraw, x: float, y: float, w: float, h: float, fill: s
     rect(d, x, y, w, h, radius=h / 2, fill=fill, outline=outline, width=1 if outline else 0)
 
 
-def window(width: float, height: float, title: str = "~/demo", right: str = f"session-rail {VERSION}") -> tuple[Image.Image, ImageDraw.ImageDraw]:
-    img = Image.new("RGB", (s(width), s(height)), WINDOW)
+def window(
+    width: float,
+    height: float,
+    title: str = "~/demo",
+    right: str = f"session-rail {VERSION}",
+    skin: Skin = DARK_SKIN,
+) -> tuple[Image.Image, ImageDraw.ImageDraw]:
+    img = Image.new("RGB", (s(width), s(height)), skin.window)
     d = ImageDraw.Draw(img)
     # A rounded top edge is enough to read as a window; the page colour fills
     # the corners so the PNG keeps a plain rectangular shape on GitHub.
-    d.rectangle([0, 0, s(width), s(10)], fill=WINDOW)
+    d.rectangle([0, 0, s(width), s(10)], fill=skin.window)
     for index, color in enumerate(("#ff5f57", "#febc2e", "#28c840")):
         d.ellipse(
             [sx(20 + index * 20), sx(14), sx(20 + index * 20 + 10), sx(24)],
             fill=color,
         )
-    label(d, 94, 19, "claude", TEXT, bold=True)
-    label(d, 94 + 6.5 * CELL + 10, 19, "—", DIM, bold=True)
-    label(d, 94 + 8.5 * CELL + 14, 19, title, DIM)
-    label(d, width - 20, 19, right, ACCENT, anchor="rm")
-    line(d, 0, 37, width, 37, BORDER)
+    label(d, 94, 19, "claude", skin.text, bold=True)
+    label(d, 94 + 6.5 * CELL + 10, 19, "—", skin.dim, bold=True)
+    label(d, 94 + 8.5 * CELL + 14, 19, title, skin.dim)
+    label(d, width - 20, 19, right, skin.accent, anchor="rm")
+    line(d, 0, 37, width, 37, skin.border)
     return img, d
 
 
@@ -305,7 +355,11 @@ class TLine:
     text: str = ""
 
 
-def build_lines(prompts: list[Prompt], cells: int = 68) -> tuple[list[TLine], list[int]]:
+def build_lines(
+    prompts: list[Prompt],
+    cells: int = 68,
+    replies: list[tuple[str, list[tuple[str, str, str]], list[str]]] = REPLIES,
+) -> tuple[list[TLine], list[int]]:
     lines: list[TLine] = []
     starts: list[int] = []
     for index, prompt in enumerate(prompts):
@@ -313,7 +367,7 @@ def build_lines(prompts: list[Prompt], cells: int = 68) -> tuple[list[TLine], li
         wrapped = wrap(prompt.text, cells - 2)
         lines.append(TLine("user", wrapped[0]))
         lines.extend(TLine("cont", part) for part in wrapped[1:])
-        reply, tools, code = REPLIES[index] if index < len(REPLIES) else ("", [], [])
+        reply, tools, code = replies[index] if index < len(replies) else ("", [], [])
         if reply:
             wrapped = wrap(reply, cells - 2)
             lines.append(TLine("assistant", wrapped[0]))
@@ -334,8 +388,9 @@ def draw_transcript(
     top_line: float,
     cells: int,
     fade: bool = False,
+    skin: Skin = DARK_SKIN,
 ) -> Image.Image:
-    img = Image.new("RGB", (s(width), s(height)), WINDOW)
+    img = Image.new("RGB", (s(width), s(height)), skin.window)
     d = ImageDraw.Draw(img)
     for index, item in enumerate(lines):
         y = (index - top_line) * LINE + LINE / 2
@@ -344,28 +399,28 @@ def draw_transcript(
         if item.kind == "blank":
             continue
         if item.kind == "code":
-            rect(d, 2 * CELL, y - LINE / 2, width - 4 * CELL, LINE, fill=PANEL)
-            line(d, 2 * CELL, y - LINE / 2, 2 * CELL, y + LINE / 2, ACCENT, 1.5)
-            label(d, 3.2 * CELL, y, item.text, CODE)
+            rect(d, 2 * CELL, y - LINE / 2, width - 4 * CELL, LINE, fill=skin.panel)
+            line(d, 2 * CELL, y - LINE / 2, 2 * CELL, y + LINE / 2, skin.accent, 1.5)
+            label(d, 3.2 * CELL, y, item.text, skin.code)
             continue
         if item.kind == "user":
-            label(d, 0, y, ">", ACCENT, bold=True)
-            label(d, 2 * CELL, y, cut(item.text, cells - 2), TEXT)
+            label(d, 0, y, ">", skin.accent, bold=True)
+            label(d, 2 * CELL, y, cut(item.text, cells - 2), skin.text)
         elif item.kind == "cont":
-            label(d, 2 * CELL, y, cut(item.text, cells - 2), TEXT)
+            label(d, 2 * CELL, y, cut(item.text, cells - 2), skin.text)
         elif item.kind == "assistant":
-            d.ellipse([sx(1.5), sx(y - 3.2), sx(1.5 + 6.4), sx(y + 3.2)], fill=ACCENT)
-            label(d, 2 * CELL, y, cut(item.text, cells - 2), TEXT)
+            d.ellipse([sx(1.5), sx(y - 3.2), sx(1.5 + 6.4), sx(y + 3.2)], fill=skin.accent)
+            label(d, 2 * CELL, y, cut(item.text, cells - 2), skin.text)
         elif item.kind == "tool":
-            d.ellipse([sx(2.5), sx(y - 2.6), sx(2.5 + 5.2), sx(y + 2.6)], fill=DIM)
-            label(d, 4 * CELL, y, cut(item.text, cells - 4), DIM)
+            d.ellipse([sx(2.5), sx(y - 2.6), sx(2.5 + 5.2), sx(y + 2.6)], fill=skin.dim)
+            label(d, 4 * CELL, y, cut(item.text, cells - 4), skin.dim)
         elif item.kind == "result":
-            label(d, 4 * CELL, y, cut("└ " + item.text, cells - 4), FAINT)
+            label(d, 4 * CELL, y, cut("└ " + item.text, cells - 4), skin.faint)
     if fade:
         # The transcript scrolls under the input well; let the cut line soften
         # instead of ending in half a glyph.
         depth = s(8)
-        overlay = Image.new("RGB", img.size, WINDOW)
+        overlay = Image.new("RGB", img.size, skin.window)
         mask = Image.new("L", img.size, 0)
         pen = ImageDraw.Draw(mask)
         for offset in range(depth):
@@ -380,7 +435,12 @@ def draw_transcript(
 # ---------------------------------------------------------------------- rail
 
 
-def tick_color(prompt: Prompt, index: int, current: int) -> tuple[str, bool, bool]:
+def tick_color(
+    prompt: Prompt,
+    index: int,
+    current: int,
+    accent: str = ACCENT,
+) -> tuple[str, bool, bool]:
     """Colour, heavy, dotted for one row's tick."""
     outcome = prompt.turn.outcome
     if outcome == "error":
@@ -390,7 +450,7 @@ def tick_color(prompt: Prompt, index: int, current: int) -> tuple[str, bool, boo
     if outcome == "running":
         return GREEN, False, False
     if index == current:
-        return ACCENT, True, False
+        return accent, True, False
     if prompt.unreachable:
         return GRAY, False, True
     return DIM, False, False
@@ -489,12 +549,21 @@ def draw_rail(
     rows: int | None = None,
     offset: int = 0,
     pulse: int | None = None,
+    skin: Skin = DARK_SKIN,
+    accent: str = ACCENT,
+    card_bg: str = CARD_BG,
+    card_prompt: str = CARD_PROMPT,
+    card_text: str = CARD_TEXT,
+    accent_on_card: str = ACCENT_ON_CARD,
 ) -> None:
     """The docked vertical rail, one prompt a row, the hovered one expanded.
 
     With `rows`, the pane's body height, a card too tall for the room beside
     its row becomes a window with a scrollbar, and a card that opens above its
     row blanks it; the card shows the whole prompt from its first line.
+
+    The colours default to the rail's dark palette; the theme painter passes a
+    family's panel and accents so the same drawing can stand for each one.
     """
     stack = rail_rows(entries, current, hover, width_cells, expand)
     hover_row = next((row for row in stack if row.index == hover), None)
@@ -502,7 +571,7 @@ def draw_rail(
     # The pane's head: when the conversation opened. It starts at the text
     # column, as the resume and compacted lines do, so a card opening above
     # covers it whole.
-    label(d, x + 3 * CELL, y + LINE / 2, f"started at {START_STAMP}", TIME)
+    label(d, x + 3 * CELL, y + LINE / 2, f"started at {START_STAMP}", accent)
 
     # Where the card opens, mirroring the plugin's cardFit.
     lines: list[tuple[str, bool]] = []
@@ -531,7 +600,7 @@ def draw_rail(
 
     for row in stack:
         if row.index == -1:
-            label(d, x + 3 * CELL, y + row.top + LINE / 2, "compacted", ACCENT)
+            label(d, x + 3 * CELL, y + row.top + LINE / 2, "compacted", accent)
             continue
         index = row.index
         prompt = entries[index]
@@ -539,19 +608,19 @@ def draw_rail(
         if hover == index:
             # The row and the card share one panel. A card that opens above
             # carries the whole prompt, so the row itself goes blank.
-            rect(d, x - 3, y + row.top, (width_cells + 2) * CELL + 6, LINE, fill=CARD_BG, radius=3)
+            rect(d, x - 3, y + row.top, (width_cells + 2) * CELL + 6, LINE, fill=card_bg, radius=3)
             if blank_hover:
                 continue
             if prompt.turn.outcome == "running":
                 draw_spinner(d, x + CELL, cy)
             else:
-                color, heavy, dotted = tick_color(prompt, index, current)
+                color, heavy, dotted = tick_color(prompt, index, current, accent=accent)
                 draw_tick(d, x + CELL, cy, color, heavy, dotted)
             # The row's cut mark is hidden while its card continues it.
             text = cut(prompt.text, width_cells - 1)
             if text.endswith("…"):
                 text = text[:-1]
-            label(d, x + 3 * CELL, cy, text, CARD_TEXT, bold=True)
+            label(d, x + 3 * CELL, cy, text, card_text, bold=True)
         elif pulse == index:
             # A jump briefly inverts the row it landed on.
             rect(d, x - 3, y + row.top, (width_cells + 2) * CELL + 6, LINE, fill=TEXT, radius=3)
@@ -561,9 +630,9 @@ def draw_rail(
             if prompt.turn.outcome == "running":
                 draw_spinner(d, x + CELL, cy)
             else:
-                color, heavy, dotted = tick_color(prompt, index, current)
+                color, heavy, dotted = tick_color(prompt, index, current, accent=accent)
                 draw_tick(d, x + CELL, cy, color, heavy, dotted)
-            label(d, x + 3 * CELL, cy, cut(prompt.text, width_cells - 1), RAIL_TEXT if index == current else DIM, bold=index == current)
+            label(d, x + 3 * CELL, cy, cut(prompt.text, width_cells - 1), skin.rail_text if index == current else skin.dim, bold=index == current)
 
     if hover_row is None or hover is None or window <= 0:
         return
@@ -592,15 +661,139 @@ def draw_rail(
     card_top = y + hover_row.top + LINE if side == "below" else y + hover_row.top - height * LINE
     for row_index, (text, is_stats) in enumerate(drawn):
         top = card_top + row_index * LINE
-        rect(d, card_x, top, card_w, LINE, fill=CARD_BG)
-        label(d, card_x + CELL / 2, top + LINE / 2, text, ACCENT_ON_CARD if is_stats else CARD_PROMPT, bold=not is_stats)
+        rect(d, card_x, top, card_w, LINE, fill=card_bg)
+        label(d, card_x + CELL / 2, top + LINE / 2, text, accent_on_card if is_stats else card_prompt, bold=not is_stats)
     if shown > 0 and total > shown:
         # The terminal's scrollbar, over the scrolling prompt alone.
         track_x = card_x + card_w - CELL / 2
-        rect(d, track_x - 0.8, card_top + 1, 1.6, shown * LINE - 2, fill=FAINT)
+        rect(d, track_x - 0.8, card_top + 1, 1.6, shown * LINE - 2, fill=skin.faint)
         thumb_h = max(1, round(shown * shown / total))
         thumb_top = round((shown - thumb_h) * first / max(1, total - shown))
-        rect(d, track_x - 2, card_top + thumb_top * LINE + 1, 4, thumb_h * LINE - 2, fill=CARD_TEXT, radius=2)
+        rect(d, track_x - 2, card_top + thumb_top * LINE + 1, 4, thumb_h * LINE - 2, fill=card_text, radius=2)
+
+
+# ------------------------------------------------------ pane rows and blocks
+
+
+@dataclass
+class PaneRow:
+    """One row of the pane as the plugin draws it: a plain prompt row, a block
+    heading with its session's start time, the load button, or one of the
+    rail's own lines. The hover cards are not part of this view."""
+
+    kind: str  # head, heading, resume, compacted, load, prompt
+    text: str = ""
+    time: str = ""
+    index: int = -1
+    prompt: Prompt | None = None
+    accent: bool = False
+    spinner: bool = False
+
+
+# Menlo has no U+29C9, which the plugin prints after a parent session's id, so
+# the pictures draw the mark as two offset page outlines in the accent.
+COPY_MARK = "⧉"
+
+
+def draw_copy_mark(d: ImageDraw.ImageDraw, x: float, y_center: float, color: str) -> None:
+    rect(d, x, y_center - 2.6, 4.4, 5.8, outline=color, width=1)
+    rect(d, x + 2.4, y_center - 4.8, 4.4, 5.8, outline=color, width=1)
+
+
+def pane_head(start: str = START_STAMP) -> PaneRow:
+    return PaneRow("head", f"started at {start}")
+
+
+def pane_heading(text: str, time: str = "", accent: bool = False) -> PaneRow:
+    return PaneRow("heading", text, time, accent=accent)
+
+
+def pane_resume(stamp: str) -> PaneRow:
+    return PaneRow("resume", stamp)
+
+
+def pane_prompt(entries: list[Prompt], index: int, spinner: bool = False) -> PaneRow:
+    return PaneRow("prompt", index=index, prompt=entries[index], spinner=spinner)
+
+
+def draw_pane(
+    d: ImageDraw.ImageDraw,
+    x: float,
+    y: float,
+    cells: int,
+    rows: list[PaneRow],
+    current: int = -1,
+    skin: Skin = DARK_SKIN,
+    accent: str | None = None,
+    max_rows: int | None = None,
+    pressed: int | None = None,
+) -> None:
+    """The docked pane's rows, as the plugin stacks them.
+
+    A block heading puts its session's short start time flush with the pane's
+    right edge, so several blocks' times line up down the rail. The load row is
+    a primary button: a filled band around its label. With `max_rows`, the
+    pane's own window keeps the newest rows, as it does while a long list is
+    scrolled to the prompt being read.
+    """
+    accent = accent if accent is not None else skin.accent
+    first = 0
+    if max_rows is not None and len(rows) > max_rows:
+        first = len(rows) - max_rows
+    right = x + (cells + 2) * CELL
+    for row_index, row in enumerate(rows[first:], start=first):
+        cy = y + (row_index - first) * LINE + LINE / 2
+        top = y + (row_index - first) * LINE
+        if row.kind == "head":
+            label(d, x + 3 * CELL, cy, row.text, accent)
+        elif row.kind == "heading":
+            color = accent if row.accent else skin.dim
+            text = row.text
+            copy = text.endswith(COPY_MARK)
+            if copy:
+                text = text[: -len(COPY_MARK)].rstrip()
+            label(d, x + 3 * CELL, cy, cut(text, cells - 3), color, bold=row.accent)
+            if copy:
+                text_w = REGULAR.getlength(cut(text, cells - 3)) / SCALE
+                draw_copy_mark(d, x + 3 * CELL + text_w + 4, cy, color)
+            if row.time:
+                label(d, right, cy, row.time, color, anchor="rm")
+        elif row.kind == "resume":
+            label(d, x + 3 * CELL, cy, f"resumed at {row.time or row.text}", accent)
+        elif row.kind == "compacted":
+            label(d, x + 3 * CELL, cy, "compacted", accent)
+        elif row.kind == "load":
+            # A primary button: the terminal brackets its label in the accent.
+            held = pressed == row_index
+            text = cut(row.text, cells - 3)
+            label(d, x + 3 * CELL, cy, "[", accent, bold=True)
+            label(d, x + 3 * CELL + 1.4 * CELL, cy, text, skin.rail_text, bold=True)
+            text_w = REGULAR.getlength(text) / SCALE
+            label(d, x + 3 * CELL + 1.4 * CELL + text_w + CELL / 2, cy, "]", accent, bold=True)
+            if held:
+                line(d, x + 3 * CELL, top + LINE - 3, x + 3 * CELL + 2.4 * CELL + text_w, top + LINE - 3, accent, 1.5)
+        elif row.kind == "prompt":
+            prompt = row.prompt
+            assert prompt is not None
+            if row.spinner:
+                draw_spinner(d, x + CELL, cy)
+            else:
+                color, heavy, dotted = tick_color(prompt, row.index, current, accent=accent)
+                draw_tick(d, x + CELL, cy, color, heavy, dotted)
+            if row.index == current:
+                color = accent
+            elif prompt.unreachable:
+                color = skin.dim
+            else:
+                color = skin.rail_text
+            label(
+                d,
+                x + 3 * CELL,
+                cy,
+                cut(prompt.text, cells - 1),
+                color,
+                bold=row.index == current,
+            )
 
 
 # ------------------------------------------------------------------ composer
@@ -747,38 +940,71 @@ PREVIEW_FAMILIES = [
 ]
 
 
-def still_preview(path: Path) -> None:
+PREVIEW_FAMILIES_LIGHT = [
+    ("warm-taupe", "#E8E1D8", LIGHT_ACCENT),
+    ("warm-charcoal", "#E5DED6", LIGHT_ACCENT),
+    ("sienna", "#EBDDD4", LIGHT_ACCENT),
+    ("mauve", "#E5DDE0", "#7A3A62"),
+    ("teal", "#D8E8E5", "#0E6A70"),
+    ("indigo", "#DEE3F4", "#3A4FA3"),
+    ("burgundy", "#F1DEE3", LIGHT_ACCENT),
+    ("olive", "#E5E7D3", LIGHT_ACCENT),
+    ("plum", "#EBE0F3", "#6E3F9E"),
+    ("ochre", "#F3E8D0", LIGHT_ACCENT),
+    ("slate", "#DEE2E6", "#3F5A7A"),
+]
+
+
+def preview_scene(
+    path: Path,
+    families: list[tuple[str, str, str]],
+    skin: Skin,
+    side: str,
+) -> None:
     """The theme preview pane: each family sampled as prompt and stats text on
-    its own paper, the family in use marked, no color values printed."""
+    its own paper, the family in use marked, no color values printed. The
+    samples take the side the palette is drawn on: white on a dark panel,
+    black on a light one."""
     width, height = 1100, 580
-    img, d = window(width, height)
+    img, d = window(width, height, skin=skin)
     lines, starts = build_lines(PROMPTS, 42)
     img.paste(
-        draw_transcript(lines, 360, 430, starts[2], 42),
+        draw_transcript(lines, 360, 430, starts[2], 42, fade=True, skin=skin),
         (s(24), s(56)),
     )
     # The pane's divider: the preview docks beside the transcript.
-    line(d, 410, 44, 410, height - 12, BORDER)
+    line(d, 410, 44, 410, height - 12, skin.border)
     x = 432
     y = 76
-    label(d, x, y, "Card themes · warm-taupe · dark side", RAIL_TEXT, bold=True)
+    label(d, x, y, f"Card themes · warm-taupe · {side} side", skin.rail_text, bold=True)
     y += 2 * LINE
     prompt = " Fix the flaky test "
     stats = " · At 12:57, 2m 30s "
+    prompt_color = CARD_PROMPT if skin is DARK_SKIN else LIGHT_CARD_PROMPT
     prompt_w = REGULAR.getlength(prompt) / SCALE
     stats_w = REGULAR.getlength(stats) / SCALE
     sample_x = x + 17 * CELL
-    for index, (name, paper, tint) in enumerate(PREVIEW_FAMILIES):
+    for index, (name, paper, tint) in enumerate(families):
         current = index == 0
-        label(d, x, y, "●" if current else " ", ACCENT, bold=current)
-        label(d, x + 2 * CELL, y, name.ljust(15), RAIL_TEXT, bold=current)
+        label(d, x, y, "●" if current else " ", skin.accent, bold=current)
+        label(d, x + 2 * CELL, y, name.ljust(15), skin.rail_text, bold=current)
         rect(d, sample_x - CELL / 2, y - LINE / 2 + 2, prompt_w + stats_w + CELL, LINE - 4, fill=paper)
-        label(d, sample_x, y, prompt, CARD_PROMPT, bold=True)
+        label(d, sample_x, y, prompt, prompt_color, bold=True)
         label(d, sample_x + prompt_w, y, stats, tint)
         y += LINE
     y += LINE
-    label(d, x, y, "Pick one at /config › Card theme. Esc closes this.", RAIL_TEXT)
+    label(d, x, y, "Pick one at /config › Card theme. Esc closes this.", skin.rail_text)
     img.save(path, optimize=True)
+
+
+def still_preview(path: Path) -> None:
+    """The eleven families on their dark panels."""
+    preview_scene(path, PREVIEW_FAMILIES, DARK_SKIN, "dark")
+
+
+def still_preview_light(path: Path) -> None:
+    """The same eleven on their light panels, the side a light theme draws."""
+    preview_scene(path, PREVIEW_FAMILIES_LIGHT, LIGHT_SKIN, "light")
 
 
 CARD_SCENE = [
@@ -805,6 +1031,227 @@ def still_card_above(path: Path) -> None:
     line(d, 650, 44, 650, height - 12, BORDER)
     draw_rail(d, 672, 64, 33, CARD_SCENE, CARD_INDEX, CARD_INDEX, rows=23)
     draw_composer(d, 24, 528, 616, "Ask Claude to change something…")
+    img.save(path, optimize=True)
+
+
+# ------------------------------------------------- long, resumed, continued
+
+
+NO_REPLY: tuple[str, list[tuple[str, str, str]], list[str]] = ("", [], [])
+
+LONG_SESSION_PROMPTS = [
+    Prompt("Explain how src/importer.ts streams a CSV", Turn("09:02", "11s")),
+    Prompt("Add a --delimiter flag and pass it through the parser", Turn("09:06", "48s", ["src/importer.ts"])),
+    Prompt("Write tests for quoted fields with commas", Turn("09:11", "1m 20s", ["src/importer.test.ts"])),
+    Prompt("Why does the last row drop when the file has no trailing newline?", Turn("09:18", "7s", outcome="error")),
+    Prompt("Fix the CRLF handling in the row splitter", Turn("09:21", "36s", ["src/importer.ts"])),
+    Prompt("Add a progress line every 10k rows", Turn("09:27", "2m 14s", ["src/importer.ts"])),
+    Prompt("Run the suite and update the README usage block", Turn("09:31", "1m 05s", ["README.md"], outcome="interrupted")),
+    Prompt("Now add a --dry-run flag that reports what would change", Turn("09:40", "57s", ["src/importer.ts"]), break_before=True),
+    Prompt("Reuse one summary for dry-run and the real run", Turn("09:44", "1m 32s", ["src/importer.ts"])),
+    Prompt("Why does dry-run still print the progress line?", Turn("09:52", "9s")),
+    Prompt("Send progress to stderr and keep stdout for the summary", Turn("09:55", "44s", ["src/importer.ts"])),
+    Prompt("Add a test for stderr output", Turn("09:58", "38s", ["src/importer.test.ts"])),
+    Prompt("Document the exit codes in --help", Turn("10:03", "26s", ["src/cli.ts"])),
+    Prompt("Check that --delimiter survives the dry-run path", Turn("10:07", "18s")),
+    Prompt("Run the full suite on Node 18 and 22", Turn("10:12", "3m 40s", ["package.json"])),
+    Prompt("Squash the importer commits and write the changelog entry", Turn("10:20", "1m 25s", ["CHANGELOG.md"])),
+    Prompt("Open a PR and summarize the behavior changes", Turn("10:26", "2m 02s")),
+    Prompt("Review the diff for the CRLF fix", Turn("10:35", "51s", ["src/importer.ts"])),
+    Prompt("Address the review note about stream backpressure", Turn("10:41", "1m 48s", ["src/importer.ts"])),
+    Prompt("Rerun the suite and push the fixup", Turn("10:47", "1m 12s")),
+    Prompt("Write the release notes for 0.16", Turn("10:52", outcome="running")),
+]
+
+LONG_SESSION_REPLIES = [NO_REPLY] * 18 + [
+    (
+        "Switched to a for-await loop, so backpressure pauses the reader instead of "
+        "buffering the file.",
+        [("Edit", "src/importer.ts", "Updated with 11 additions and 6 removals")],
+        [],
+    ),
+    (
+        "Pushed the fixup. CI is running on the squashed branch.",
+        [("Bash", "git push --force-with-lease", "main -> main")],
+        [],
+    ),
+]
+
+RESUME_PROMPTS = [
+    Prompt("Refactor the fetch wrapper to retry on 5xx", Turn("14:02", "1m 30s", ["src/http.ts"])),
+    Prompt("Add a test for the retry budget", Turn("14:08", "52s", ["src/http.test.ts"])),
+    Prompt("Run the suite", Turn("14:12", "40s")),
+    Prompt("Why does the retry test leak a timer?", Turn("14:15", "12s", outcome="error")),
+    Prompt("Fix the timer leak before the break", Turn("14:23", "33s", ["src/http.ts"])),
+    Prompt("Pick up the retry work: fix the leaked timer", Turn("09:14", "1m 05s", ["src/http.ts"])),
+    Prompt("Make the budget configurable per call", Turn("09:20", "1m 44s", ["src/http.ts", "src/types.ts"])),
+    Prompt("Document the retry options in the README", Turn("09:26", "38s", ["README.md"])),
+    Prompt("Explain the final retry budget semantics", Turn("09:31", "1m 10s")),
+    Prompt("Add a jittered backoff between attempts", Turn("09:36", "1m 12s", ["src/http.ts"])),
+    Prompt("Run the suite and update the changelog", Turn("09:41", "1m 50s", ["CHANGELOG.md"])),
+    Prompt("Open a PR and describe the new options", Turn("09:45", "2m 03s")),
+    Prompt("Review the diff and answer the comment about jitter", Turn("09:52", outcome="running")),
+]
+
+RESUME_REPLIES = [NO_REPLY] * 3 + [
+    (
+        "The leak came from the fake timer the test installs: the retry timer was "
+        "never cleared on the error path.",
+        [("Read", "src/http.test.ts", "Read 96 lines")],
+        [],
+    ),
+    (
+        "Cleared the retry timer when the wrapper rejects, before the error is rethrown.",
+        [("Edit", "src/http.ts", "Updated with 3 additions and 2 removals")],
+        [],
+    ),
+    (
+        "The budget is now checked per call: three attempts by default, or the option's value.",
+        [("Edit", "src/http.ts", "Updated with 9 additions and 1 removal")],
+        [],
+    ),
+    (
+        "Added the options table and a note about which errors count against the budget.",
+        [("Edit", "README.md", "Updated with 12 additions")],
+        [],
+    ),
+    (
+        "The budget counts attempts, not time: a 4xx answer ends the call, while a "
+        "5xx or a timeout spends one of the three.",
+        [],
+        [],
+    ),
+    (
+        "An attempt now waits a random share of the retry delay, so callers do not "
+        "retry in step after an outage.",
+        [("Edit", "src/http.ts", "Updated with 8 additions and 2 removals")],
+        [],
+    ),
+    (
+        "The suite passes, and the changelog names the new options.",
+        [("Bash", "npm test", "31 passed (31)")],
+        [],
+    ),
+    (
+        "Opened the PR with the retry table and the jitter note in the description.",
+        [("Bash", "gh pr create", "https://github.com/demo/pull/57")],
+        [],
+    ),
+]
+
+CONTINUED_PARENTS = [
+    Prompt("Design the cache invalidation for the settings page", Turn("10:08", "2m 10s", ["docs/cache.md"]), unreachable=True),
+    Prompt("Write the cache key helper", Turn("10:12", "1m 02s", ["src/cache.ts"]), unreachable=True),
+    Prompt("Why does the profile page read stale settings?", Turn("10:18", "14s", outcome="error"), unreachable=True),
+    Prompt("Invalidate on write instead of on read", Turn("10:21", "3m 06s", ["src/cache.ts"]), unreachable=True),
+]
+
+CONTINUED_CURRENT = [
+    Prompt("Continue the cache work: add the invalidation test", Turn("17:10", "1m 20s", ["src/cache.test.ts"])),
+    Prompt("Make the key helper tolerate nested folders", Turn("17:15", "54s", ["src/cache.ts"])),
+    Prompt("Run the suite and check the profile page", Turn("17:19", "2m 12s")),
+    Prompt("Explain the remaining stale-read case", Turn("17:24", outcome="running")),
+]
+
+CONTINUED_REPLIES = [
+    (
+        "Added a test that writes settings, reads the profile, and expects the write "
+        "to be visible at once.",
+        [("Write", "src/cache.test.ts", "Updated with 28 additions")],
+        [],
+    ),
+    (
+        "Keys are now joined from path segments, so nested folders no longer collide.",
+        [("Edit", "src/cache.ts", "Updated with 7 additions and 3 removals")],
+        [],
+    ),
+    (
+        "26 tests pass. The profile page reads the new settings on the first visit.",
+        [("Bash", "npm test", "26 passed (26)")],
+        [],
+    ),
+]
+
+
+def still_long_session(path: Path) -> None:
+    """A compacted, twenty-prompt session: the rail is a map of the day, the
+    compacted divider keeps the two halves apart, and the running turn spins
+    its tick at the foot."""
+    width, height = 1000, 680
+    img, d = window(width, height)
+    lines, _ = build_lines(LONG_SESSION_PROMPTS, 68, LONG_SESSION_REPLIES)
+    img.paste(
+        draw_transcript(lines, 616, 476, max(0, len(lines) - 23), 68),
+        (s(24), s(56)),
+    )
+    line(d, 650, 44, 650, height - 12, BORDER)
+    rows = [pane_head("2026-11-15 09:01:47")]
+    for index, prompt in enumerate(LONG_SESSION_PROMPTS):
+        if index > 0 and prompt.break_before:
+            rows.append(PaneRow("compacted"))
+        rows.append(
+            pane_prompt(
+                LONG_SESSION_PROMPTS,
+                index,
+                spinner=prompt.turn.outcome == "running",
+            )
+        )
+    draw_pane(d, 672, 64, 33, rows, current=18)
+    draw_composer(d, 24, 560, 616, "Ask Claude to change something…")
+    img.save(path, optimize=True)
+
+
+def still_resume(path: Path) -> None:
+    """A resumed session: the original start stays in the head, and a
+    `resumed at …` line sets the next morning's prompts apart from the run
+    that came before."""
+    width, height = 1000, 640
+    img, d = window(width, height)
+    lines, _ = build_lines(RESUME_PROMPTS, 68, RESUME_REPLIES)
+    # The newest row sits at the foot of the transcript, as it does in a live
+    # session, so the view reads as the resumed run's later half.
+    img.paste(
+        draw_transcript(lines, 616, 460, max(0, len(lines) - 23), 68),
+        (s(24), s(56)),
+    )
+    line(d, 650, 44, 650, height - 12, BORDER)
+    rows = [pane_head("2026-09-24 14:01:58")]
+    for index in range(len(RESUME_PROMPTS)):
+        if index == 5:
+            rows.append(pane_resume("2026-11-15 09:12:04"))
+        rows.append(
+            pane_prompt(
+                RESUME_PROMPTS,
+                index,
+                spinner=RESUME_PROMPTS[index].turn.outcome == "running",
+            )
+        )
+    draw_pane(d, 672, 64, 33, rows, current=10)
+    draw_composer(d, 24, 528, 616, "Ask Claude to change something…")
+    img.save(path, optimize=True)
+
+
+def still_continued(path: Path) -> None:
+    """A session forked from another: the load button on top, the parent
+    block under its heading with dotted ticks (its rows live in the other
+    transcript), then this session's own block."""
+    width, height = 1080, 680
+    img, d = window(width, height)
+    lines, _ = build_lines(CONTINUED_CURRENT, 68, CONTINUED_REPLIES)
+    img.paste(draw_transcript(lines, 616, 476, 0, 68), (s(24), s(56)))
+    line(d, 650, 44, 650, height - 12, BORDER)
+    # A pane wide enough for the load label's middle form and for the heading
+    # and its stamp on one row, as offerLine and blockHeading decide. The head
+    # is left out: the first block's heading already dates the conversation.
+    rows = [
+        PaneRow("load", "click to load parent session 4f3a9c21"),
+        pane_heading("prompts from 4f3a9c21 ⧉", "11-15 10:42", accent=True),
+    ]
+    rows += [pane_prompt(CONTINUED_PARENTS, index) for index in range(len(CONTINUED_PARENTS))]
+    rows.append(pane_heading("current session", "11-15 17:08"))
+    rows += [pane_prompt(CONTINUED_CURRENT, index) for index in range(len(CONTINUED_CURRENT))]
+    draw_pane(d, 672, 64, 41, rows, current=2)
+    draw_composer(d, 24, 560, 616, "Ask Claude to change something…")
     img.save(path, optimize=True)
 
 
@@ -1037,6 +1484,145 @@ def below_frame(current: int, hover: int | None, top: float, pointer_at: tuple[f
     return page
 
 
+# The chain the continued-session GIF walks: the session the person forked
+# from, then the session that one continued.
+PARENT_ONE = "4f3a9c21"
+PARENT_TWO = "3b1e77d0"
+GIF_PARENT_TWO = [
+    Prompt("Sketch the settings page read path", Turn("09:12", "48s", ["docs/cache.md"]), unreachable=True),
+    Prompt("Add a cache-aside read to the profile loader", Turn("09:18", "2m 01s", ["src/profile.ts"]), unreachable=True),
+    Prompt("Why is the settings write invisible until reload?", Turn("09:26", "11s", outcome="error"), unreachable=True),
+]
+
+
+def continued_rows(level: int) -> list[PaneRow]:
+    """The pane at each press: the current block alone, then one earlier
+    session, then the session that one continued. The load row stays on top
+    while a further session waits, and leaves when the chain ends."""
+    # No head: the current block's heading dates the continued session, so the
+    # pane's own start line is left out (see firstOpens).
+    rows: list[PaneRow] = []
+    pending = {0: PARENT_ONE, 1: PARENT_TWO}.get(level)
+    if pending is not None:
+        rows.append(PaneRow("load", f"load parent {pending}"))
+    if level >= 1:
+        rows.append(pane_heading(f"prompts from {PARENT_ONE} ⧉", accent=True))
+        rows += [pane_prompt(CONTINUED_PARENTS, index) for index in range(len(CONTINUED_PARENTS))]
+    if level >= 2:
+        rows.append(pane_heading(f"prompts from {PARENT_TWO} ⧉", accent=True))
+        rows += [pane_prompt(GIF_PARENT_TWO, index) for index in range(len(GIF_PARENT_TWO))]
+    rows.append(pane_heading("current session"))
+    rows += [pane_prompt(CONTINUED_CURRENT, index) for index in range(len(CONTINUED_CURRENT))]
+    return rows
+
+
+def continued_frame(
+    level: int,
+    pressed: bool,
+    pointer_at: tuple[float, float],
+    caption: str,
+) -> Image.Image:
+    page, _ = frame_page(caption)
+    win, d = window(768, 420)
+    lines, _ = build_lines(CONTINUED_CURRENT, 54, CONTINUED_REPLIES)
+    win.paste(draw_transcript(lines, 440, 260, 0, 54), (s(20), s(50)))
+    line(d, 452, 44, 452, 410, BORDER)
+    draw_pane(d, 470, 50, 26, continued_rows(level), current=2, max_rows=17, pressed=0 if pressed else None)
+    draw_composer(d, 20, 344, 440, "Ask Claude to change something…", status=False)
+    draw_mode_line(d, 20, 386)
+    pointer(d, pointer_at[0], pointer_at[1])
+    page.paste(win, (s(16), s(14)))
+    return page
+
+
+def make_continued(path: Path) -> None:
+    """Loading a continuation's earlier sessions one press at a time. The
+    parent's rows arrive with dotted ticks, its heading names the session, and
+    the button moves to the next session back until the chain ends."""
+    load_at = (470 + 12 * CELL, 50 + LINE / 2)
+    origin = (700, 390)
+    frames: list[Image.Image] = []
+    level, pressed, caption = 0, False, "continued session · press to load one level"
+    for frame in range(60):
+        if frame <= 7:
+            t = ease(frame / 7)
+            at = (origin[0] + (load_at[0] - origin[0]) * t, origin[1] + (load_at[1] - origin[1]) * t)
+            level = 0
+        elif frame <= 14:
+            at = load_at
+            pressed = 12 <= frame <= 14
+            level = 0
+        elif frame <= 26:
+            at, pressed, level = load_at, False, 1
+            caption = "its prompts join the rail · dotted: no jump reaches them"
+        elif frame <= 33:
+            at, pressed, level = load_at, 29 <= frame <= 33, 1
+        else:
+            at, pressed, level = load_at, False, 2
+            caption = "one session per press · the chain ends four back"
+        frames.append(continued_frame(level, pressed, at, caption))
+    save_gif(frames, path)
+
+
+THEME_DEMO_PROMPTS = [
+    Prompt("Explain what src/debounce.ts does", Turn("14:02", "8s")),
+    Prompt(
+        "Add a cancel() method that clears the pending timeout and reports whether it cancelled anything",
+        Turn("14:06", "1m 12s", ["src/debounce.ts"]),
+    ),
+    Prompt("Write tests for cancel()", Turn("14:09", "46s", ["src/debounce.test.ts"])),
+    Prompt("Why does the test fail on Node 18?", Turn("14:12", "3s", outcome="error")),
+    Prompt("Fix the timer typing", Turn("14:15", "21s", ["src/debounce.ts"])),
+    Prompt("Add a leading-edge option", Turn("14:26", outcome="running")),
+]
+THEME_ACCENTS = {
+    "mauve": "#D8A8C4",
+    "teal": "#5CC8CC",
+    "indigo": "#93A2E8",
+    "plum": "#C08ADB",
+    "slate": "#9DB4D6",
+}
+
+
+def theme_frame(family: str, paper: str, tint: str) -> Image.Image:
+    page, _ = frame_page(f"card themes · {family} · one card, eleven families")
+    win, d = window(768, 420)
+    lines, _ = build_lines(THEME_DEMO_PROMPTS, 54)
+    win.paste(draw_transcript(lines, 470, 260, 0, 54), (s(20), s(50)))
+    line(d, 482, 44, 482, 410, BORDER)
+    accent = THEME_ACCENTS.get(family, ACCENT)
+    draw_rail(
+        d,
+        500,
+        50,
+        26,
+        THEME_DEMO_PROMPTS,
+        2,
+        1,
+        skin=DARK_SKIN,
+        accent=accent,
+        card_bg=paper,
+        accent_on_card=tint,
+    )
+    draw_composer(d, 20, 344, 470, "Ask Claude to change something…", status=False)
+    draw_mode_line(d, 20, 386)
+    pointer(d, 500 + 8 * CELL, 50 + HEAD_ROWS * LINE + LINE / 2 + LINE)
+    page.paste(win, (s(16), s(14)))
+    return page
+
+
+def make_themes(path: Path) -> None:
+    """One hover card, drawn once per card family in the dark scheme: the
+    panel, its prompt highlight and the accent tint move together."""
+    families = [
+        (name, paper, tint) for name, paper, tint in PREVIEW_FAMILIES
+    ]
+    frames: list[Image.Image] = []
+    for name, paper, tint in families:
+        frames.extend(theme_frame(name, paper, tint) for _ in range(5))
+    save_gif(frames, path)
+
+
 def save_gif(frames: list[Image.Image], path: Path) -> None:
     # Published at half the drawing scale: 800x500 keeps the file small while
     # the 2x source makes the text edges hold up.
@@ -1060,10 +1646,16 @@ def main() -> None:
         "horizontal": (still_horizontal, HERE / "horizontal.png"),
         "below": (still_below, HERE / "below.png"),
         "card-above": (still_card_above, HERE / "card-above.png"),
+        "long-session": (still_long_session, HERE / "long-session.png"),
+        "resume": (still_resume, HERE / "resume.png"),
+        "continued": (still_continued, HERE / "continued.png"),
         "preview": (still_preview, HERE / "preview.png"),
+        "themes-light": (still_preview_light, HERE / "themes-light.png"),
         "demo": (make_demo, HERE / "demo.gif"),
         "below-gif": (make_below, HERE / "below.gif"),
         "above-gif": (make_card_above, HERE / "card-above.gif"),
+        "continued-gif": (make_continued, HERE / "continued.gif"),
+        "themes-gif": (make_themes, HERE / "themes.gif"),
     }
     for name, (run, path) in jobs.items():
         if wanted and name not in wanted:

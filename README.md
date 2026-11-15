@@ -55,7 +55,7 @@ Mouse works best with `"tui": "fullscreen"`.
 
 <img src="docs/vertical.png" alt="The vertical rail: one row per prompt in a pane beside the transcript; the pane's head names when the conversation started, and hovering a cut row expands its whole prompt, sent time, duration and files" width="800">
 
-Where the pane has room for text and at least one row to show under it, it opens with `started at 2026-11-14 14:41:10`, when the conversation started, to the second. Scrolling the transcript back through its history makes the matching prompt's row bold, so the turn in view is marked even when its row sits below the fold; when the list is taller than the pane, the pane's own window moves to keep that row in view. A slash command sent with arguments, such as `/impeccable …`, is listed as the command line; a local command such as `/model` or `/config` is not. A resumed session shows the original conversation's start, where a transcript can be read, not the moment it was resumed, and draws a `resumed at 2026-11-14 06:05:00` line at the prompt text's column above the first prompt sent after each resume it was told of: everything over the last line is the history the session brought, and the prompts of each resumed run stay together. A line with nothing from before the resume above it is not drawn; an empty list still shows the latest, marking where the first prompt will begin. The lines survive a reload and are kept for the next process, for the 20 most recent sessions; a `/clear` removes them. A `/resume` the module is never told of adds no line for that moment, though lines kept from earlier resumes still draw.
+Where the pane has room for text and at least one row to show under it, it opens with `started at 2026-11-14 14:41:10`, when the conversation started, to the second. Scrolling the transcript back through its history makes the matching prompt's row bold, so the turn in view is marked even when its row sits below the fold; when the list is taller than the pane, the pane's own window moves to keep that row in view. A slash command sent with arguments, such as `/impeccable …`, is listed as the command line; a local command such as `/model` or `/config` is not. A resumed session shows the original conversation's start, where a transcript can be read, not the moment it was resumed, and draws a `resumed at …` line above the first prompt sent after each resume it was told of, so the prompts of each run stay together; [Resuming and forking a session](#resuming-and-forking-a-session) has the picture and the rules.
 
 ### Below, under the prompt
 
@@ -88,6 +88,43 @@ The prompt near the bottom of the pane has no room under it, so its card opens a
 <summary>The tall card in motion: the wheel scrolls it</summary>
 
 <img src="docs/card-above.gif" alt="session-rail 0.12.0: a tall hover card opens above its row with its scrollbar thumb at the top, the row stays blank, and the wheel moves the card's lines while the thumb travels down" width="800">
+
+</details>
+
+## Long sessions
+
+<img src="docs/long-session.png" alt="A long session's vertical rail: twenty-one prompts under the pane's head, a compacted divider between the runs on either side of the compaction, an interrupted row in yellow and an API error in red, the prompt being read in the accent, and a running turn's tick spinning at the foot" width="800">
+
+A session that runs all morning is where the rail earns its keep: the transcript is the story, and the pane is its table of contents. Every prompt keeps one row, whether it was sent before or after a `/compact`. The `compacted` divider marks where the engine replaced the older messages with a summary, and the prompts over it are restored from the transcript, so the map does not shrink to the window the engine keeps. A turn that was interrupted keeps its yellow tick and one that ended with an API error its red one, so a run that went wrong is found by color as well as by text. A running turn spins its tick at the foot.
+
+The rail follows the reader. Scrolling the transcript back through its history bolds the row of the prompt in view, and a list taller than the pane moves the pane's own window to keep that row on screen, so the `started at …` head scrolls away before the prompt being read does. To go somewhere else, step with `next`/`prev`, name the number (`/session-rail 12`), or find the words (`/session-rail find migration`); a slash command's row jumps like any other prompt's. The engine's own message list covers the most recent 4096 messages; prompts older than that are read from the transcript, so a session far past the window still lists everything its transcript holds.
+
+## Resuming and forking a session
+
+Claude Code can pick a conversation up in another process (`/resume`, `claude --resume <id>`), fork one so the original is left untouched (`claude --resume <id> --fork-session`), or carry a session forward itself when a turn overflows the context. The rail draws what each of those did to the history rather than showing one list that suddenly holds a day it never saw.
+
+### Resumed: the same conversation, later
+
+<img src="docs/resume.png" alt="A resumed session's pane: the head still names the conversation's original start, the first run's prompts end, an accent resumed at 2026-11-15 09:12:04 line sits above the next morning's prompts, and the prompt being read is bold" width="800">
+
+`/resume` continues one conversation, and the rail keeps it one: the head still names the conversation's original start, not the moment it was resumed, and the first prompt sent after each resume it was told of is preceded by `resumed at 2026-11-15 09:12:04` in the accent, at the prompt text's column. Everything over the line is the history the session brought; the prompts under it are the run that came after, so a gap of hours between two rows that sit next to each other is explained by the rail itself. A line with nothing above it is not drawn, and an empty list still shows the latest to mark where the first prompt will begin. A `/clear` drops the lines for a conversation that has ended; otherwise they survive a reload and the next process, for the 20 most recent sessions. A `/resume` the module is never told of — a new process launched with the classic hooks passed over — adds no line for that moment, though lines kept from earlier resumes still draw.
+
+### Continued: a fork, or an overflow
+
+<img src="docs/continued.png" alt="A session forked from an earlier one: the pane opens with a bracketed click to load parent session 4f3a9c21 button, then a prompts from 4f3a9c21 ⧉ heading dated 11-15 10:42 over four dotted rows, then a current session heading dated 11-15 17:08 over this session's own prompts, one bold in the accent" width="800">
+
+A session continued into another — a fork with `claude --resume <id> --fork-session` to try a different direction without touching the original, or a context overflow Claude Code carried forward — opens its transcript with a summary row that names the session it came from. The rail reads that session's transcript too, puts its prompts before this file's, and drops the rows the continuation copied, so the rail shows one conversation rather than its newest file. Each session in that chain is a block:
+
+- `prompts from 4f3a9c21 ⧉` opens an earlier session's block, dated `11-15 10:42` at the pane's right edge. A press on the heading copies the full id, the one `/resume` and `--fork-session` take. The block's rows draw with the dotted tick, because they live in the other transcript: a press says why instead of leaving a failed scroll, and `next`/`prev` skip them.
+- `current session`, dated where this session's own part begins. The pane's head is left out when the first block's heading already dates the conversation, so the same fact is not drawn twice.
+- `[ click to load parent session 4f3a9c21 ]` sits above the oldest prompt while a further session waits. Reading is on demand, not on open: a whole conversation is not merged because a session was continued from it. Each press loads one session, up to four back, and the row returns with the next id or leaves when the chain ends. A narrow pane shortens the label — `click to load more prompts from parent session <id>`, then `click to load parent session <id>`, then `load parent <id>` — rather than cutting it.
+
+The band and the below line have no row to head, so they mark each block's first prompt with `⇡` instead.
+
+<details>
+<summary>Loading the earlier sessions, one press at a time</summary>
+
+<img src="docs/continued.gif" alt="session-rail: a pane showing only the current session's heading and prompts with a bracketed load button above them; a press brings in the parent block's four dotted rows under prompts from 4f3a9c21, and the button now names the next session back; a second press adds that block too and the button goes away" width="800">
 
 </details>
 
@@ -136,6 +173,7 @@ While a prompt's turn is still running, its row sits above the reply being writt
 | `─` `│` | Any other prompt |
 | `┄` `┆` | A prompt Claude Code refused to scroll to; `next` and `prev` skip it |
 | `⌁` / `compacted` | The prompt that opens the segment after a `/compact` |
+| `⇡` | The first prompt of an earlier session's block, in the band and below; the pane heads the block instead |
 | `⠋` `⠙` `⠹` … | Its turn is running; the tick spins in place |
 
 | Color | Meaning |
@@ -178,6 +216,17 @@ Every pairing is checked on its own side: body text, the prompt highlight and th
 
 `/session-rail-preview` opens this pane with all eleven families sampled in the current scheme; name one, as in `/session-rail-preview sienna`, for a single two-line card. The family in use is marked, and Escape closes the pane. No color values are printed: the sample is the explanation.
 
+<details>
+<summary>One card through all eleven families</summary>
+
+<img src="docs/themes.gif" alt="session-rail: a hovered prompt's card redrawn once per card theme in the dark scheme — warm-taupe, warm-charcoal, sienna, mauve, teal, indigo, burgundy, olive, plum, ochre and slate — its panel, prompt highlight and stats tint moving together" width="800">
+
+</details>
+
+<img src="docs/themes-light.png" alt="The theme preview pane in the light scheme: the same eleven families on their light panels, the sample prompt in black and the stats line in each family's light accent" width="800">
+
+The light side: a light `/config` theme draws the other side of every pair: a warm white page, `#35312D` rows, the `#9E4422` accent, and a hover card whose prompt is black on a pale panel. The preview follows the scheme, so `/session-rail-preview` shows the side the rail is actually drawing, and the families keep their characters — `teal` is still blue-green, `plum` still purple — without the dark panels. The family in use is the same one on either side; a `/config` theme change flips the page and the card together, without a restart.
+
 Three weights carry the hierarchy. Semibold marks the one thing being read: the prompt on screen, the row or bar under the pointer, a card's prompt, and the label inside the band's ring. Regular is everything else — ordinary rows, stats, times and chrome — and dim marks secondary text such as a row off the prompt being read. Inverse appears only for a moment, while a jump shows the row it landed on. Underline, italic and strikethrough are not used. A terminal draws semibold and bold alike, so the distinction is visual weight rather than a named style.
 
 ## How it works
@@ -197,7 +246,7 @@ The engine's message list is the rail's primary source. It names the person's pr
 
 A compaction replaces the engine's list with a summary message plus the most recent rows, so the rail filters that summary out and restores the prompts before the boundary from the transcript. Prompts abandoned with `/rewind` still drop out: the transcript read follows only the live branch.
 
-A session continued into another — by `/resume`, or by a context overflow Claude Code carried forward — opens its transcript with a summary row that names the session it continued. The rail reads that transcript from the same folder, puts its prompts before this session's, and drops the rows the continuation copied. Reading is on demand: a `[ click to load more prompts from parent session <id> ]` primary button sits above the oldest prompt and reads one session per press, returning while a further session waits (up to four back). Those prompts' rows live in the other transcript, so they draw with the dotted tick and `next`/`prev` skip them; pressing one says why instead of leaving a failed scroll. The block is headed `prompts from <id> ⧉` — a press copies the full id, the one `/resume` takes — and this session's own part is headed `current session`; each heading carries its session's start time (`11-15 17:10`) flush with the pane's right edge, so the blocks' times line up and every session is dated at its first prompt. The band and the below line have no row to head, so a `⇡` on the first prompt of each block stands in.
+A session continued into another — by `/resume`, by a fork such as `claude --resume <id> --fork-session`, or by a context overflow Claude Code carried forward — opens its transcript with a summary row that names the session it continued. The rail reads that transcript from the same folder, puts its prompts before this session's, and drops the rows the continuation copied. Reading is on demand: a `[ click to load more prompts from parent session <id> ]` primary button sits above the oldest prompt and reads one session per press, returning while a further session waits (up to four back). Those prompts' rows live in the other transcript, so they draw with the dotted tick and `next`/`prev` skip them; pressing one says why instead of leaving a failed scroll. The block is headed `prompts from <id> ⧉` — a press copies the full id, the one `/resume` takes — and this session's own part is headed `current session`; each heading carries its session's start time (`11-15 17:10`) flush with the pane's right edge, so the blocks' times line up and every session is dated at its first prompt. The band and the below line have no row to head, so a `⇡` on the first prompt of each block stands in.
 
 A jump addresses the uuid the transcript stores for a prompt. Where no transcript can be read, the rail records the request id the prompt's row was drawn under, and matches a prompt restored without one to the engine's list by its text, so a click still lands. The transcript is found by the classic hooks where they run, and otherwise by session id under `CLAUDE_CONFIG_DIR` or `~/.claude`.
 

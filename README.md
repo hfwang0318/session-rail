@@ -15,15 +15,22 @@ A rail of your prompts for Claude Code. Hover to read one, click to jump back to
 
 </div>
 
-> **Fork.** session-rail is a fork of [prompt-rail](https://github.com/oikon48/prompt-rail) by oikon48, under the MIT license. The rail, layouts, commands and settings are prompt-rail's. The history source is rebuilt: the engine's own message list (`$.session.messages()`) now leads, and the transcript file enriches it with ids, turn details and history older than the engine keeps. See [docs/refactor-comparison.md](docs/refactor-comparison.md) for what changed and why.
+## Highlights
+
+- **A map of the session.** One tick per prompt, in a pane beside the transcript or a row of bars above or below the prompt input; the prompt you are reading is marked.
+- **Read a prompt whole.** Hover a cut row for its full text, when it was sent, how long its turn took, how it ended and the files it edited.
+- **Jump back in one click.** Click any row or bar, or step with `next`/`prev`, a prompt number or a word search.
+- **Long sessions hold together.** A `/compact` divider, the prompts restored from before it, and the seams of a `/resume`, a fork or a context overflow.
+- **Yours to tune.** Dark and light palettes, eleven card families, and keybindings for stepping.
+- **Local only.** No network requests and no analytics; the [privacy policy](plugins/session-rail/README.md#privacy) lists every file it reads and every value it stores.
 
 ## Quick start
 
-session-rail is a mod, so it needs Claude Code 2.1.287 or later, where mods are on by default. If you set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` during early access, you can remove it, since Claude Code now ignores it.
+**Requires Claude Code 2.1.287 or later**, in the terminal or in the Code tab of the Claude desktop app. Mods are on by default there. If you set `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` during early access, you can remove it, since Claude Code now ignores it.
 
 1. Install from the marketplace, inside a session:
 
-   ```
+   ```text
    /plugin marketplace add hfwang0318/session-rail
    /plugin install session-rail@hfwang
    ```
@@ -43,7 +50,8 @@ session-rail is a mod, so it needs Claude Code 2.1.287 or later, where mods are 
 
 2. Start a new session. The rail opens on its own.
 
-Mouse works best with `"tui": "fullscreen"`.
+> [!TIP]
+> Mouse works best with `"tui": "fullscreen"`.
 
 ## Three layouts
 
@@ -65,12 +73,7 @@ Mouse works best with `"tui": "fullscreen"`.
 
 `/session-rail below`. Bars beside the status line, under the prompt input.
 
-<details>
-<summary>Below layout in motion</summary>
-
 <img src="docs/below.gif" alt="session-rail 0.12.0: hovering a bar under the prompt opens the same blue panel the pane draws, with the whole text and the stats sentence, and clicking jumps the transcript to it" width="800">
-
-</details>
 
 ## Hover to read, click to jump
 
@@ -80,12 +83,7 @@ Mouse works best with `"tui": "fullscreen"`.
 - **Click** any row or bar: the transcript jumps to it, and the row flashes.
 - A running turn spins its tick. A prompt Claude Code refuses to scroll to turns dotted, and `next`/`prev` skip it.
 
-<details>
-<summary>A tall card in motion</summary>
-
 <img src="docs/card-above.gif" alt="session-rail 0.12.0: a tall hover card opens above its row with its scrollbar thumb at the top, the row stays blank, and the wheel moves the card's lines while the thumb travels down" width="800">
-
-</details>
 
 <details>
 <summary>Hover card details</summary>
@@ -126,12 +124,7 @@ A fork (`claude --resume <id> --fork-session`) or a context overflow starts a ne
 - `current session` heads this session's own part.
 - `[ click to load parent … ]` loads one earlier session per press, up to four back. Nothing is read until you ask.
 
-<details>
-<summary>Loading an earlier session, one press at a time</summary>
-
 <img src="docs/continued.gif" alt="session-rail: a pane showing only the current session's heading and prompts with a bracketed load button above them; a press brings in the parent block's four dotted rows under prompts from 4f3a9c21, and the button now names the next session back; a second press adds that block too and the button goes away" width="800">
-
-</details>
 
 ## Colors and themes
 
@@ -139,12 +132,7 @@ A fork (`claude --resume <id> --fork-session`) or a context overflow starts a ne
 
 Two palettes, dark and light, picked by "Color scheme" (`auto` follows your `/config` theme). Eleven card families, each with a dark and a light side. `/session-rail-preview` shows them in the scheme you are using.
 
-<details>
-<summary>One card through all eleven families</summary>
-
 <img src="docs/themes.gif" alt="session-rail: a hovered prompt's card redrawn once per card theme in the dark scheme — warm-taupe, warm-charcoal, sienna, mauve, teal, indigo, burgundy, olive, plum, ochre and slate — its panel, prompt highlight and stats tint moving together" width="800">
-
-</details>
 
 <img src="docs/themes-light.png" alt="The theme preview pane in the light scheme: the same eleven families on their light panels, the sample prompt in black and the stats line in each family's light accent" width="800">
 
@@ -171,7 +159,7 @@ Two palettes, dark and light, picked by "Color scheme" (`auto` follows your `/co
 
 ## Commands
 
-| Command | |
+| Command | What it does |
 | --- | --- |
 | `/session-rail horizontal` | Bars above the prompt input |
 | `/session-rail vertical` | A pane beside the transcript |
@@ -188,7 +176,7 @@ Two palettes, dark and light, picked by "Color scheme" (`auto` follows your `/co
 | `/session-rail-preview` | Open the theme preview pane, for every card theme or the one named, as `/session-rail-preview sienna` |
 | `/session-rail` | Reopen the rail in the current layout |
 
-The layout is also "Rail mode" in `/config`. The theme rows there are "Color scheme", "Card theme", "Accent follows card theme", "Expand on hover", "Scroll on hover", "Hover card background", "Hover card text" and "Hover card stats text".
+The layout is also "Rail mode" in `/config`. The theme rows there are "Color scheme", "Card theme", "Accent follows card theme", "Expand on hover", "Scroll on hover", "Hover card background", "Hover card text" and "Hover card stats text". "Classic hooks" keeps `classic.SessionStart` and `classic.Stop` registered (on by default); turn it off only where managed settings pass them over, since the rail then finds the transcript under `CLAUDE_CONFIG_DIR` or `~/.claude`.
 
 <details>
 <summary>Config rows in detail</summary>
@@ -211,7 +199,7 @@ Bind the step commands in `~/.claude/keybindings.json`; they run mid-turn too:
 
 In the horizontal layout, `ctrl+x tab` moves the focus to the bars: `←` `→` move across them, `Enter` jumps, `Esc` returns to the prompt input.
 
-## Tick legend
+## Tick and color legend
 
 | Tick | Meaning |
 | --- | --- |
@@ -235,9 +223,6 @@ In the horizontal layout, `ctrl+x tab` moves the focus to the bars: `←` `→` 
 
 ## How it works
 
-<details>
-<summary>From the engine's message list and the transcript to the rail</summary>
-
 ```mermaid
 flowchart LR
   E["engine: $.session.messages()<br/>the person's prompts, in order"] -->|primary list| R[rail]
@@ -248,9 +233,14 @@ flowchart LR
 
 The engine's message list is the rail's primary source. It names the person's prompts in conversation order without reading a file, so the list survives a transcript that is missing, renamed, still being written, or read too late after a `/clear`. The transcript is read as an optional second source: it supplies the uuid each prompt is stored under (so a jump can address its row), each prompt's turn details, and prompts older than the engine's 4096-entry window. A transcript read can add to the engine's list but never empty it.
 
+<details>
+<summary>Compaction, continuations, branches and jumps</summary>
+
 A compaction replaces the engine's list with a summary message plus the most recent rows, so the rail filters that summary out and restores the prompts before the boundary from the transcript. Prompts abandoned with `/rewind` still drop out: the transcript read follows only the live branch.
 
 A session continued into another — by `/resume`, by a fork such as `claude --resume <id> --fork-session`, or by a context overflow Claude Code carried forward — opens its transcript with a summary row that names the session it continued. The rail reads that transcript from the same folder, puts its prompts before this session's, and drops the rows the continuation copied. Reading is on demand: a `[ click to load more prompts from parent session <id> ]` primary button sits above the oldest prompt and reads one session per press, returning while a further session waits (up to four back). Those prompts' rows live in the other transcript, so they draw with the dotted tick and `next`/`prev` skip them; pressing one says why instead of leaving a failed scroll. The block is headed `prompts from <id> ⧉` — a press copies the full id, the one `/resume` takes — and this session's own part is headed `current session`; each heading carries its session's start time (`11-15 17:10`) flush with the pane's right edge, so the blocks' times line up and every session is dated at its first prompt. The band and the below line have no row to head, so a `⇡` on the first prompt of each block stands in.
+
+A `/branch` started inside a session is drawn as one conversation too, but from a different signal: the command copies the conversation's rows into the branch's own transcript and stamps each with the session it came from, so a change of that session id heads a block `prompts from <id> ⧉`. Those rows are in this transcript, not another file — they keep the jumpable tick, `next`/`prev` do not skip them, and no load button is offered. The line at its start reads `branched at …`, where a `/resume`'s reads `resumed at …`.
 
 A jump addresses the uuid the transcript stores for a prompt. Where no transcript can be read, the rail records the request id the prompt's row was drawn under, and matches a prompt restored without one to the engine's list by its text, so a click still lands. The transcript is found by the classic hooks where they run, and otherwise by session id under `CLAUDE_CONFIG_DIR` or `~/.claude`.
 
@@ -273,9 +263,13 @@ The prompt you are reading owns the topmost row on screen. The transcript is rea
 - Near the end of the transcript, `next` cannot scroll further.
 - After a compaction, the engine keeps only the summary and the most recent messages. Prompts before the boundary are listed from the transcript; where no transcript can be read at all, they cannot be listed in that session.
 - With no transcript to read, a prompt can be jumped to only after its row has been drawn once, since the engine's list carries no row id of its own.
-- A `/resume` the module is never told of — a new process launched with the classic hooks passed over — adds no line for that moment, and with no readable transcript the pane's head names the moment the module loaded rather than the conversation's original start. An in-process `/resume` is told of through `session.end`, so it draws its line. The moments a conversation was resumed at are kept in the mod's store for the 20 most recent sessions and in the engine's session state, so a hot reload and a new process keep its lines; the hash-keyed prompt counts live only in the session state, so a new process places the latest line by the transcript's timestamps. Up to 256 moments and 256 distinct prompt texts are kept.
+- A `/resume` the module is never told of — a new process launched with the classic hooks passed over — adds no line for that moment, and with no readable transcript the pane's head names the moment the module loaded rather than the conversation's original start. An in-process `/resume` is told of through `session.end`, so it draws its line. The moments a conversation was resumed at, and which of them began with a `/branch`, are kept in the mod's store for the 20 most recent sessions and in the engine's session state, so a hot reload and a new process keep its lines; the hash-keyed prompt counts live only in the session state, so a new process places the latest line by the transcript's timestamps. Up to 256 moments and 256 distinct prompt texts are kept.
 
 </details>
+
+## Privacy
+
+session-rail makes no network requests. It reads the session's own message list, the transcript file, and — with "Color scheme" set to `auto` — your `/config` theme, and it keeps its layout and the moments a session was resumed in its own store. The full policy, listing every file read, every program run and every value written, is the [Privacy section of the plugin README](plugins/session-rail/README.md#privacy).
 
 ## Development
 
@@ -285,7 +279,7 @@ claude plugin validate plugins/session-rail
 claude plugin test plugins/session-rail
 ```
 
-Run `/plugin-types .claude/types` in a session here for type declarations. Bump the version in `plugins/session-rail/.claude-plugin/plugin.json` with each release, since installed copies update only when it changes.
+Run `/plugin-types .claude/types` in a session here for type declarations. Bump the version in `plugins/session-rail/.claude-plugin/plugin.json` with each release, since installed copies update only when it changes. Bugs and ideas go to the [issue tracker](https://github.com/hfwang0318/session-rail/issues); the architecture notes for the hooks module are in [CLAUDE.md](CLAUDE.md).
 
 The pictures in this README are drawn by `docs/make-assets.py` (Pillow), not captured from a terminal, so they can be regenerated after a UI change:
 
@@ -301,6 +295,6 @@ git push origin main:release
 
 The directory picks the new commit up within about six hours and scans it before it goes live.
 
-## License
+## Source and license
 
-[MIT](LICENSE), Copyright (c) 2026 oikon48. This fork keeps the same license and adds its changes under it.
+Source: [hfwang0318/session-rail](https://github.com/hfwang0318/session-rail). Released under the [MIT license](LICENSE).

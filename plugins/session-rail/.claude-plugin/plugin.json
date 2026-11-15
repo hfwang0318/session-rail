@@ -1,9 +1,9 @@
 {
   "name": "session-rail",
   "version": "0.15.0",
-  "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one in full with when it was sent, click to jump to it. Fork of prompt-rail, with the engine's own message list as the primary history source.",
+  "description": "A rail of your session's prompts beside the transcript or above the prompt: hover to read one in full, with when it was sent, and click to jump to it. The engine's own message list is the primary history source, with the transcript adding ids, turn details and older prompts.",
   "author": {
-    "name": "hfwang, based on prompt-rail by oikon48"
+    "name": "hfwang"
   },
   "homepage": "https://github.com/hfwang0318/session-rail",
   "license": "MIT",
@@ -66,7 +66,7 @@
     "classicHooks": {
       "type": "boolean",
       "title": "Classic hooks",
-      "description": "Register the classic.SessionStart and classic.Stop hooks, which name the transcript exactly. Off silences Claude Code's notes about the security default skipping them on a machine with managed settings or in a Team or Enterprise organization, where they never ran anyway; elsewhere, the rail then finds the transcript by session id under CLAUDE_CONFIG_DIR or ~/.claude, which misses one Claude Code files somewhere else.",
+      "description": "Register the classic.SessionStart and classic.Stop hooks, which name the transcript exactly. Off silences Claude Code's notes about the security default skipping them on a machine with managed settings or in a Team or Enterprise organization, where they never ran anyway; elsewhere, the rail then finds the transcript by session id under CLAUDE_CONFIG_DIR or ~/.claude, which misses a transcript Claude Code keeps somewhere else.",
       "default": true
     },
     "expandOnHover": {

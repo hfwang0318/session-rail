@@ -15,15 +15,22 @@
 
 </div>
 
-> **派生版本。** session-rail 是 oikon48 的 [prompt-rail](https://github.com/oikon48/prompt-rail) 的派生版本，沿用 MIT 许可证。rail 本身、布局、命令和设置都来自 prompt-rail。历史来源被重建了：现在由引擎自己的消息列表（`$.session.messages()`）作为主来源，对话记录文件则为它补充 id、回合详情，以及早于引擎保留范围的历史。改动内容与原因见 [docs/refactor-comparison.md](docs/refactor-comparison.md)（中文）。
+## 亮点
+
+- **会话的地图。** 每条提示词一个刻度，可以放在对话记录旁的面板里，也可以放在提示词输入框上方或下方的一排横条中；正在阅读的提示词会被标出。
+- **通读一条提示词。** 悬停被截断的行：看全文、发送时间、回合时长、结局和改动过的文件。
+- **一键跳回。** 点击任意一行或一根横条，或用 `next`/`prev`、编号、按词查找来移动。
+- **长会话不会散。** `/compact` 隔断、隔断前恢复的提示词，以及 `/resume`、fork 或上下文溢出的接缝。
+- **随你调整。** 深色与浅色色板、十一种卡片家族，以及步进用的键位绑定。
+- **只在本机。** 不发网络请求，也不做分析；[隐私政策](plugins/session-rail/README.md#privacy)列出了它读取的每个文件和写入的每个值。
 
 ## 快速开始
 
-session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本——在这些版本中 mod 默认开启。如果你在早期试用阶段设置过 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`，现在可以删掉它，Claude Code 已不再读取它。
+**需要 Claude Code 2.1.287 或更高版本**，在终端中或 Claude 桌面应用的 Code 标签页中使用；mod 在这些版本中默认开启。如果你在早期试用阶段设置过 `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS`，现在可以删掉它，Claude Code 已不再读取它。
 
 1. 在会话中从插件市场安装：
 
-   ```
+   ```text
    /plugin marketplace add hfwang0318/session-rail
    /plugin install session-rail@hfwang
    ```
@@ -43,7 +50,8 @@ session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本—
 
 2. 开始一个新会话。rail 会自行打开。
 
-鼠标操作在 `"tui": "fullscreen"` 下效果最佳。
+> [!TIP]
+> 鼠标操作在 `"tui": "fullscreen"` 下效果最佳。
 
 ## 三种布局
 
@@ -65,12 +73,7 @@ session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本—
 
 `/session-rail below`。横条位于状态行旁、提示词输入框下方。
 
-<details>
-<summary>下方布局的动态效果</summary>
-
 <img src="docs/below.gif" alt="session-rail 0.12.0：悬停提示词下方的一根横条会打开与面板相同的卡片，显示全文和统计信息，点击后对话记录跳转到它" width="800">
-
-</details>
 
 ## 悬停阅读，点击跳转
 
@@ -80,12 +83,7 @@ session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本—
 - **点击**任意一行或一根横条：对话记录跳转过去，该行闪一下。
 - 正在运行的回合会旋转刻度；Claude Code 拒绝滚动到的提示词会变成点线刻度，`next`/`prev` 会跳过它。
 
-<details>
-<summary>高卡片滚动起来的样子</summary>
-
 <img src="docs/card-above.gif" alt="session-rail 0.12.0：一张高大的悬停卡片打开在其行上方，滚动条滑块位于顶部，该行保持空白，滚轮移动卡片文字时滑块向下移动" width="800">
-
-</details>
 
 <details>
 <summary>悬停卡片细节</summary>
@@ -126,12 +124,7 @@ session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本—
 - `current session` 是本会话自己那一段的标题。
 - `[ click to load parent … ]` 每按一次加载一层更早的会话，最多上溯四层。不问就不读。
 
-<details>
-<summary>逐层加载更早的会话（动图）</summary>
-
 <img src="docs/continued.gif" alt="session-rail：面板起初只显示 current session 标题和本会话的提示词，上方是一个带方括号的加载按钮；按下后 prompts from 4f3a9c21 标题及其四条点线行加入，按钮改为指向再上一层会话；再按一次，那一块也加入，按钮消失" width="800">
-
-</details>
 
 ## 颜色与主题
 
@@ -139,12 +132,7 @@ session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本—
 
 深色和浅色两套色板，由 “Color scheme” 选择（`auto` 跟随 `/config` 主题）。十一种卡片家族，每个都有深色和浅色两侧。`/session-rail-preview` 会按当前方案展示它们。
 
-<details>
-<summary>同一张卡片走遍十一种家族（动图）</summary>
-
 <img src="docs/themes.gif" alt="session-rail：一条被悬停的提示词的卡片，在深色方案下依次以 warm-taupe、warm-charcoal、sienna、mauve、teal、indigo、burgundy、olive、plum、ochre 和 slate 重绘，面板、提示词 highlight 和统计 accent 一起变化" width="800">
-
-</details>
 
 <img src="docs/themes-light.png" alt="浅色方案下的主题预览面板：同样十一种家族画在各自的浅色面板上，示例提示词为黑色，统计文字为各家族的浅色 accent" width="800">
 
@@ -171,7 +159,7 @@ session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本—
 
 ## 命令
 
-| 命令 | |
+| 命令 | 作用 |
 | --- | --- |
 | `/session-rail horizontal` | 提示词输入框上方的横条 |
 | `/session-rail vertical` | 对话记录旁的面板 |
@@ -188,7 +176,7 @@ session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本—
 | `/session-rail-preview` | 打开主题预览面板，展示全部卡片主题，或指定的一个，例如 `/session-rail-preview sienna` |
 | `/session-rail` | 以当前布局重新打开 rail |
 
-布局也对应 `/config` 中的 “Rail mode”。主题相关的行有 “Color scheme”、“Card theme”、“Accent follows card theme”、“Expand on hover”、“Scroll on hover”、“Hover card background”、“Hover card text” 和 “Hover card stats text”。
+布局也对应 `/config` 中的 “Rail mode”。主题相关的行有 “Color scheme”、“Card theme”、“Accent follows card theme”、“Expand on hover”、“Scroll on hover”、“Hover card background”、“Hover card text” 和 “Hover card stats text”。“Classic hooks” 保持 `classic.SessionStart` 和 `classic.Stop` 注册（默认开启）；只有在受管设置跳过它们时才关闭它，因为此后 rail 会在 `CLAUDE_CONFIG_DIR` 或 `~/.claude` 下查找对话记录。
 
 <details>
 <summary>/config 各行细节</summary>
@@ -211,7 +199,7 @@ session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本—
 
 在横向布局中，`ctrl+x tab` 会把焦点移到横条上：`←` `→` 在横条间移动，`Enter` 跳转，`Esc` 回到提示词输入框。
 
-## 刻度图例
+## 刻度与颜色图例
 
 | 刻度 | 含义 |
 | --- | --- |
@@ -235,9 +223,6 @@ session-rail 是一个 mod，因此需要 Claude Code 2.1.287 或更高版本—
 
 ## 工作原理
 
-<details>
-<summary>从引擎的消息列表与对话记录到 rail</summary>
-
 ```mermaid
 flowchart LR
   E["引擎：$.session.messages()<br/>用户的提示词，按顺序"] -->|主来源| R[rail]
@@ -248,9 +233,14 @@ flowchart LR
 
 引擎的消息列表是 rail 的主来源。它无需读取文件，就能按对话顺序列出用户的提示词，因此即使对话记录缺失、被重命名、仍在写入，或在 `/clear` 之后读得太晚，列表依然存在。对话记录作为可选的第二来源读取：它提供每条提示词存储所用的 uuid（使跳转能够定位到它的行）、每条提示词的回合详情，以及早于引擎 4096 条窗口的提示词。读取对话记录可以为引擎的列表增加内容，但绝不能让它变空。
 
+<details>
+<summary>压缩、续接、分支与跳转</summary>
+
 一次压缩会用一条摘要消息加上最近的若干行替换引擎的列表，因此 rail 会过滤掉该摘要，并从对话记录恢复边界之前的提示词。用 `/rewind` 放弃的提示词仍会消失：对话记录的读取只沿活动分支进行。
 
 一个被续接到另一会话的会话——由 `/resume` 产生、用 `claude --resume <id> --fork-session` fork 出来，或因为上下文溢出被 Claude Code 延续——自己最新的文件开头有一行摘要，指明它所续接的会话。rail 会从同一目录读取那份对话记录，把它的提示词放到本会话之前，并去掉续接时复制过来的行。读取按需进行：最上方提示词之上有一个 `[ click to load more prompts from parent session <id> ]` 主按钮，每按一次读取一层会话；若更早的会话仍存在，这一行会再次出现（最多上溯四层）。那些提示词的行在另一份对话记录里，因此以点线刻度绘制，`next`/`prev` 会跳过它们；点击其中一条会说明原因，而不是留下一次失败的滚动。这一块的上方以 `prompts from <id> ⧉` 为标题——按下它会复制完整的 id，也就是 `/resume` 所接受的那个——本会话自己的部分则以 `current session` 为标题；每个标题右侧都带着该会话的开始时间（`11-15 17:10`，与面板右缘对齐），因此各块的时间连成一列，每个会话都按它第一条提示词标出开始时间。横条和下方行没有可放标题的位置，改为在每一块的第一条提示词上画一个 `⇡`。
+
+在会话中执行的 `/branch` 同样被画成一个对话，但依据的是另一个信号：该命令把对话的行复制进分支自己的对话记录，并给每一行标上它来自的会话，因此该会话 id 一变就会起一个新块 `prompts from <id> ⧉`。这些行就在本份对话记录里，而不是另一个文件——它们保留可跳转的刻度，`next`/`prev` 不会跳过，也不会出现加载按钮。分支起点的线写作 `branched at …`，而 `/resume` 的写作 `resumed at …`。
 
 跳转使用对话记录为提示词存储的 uuid。在无法读取对话记录的情况下，rail 会记录提示词的行当时所用的请求 id，并通过文本把没有该 id 的恢复提示词与引擎列表匹配，所以点击仍能落地。对话记录由 classic hooks 在其运行时定位，否则通过会话 id 在 `CLAUDE_CONFIG_DIR` 或 `~/.claude` 下查找。
 
@@ -273,9 +263,13 @@ flowchart LR
 - 在对话记录接近末尾时，`next` 无法继续滚动。
 - 压缩之后，引擎只保留摘要和最近的消息。边界之前的提示词从对话记录列出；在完全无法读取对话记录时，它们无法在该会话中列出。
 - 没有可读的对话记录时，提示词只有在它的行至少被绘制过一次之后才能跳转，因为引擎的列表本身不带行 id。
-- 模块未被通知的 `/resume`——即 classic hooks 被跳过时启动的新进程——不会为那一刻添加线；在没有可读对话记录时，面板顶部标出的是模块加载的时刻，而不是对话最初的开始时间。进程内的 `/resume` 会通过 `session.end` 被通知，因此会画出它的线。对话被恢复的时刻保存在 mod 的 store 中（最近 20 个会话）和引擎的会话状态中，所以热重载和新进程都能保留这些线；以哈希为键的提示词计数只存在于会话状态中，因此新进程依据对话记录的时间戳放置最新一条线。最多保留 256 个时刻和 256 个不同提示词文本。
+- 模块未被通知的 `/resume`——即 classic hooks 被跳过时启动的新进程——不会为那一刻添加线；在没有可读对话记录时，面板顶部标出的是模块加载的时刻，而不是对话最初的开始时间。进程内的 `/resume` 会通过 `session.end` 被通知，因此会画出它的线。对话被恢复的时刻，以及其中哪些由 `/branch` 开始，保存在 mod 的 store 中（最近 20 个会话）和引擎的会话状态中，所以热重载和新进程都能保留这些线；以哈希为键的提示词计数只存在于会话状态中，因此新进程依据对话记录的时间戳放置最新一条线。最多保留 256 个时刻和 256 个不同提示词文本。
 
 </details>
+
+## 隐私
+
+session-rail 不发起网络请求。它读取本会话自己的消息列表、对话记录文件，以及在 “Color scheme” 设为 `auto` 时读取你的 `/config` 主题；它把布局和会话被恢复的时刻保存在自己的 store 中。完整的策略——包括读取的每个文件、运行的每个程序和写入的每个值——见[插件 README 的隐私一节](plugins/session-rail/README.md#privacy)。
 
 ## 开发
 
@@ -285,7 +279,7 @@ claude plugin validate plugins/session-rail
 claude plugin test plugins/session-rail
 ```
 
-在会话中运行 `/plugin-types .claude/types` 可生成类型声明。每次发布都要提升 `plugins/session-rail/.claude-plugin/plugin.json` 中的版本号，因为已安装的副本只在版本变化时更新。
+在会话中运行 `/plugin-types .claude/types` 可生成类型声明。每次发布都要提升 `plugins/session-rail/.claude-plugin/plugin.json` 中的版本号，因为已安装的副本只在版本变化时更新。问题和想法请提到 [issue tracker](https://github.com/hfwang0318/session-rail/issues)；hooks 模块的架构说明见 [CLAUDE.md](CLAUDE.md)。
 
 本 README 中的图片由 `docs/make-assets.py`（Pillow）绘制，并非终端截图，因此界面改动后可以重新生成：
 
@@ -301,6 +295,6 @@ git push origin main:release
 
 目录会在约六小时内拾取新提交，并在上线前进行扫描。
 
-## 许可证
+## 来源与许可证
 
-[MIT](LICENSE)，Copyright (c) 2026 oikon48。本 fork 沿用同一许可证，其改动也在该许可证下发布。
+源码：[hfwang0318/session-rail](https://github.com/hfwang0318/session-rail)。以 [MIT 许可证](LICENSE) 发布。

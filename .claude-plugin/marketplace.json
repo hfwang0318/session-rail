@@ -4,13 +4,13 @@
     "name": "hfwang"
   },
   "metadata": {
-    "description": "hfwang's Claude Code plugins and mods; fork of prompt-rail by oikon48"
+    "description": "hfwang's Claude Code plugins and mods"
   },
   "plugins": [
     {
       "name": "session-rail",
       "source": "./plugins/session-rail",
-      "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one, click to jump to it. Fork of prompt-rail, engine-native history.",
+      "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one, click to jump to it. Engine-native history.",
       "homepage": "https://github.com/hfwang0318/session-rail"
     }
   ]

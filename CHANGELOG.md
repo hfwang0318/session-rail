@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `README.zh-CN.md`, a Simplified Chinese translation of the full README, linked from the English README and from the plugin directory's README
+
 ## 0.15.0
 
 - Added `/session-rail-preview` (also `/session-rail preview` and `preview theme`): it opens a preview pane drawing every card theme once as a sample prompt and stats line on that family's panel, in the current color scheme's highlight and accent tint, with the family in use marked, so the families can be compared before one is chosen. Naming a family (`/session-rail-preview sienna`) draws that one alone as a two-line card; an unknown name says so and lists the families. Esc closes the pane, no color values are printed, and a terminal too narrow for the pane keeps the command's text. The "Card theme" row's help text in `/config` now describes the selected family and the current side, and points at the command

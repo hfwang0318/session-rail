@@ -2,6 +2,8 @@
 
 A rail of your prompts for Claude Code. Hover to read one, click to jump back to it.
 
+**English** · [简体中文](../../README.zh-CN.md)
+
 session-rail is a mod: it draws a row of bars above or below the prompt input, or a pane beside the transcript, with one tick for each prompt you sent in the session. Hovering a tick shows the whole prompt when its row or bar cuts it, when it was sent, and how its turn went; clicking it scrolls the transcript to that prompt. Commands step through the prompts from the keyboard.
 
 In the terminal's pane, a head reads `started at 2026-11-14 14:41:10`, when the conversation started, to the second, where the pane has room for text and a row under it; scrolling the transcript back through its history bolds the matching prompt's row, and a list taller than the pane moves that row into view. A slash command sent with arguments, such as `/impeccable …`, is listed as the command line; a local command such as `/model` or `/config` is not. A resumed session keeps the original conversation's start, where a transcript can be read, and draws a `resumed at 2026-11-14 06:05:00` line at the prompt text's column above the first prompt sent after each resume it was told of, so the prompts of each resumed run stay together. A line with nothing from before the resume above it is not drawn; an empty list still shows the latest, marking where the first prompt will begin. The lines are kept across a reload and for the next process, for the 20 most recent sessions, and a `/clear` removes them; a `/resume` the module is told of draws its line even when the classic hooks are passed over, and one it is never told of — a new process launched with the classic hooks passed over — adds none for that moment.

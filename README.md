@@ -4,6 +4,8 @@
 
 A rail of your prompts for Claude Code. Hover to read one, click to jump back to it.
 
+**English** · [简体中文](README.zh-CN.md)
+
 ![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)
 ![Claude Code 2.1.287+](https://img.shields.io/badge/Claude%20Code-2.1.287%2B-555)
 ![Mod](https://img.shields.io/badge/mod-TypeScript-3178C6)

@@ -1173,6 +1173,24 @@ CONTINUED_REPLIES = [
 ]
 
 
+LONG_START = "2026-11-15 09:01:47"
+
+
+def long_rows() -> list[PaneRow]:
+    rows = [pane_head(LONG_START)]
+    for index, prompt in enumerate(LONG_SESSION_PROMPTS):
+        if index > 0 and prompt.break_before:
+            rows.append(PaneRow("compacted"))
+        rows.append(
+            pane_prompt(
+                LONG_SESSION_PROMPTS,
+                index,
+                spinner=prompt.turn.outcome == "running",
+            )
+        )
+    return rows
+
+
 def still_long_session(path: Path) -> None:
     """A compacted, twenty-prompt session: the rail is a map of the day, the
     compacted divider keeps the two halves apart, and the running turn spins
@@ -1185,18 +1203,7 @@ def still_long_session(path: Path) -> None:
         (s(24), s(56)),
     )
     line(d, 650, 44, 650, height - 12, BORDER)
-    rows = [pane_head("2026-11-15 09:01:47")]
-    for index, prompt in enumerate(LONG_SESSION_PROMPTS):
-        if index > 0 and prompt.break_before:
-            rows.append(PaneRow("compacted"))
-        rows.append(
-            pane_prompt(
-                LONG_SESSION_PROMPTS,
-                index,
-                spinner=prompt.turn.outcome == "running",
-            )
-        )
-    draw_pane(d, 672, 64, 33, rows, current=18)
+    draw_pane(d, 672, 64, 33, long_rows(), current=18)
     draw_composer(d, 24, 560, 616, "Ask Claude to change something…")
     img.save(path, optimize=True)
 
@@ -1623,16 +1630,57 @@ def make_themes(path: Path) -> None:
     save_gif(frames, path)
 
 
-def save_gif(frames: list[Image.Image], path: Path) -> None:
+def long_session_frame(
+    current: int,
+    top: float,
+    rows: list[PaneRow],
+    body: int,
+) -> Image.Image:
+    page, _ = frame_page("a long session · scroll up: the rail follows")
+    win, d = window(768, 420)
+    lines, _ = build_lines(LONG_SESSION_PROMPTS, 54, LONG_SESSION_REPLIES)
+    win.paste(draw_transcript(lines, 440, 260, top, 54, fade=True), (s(20), s(50)))
+    line(d, 452, 44, 452, 410, BORDER)
+    pos = next(
+        i for i, row in enumerate(rows) if row.kind == "prompt" and row.index == current
+    )
+    start = max(0, min(pos - 13, len(rows) - body))
+    draw_pane(d, 470, 50, 26, rows[start:start + body], current=current)
+    draw_composer(d, 20, 344, 440, "Ask Claude to change something…", status=False)
+    draw_mode_line(d, 20, 386)
+    page.paste(win, (s(16), s(14)))
+    return page
+
+
+def make_long_session(path: Path) -> None:
+    """Scrolling a compacted session back through its history: the bold row
+    follows the topmost prompt on screen, and the pane's own window moves to
+    keep that row visible while the list is taller than the pane."""
+    _, starts = build_lines(LONG_SESSION_PROMPTS, 54, LONG_SESSION_REPLIES)
+    rows = long_rows()
+    body = 18
+    first, last = starts[15], starts[4]
+    frames: list[Image.Image] = []
+    for frame in range(24):
+        top = first + (last - first) * ease(frame / 23)
+        current = next(
+            (index for index, start in enumerate(starts) if start >= top),
+            len(starts) - 1,
+        )
+        frames.append(long_session_frame(current, top, rows, body))
+    save_gif(frames, path, duration=140)
+
+
+def save_gif(frames: list[Image.Image], path: Path, duration: int = 80, colors: int = 128) -> None:
     # Published at half the drawing scale: 800x500 keeps the file small while
     # the 2x source makes the text edges hold up.
     small = [frame.convert("RGB").resize((800, 500), Image.Resampling.LANCZOS) for frame in frames]
-    palette = [frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=128) for frame in small]
+    palette = [frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=colors) for frame in small]
     palette[0].save(
         path,
         save_all=True,
         append_images=palette[1:],
-        duration=80,
+        duration=duration,
         loop=0,
         optimize=True,
         disposal=2,
@@ -1652,6 +1700,7 @@ def main() -> None:
         "preview": (still_preview, HERE / "preview.png"),
         "themes-light": (still_preview_light, HERE / "themes-light.png"),
         "demo": (make_demo, HERE / "demo.gif"),
+        "long-session-gif": (make_long_session, HERE / "long-session.gif"),
         "below-gif": (make_below, HERE / "below.gif"),
         "above-gif": (make_card_above, HERE / "card-above.gif"),
         "continued-gif": (make_continued, HERE / "continued.gif"),

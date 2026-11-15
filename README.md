@@ -47,47 +47,50 @@ Mouse works best with `"tui": "fullscreen"`.
 
 ## Three layouts
 
-### Horizontal, above the prompt
-
-<img src="docs/horizontal.png" alt="The horizontal rail: the hovered prompt and its stats on the line over a row of bars, with the prompt being read marked heavy" width="800">
-
 ### Vertical, beside the transcript (default)
 
 <img src="docs/vertical.png" alt="The vertical rail: one row per prompt in a pane beside the transcript; the pane's head names when the conversation started, and hovering a cut row expands its whole prompt, sent time, duration and files" width="800">
 
-Where the pane has room for text and at least one row to show under it, it opens with `started at 2026-11-14 14:41:10`, when the conversation started, to the second. Scrolling the transcript back through its history makes the matching prompt's row bold, so the turn in view is marked even when its row sits below the fold; when the list is taller than the pane, the pane's own window moves to keep that row in view. A slash command sent with arguments, such as `/impeccable …`, is listed as the command line; a local command such as `/model` or `/config` is not. A resumed session shows the original conversation's start, where a transcript can be read, not the moment it was resumed, and draws a `resumed at …` line above the first prompt sent after each resume it was told of, so the prompts of each run stay together; [Resuming and forking a session](#resuming-and-forking-a-session) has the picture and the rules.
+`/session-rail vertical`. One row per prompt, beside the transcript. The bold row is the prompt you are reading.
 
-### Below, under the prompt
+### Horizontal, above the prompt
 
-The bars sit on a row of their own under the hint line below the prompt input, next to the status line, with the prompt being read beside them. `‹` and `›` step to the previous or next prompt. The hint line above them is Claude Code's own, so its mode label and hints stay as they are.
+<img src="docs/horizontal.png" alt="The horizontal rail: the hovered prompt and its stats on the line over a row of bars, with the prompt being read marked heavy" width="800">
+
+`/session-rail horizontal`. A row of bars over the prompt input.
+
+### Below, under the hint line
 
 <img src="docs/below.png" alt="The below rail: Claude Code's hint line, and under it a row of bars with the hovered prompt and its stats beside them" width="800">
 
+`/session-rail below`. Bars beside the status line, under the prompt input.
+
 <details>
-<summary>The below layout in motion</summary>
+<summary>Below layout in motion</summary>
 
 <img src="docs/below.gif" alt="session-rail 0.12.0: hovering a bar under the prompt opens the same blue panel the pane draws, with the whole text and the stats sentence, and clicking jumps the transcript to it" width="800">
 
 </details>
 
-## Hover cards
-
-Hovering a prompt opens its card. A prompt too long for its row or bar is shown whole there, wrapped; a prompt the row already holds whole is not repeated, so the card carries only its stats. Under the prompt, the card names when it was sent — the clock time for today, the date and time for an older prompt — then how long its turn took, how it ended, and the files it edited. The "Expand on hover" row in `/config` turns the cards off, on by default.
-
-The "Scroll on hover" row in `/config` (off by default) scrolls a cut prompt in place on one line instead of expanding it: in the pane the hovered row itself scrolls, and only the stats line opens beneath it; in the band the prompt scrolls beside them. The moving row is the terminal's, and the band's moving line is the terminal's and the desktop app's; a surface with no live region keeps the cut card. It reads with "Expand on hover".
-
-In the pane the card opens under the hovered row, and the row and the card share one panel: the same background, the same bright prompt text, the row's cut text running on into the card. A blank panel line sets the rest of a cut prompt apart from its stats; a prompt the row holds whole takes the stats alone. A prompt too long for the card's room opens on the roomier side as a window with a scrollbar on its right edge, and its stats stay pinned at the card's foot, so they are read without scrolling the prompt above them. A prompt whose text has line breaks keeps them, and its indentation, in the card, and is shown whole even under its row, so code and lists read as themselves rather than as one run of words. A card that opens above its row carries the whole prompt from its first line and blanks its row while hovered, so the prompt reads top-down in one place; the blank row still jumps when pressed. The wheel over the card, or over its row, scrolls the card's lines instead of the rail's rows. The prompt is drawn in a highlight brighter than the rail's body text — white in dark themes, black in light ones — and the row under the pointer takes the same color, so hovering lifts the prompt itself and not only its panel. The pane's stats line reads as a sentence — `At 12:57, ran 2m 30s and changed 5 files`, `At 12:57, still running` — in the card's accent tint, regular, so the highlight stays the card's brightest line. If a custom "Hover card background" cannot carry the highlight, the prompt and the hovered row fall back to whichever white or black the panel can carry; setting "Hover card text" uses that color for the prompt and the row, and — unless "Hover card stats text" is set — for the stats line too. The "Hover card background" and "Hover card text" rows in `/config` set the panel in every layout — a theme key such as `inactive`, or a raw color — and empty follows the "Card theme" family's variant for the active color scheme (the default `warm-taupe` is `#3A3531` behind `#D4D0CB` in a dark theme, `#E8E1D8` behind `#35312D` in a light one), the same body color as the rail's ordinary rows, so the panel and its row read as one surface. The pointer still reaches the next row: the panel leaves the first three columns clear, and while the panel is open the hovered row hides its trailing `…`, which comes back when the pointer leaves.
-
-### A card too tall for its room
+## Hover to read, click to jump
 
 <img src="docs/card-above.png" alt="A hover card taller than the room below its row opens above it: the whole prompt starts at the first line, the hovered row is left blank between the card and the rows after it, and a scrollbar with a thumb runs down the card's right edge" width="800">
 
-The prompt near the bottom of the pane has no room under it, so its card opens above: the whole prompt, from its first line, then the blank line, then the stats — and the row itself goes blank, so nothing repeats at the bottom of the card. The rows the card covers keep their ticks in the first three columns, and the scrollbar turns the rest of the prompt when the wheel moves over the card or over its blank row.
+- **Hover** a cut prompt: the whole text, when it was sent, how long its turn took, how it ended, and the files it edited.
+- **Click** any row or bar: the transcript jumps to it, and the row flashes.
+- A running turn spins its tick. A prompt Claude Code refuses to scroll to turns dotted, and `next`/`prev` skip it.
 
 <details>
-<summary>The tall card in motion: the wheel scrolls it</summary>
+<summary>A tall card in motion</summary>
 
 <img src="docs/card-above.gif" alt="session-rail 0.12.0: a tall hover card opens above its row with its scrollbar thumb at the top, the row stays blank, and the wheel moves the card's lines while the thumb travels down" width="800">
+
+</details>
+
+<details>
+<summary>Hover card details</summary>
+
+A prompt too long for the card's room opens on the roomier side as a window with a scrollbar on its right edge; its stats stay pinned at the card's foot. A card that opens above its row carries the whole prompt from the first line and blanks the row while hovered. The wheel over the card or its row scrolls the card, not the rail. The `/config` rows "Expand on hover", "Scroll on hover" (one-line marquee instead of expanding), "Hover card background", "Hover card text" and "Hover card stats text" adjust it. The card is drawn in every layout; a custom panel that cannot carry the bright prompt highlight falls back to whichever white or black it can.
 
 </details>
 
@@ -95,36 +98,74 @@ The prompt near the bottom of the pane has no room under it, so its card opens a
 
 <img src="docs/long-session.png" alt="A long session's vertical rail: twenty-one prompts under the pane's head, a compacted divider between the runs on either side of the compaction, an interrupted row in yellow and an API error in red, the prompt being read in the accent, and a running turn's tick spinning at the foot" width="800">
 
-A session that runs all morning is where the rail earns its keep: the transcript is the story, and the pane is its table of contents. Every prompt keeps one row, whether it was sent before or after a `/compact`. The `compacted` divider marks where the engine replaced the older messages with a summary, and the prompts over it are restored from the transcript, so the map does not shrink to the window the engine keeps. A turn that was interrupted keeps its yellow tick and one that ended with an API error its red one, so a run that went wrong is found by color as well as by text. A running turn spins its tick at the foot.
+Twenty prompts or two hundred, the rail stays a map of the session:
 
-The rail follows the reader. Scrolling the transcript back through its history bolds the row of the prompt in view, and a list taller than the pane moves the pane's own window to keep that row on screen, so the `started at …` head scrolls away before the prompt being read does. To go somewhere else, step with `next`/`prev`, name the number (`/session-rail 12`), or find the words (`/session-rail find migration`); a slash command's row jumps like any other prompt's. The engine's own message list covers the most recent 4096 messages; prompts older than that are read from the transcript, so a session far past the window still lists everything its transcript holds.
+- A `/compact` gets a `compacted` divider, and the prompts before it are restored from the transcript, so the list does not shrink to the engine's window.
+- Scrolling back through the transcript moves the bold row; when the list is taller than the pane, its window follows.
+- Jump by number (`/session-rail 12`), by words (`/session-rail find migration`), or with `next`/`prev`.
 
-## Resuming and forking a session
+<img src="docs/long-session.gif" alt="session-rail: scrolling a long session back through its history; the bold row moves from prompt to prompt and the pane's own window slides to keep it on screen, past a compacted divider" width="800">
 
-Claude Code can pick a conversation up in another process (`/resume`, `claude --resume <id>`), fork one so the original is left untouched (`claude --resume <id> --fork-session`), or carry a session forward itself when a turn overflows the context. The rail draws what each of those did to the history rather than showing one list that suddenly holds a day it never saw.
+## Resume, continue, fork
 
-### Resumed: the same conversation, later
+One conversation can outlive its process. The rail draws the seams.
+
+### Resumed
 
 <img src="docs/resume.png" alt="A resumed session's pane: the head still names the conversation's original start, the first run's prompts end, an accent resumed at 2026-11-15 09:12:04 line sits above the next morning's prompts, and the prompt being read is bold" width="800">
 
-`/resume` continues one conversation, and the rail keeps it one: the head still names the conversation's original start, not the moment it was resumed, and the first prompt sent after each resume it was told of is preceded by `resumed at 2026-11-15 09:12:04` in the accent, at the prompt text's column. Everything over the line is the history the session brought; the prompts under it are the run that came after, so a gap of hours between two rows that sit next to each other is explained by the rail itself. A line with nothing above it is not drawn, and an empty list still shows the latest to mark where the first prompt will begin. A `/clear` drops the lines for a conversation that has ended; otherwise they survive a reload and the next process, for the 20 most recent sessions. A `/resume` the module is never told of — a new process launched with the classic hooks passed over — adds no line for that moment, though lines kept from earlier resumes still draw.
+`/resume` draws a `resumed at …` line over the first prompt of the new run. The head keeps the conversation's original start, not the moment it was resumed.
 
-### Continued: a fork, or an overflow
+### Forked or continued
 
-<img src="docs/continued.png" alt="A session forked from an earlier one: the pane opens with a bracketed click to load parent session 4f3a9c21 button, then a prompts from 4f3a9c21 ⧉ heading dated 11-15 10:42 over four dotted rows, then a current session heading dated 11-15 17:08 over this session's own prompts, one bold in the accent" width="800">
+<img src="docs/continued.png" alt="A session forked from an earlier one: the pane opens with a bracketed click to load parent session 4f3a9c21 button, then a prompts from 4f3a9c21 heading dated 11-15 10:42 over four dotted rows, then a current session heading dated 11-15 17:08 over this session's own prompts, one bold in the accent" width="800">
 
-A session continued into another — a fork with `claude --resume <id> --fork-session` to try a different direction without touching the original, or a context overflow Claude Code carried forward — opens its transcript with a summary row that names the session it came from. The rail reads that session's transcript too, puts its prompts before this file's, and drops the rows the continuation copied, so the rail shows one conversation rather than its newest file. Each session in that chain is a block:
+A fork (`claude --resume <id> --fork-session`) or a context overflow starts a new session from an old one. The rail shows both as one conversation, with the earlier session as its own block:
 
-- `prompts from 4f3a9c21 ⧉` opens an earlier session's block, dated `11-15 10:42` at the pane's right edge. A press on the heading copies the full id, the one `/resume` and `--fork-session` take. The block's rows draw with the dotted tick, because they live in the other transcript: a press says why instead of leaving a failed scroll, and `next`/`prev` skip them.
-- `current session`, dated where this session's own part begins. The pane's head is left out when the first block's heading already dates the conversation, so the same fact is not drawn twice.
-- `[ click to load parent session 4f3a9c21 ]` sits above the oldest prompt while a further session waits. Reading is on demand, not on open: a whole conversation is not merged because a session was continued from it. Each press loads one session, up to four back, and the row returns with the next id or leaves when the chain ends. A narrow pane shortens the label — `click to load more prompts from parent session <id>`, then `click to load parent session <id>`, then `load parent <id>` — rather than cutting it.
-
-The band and the below line have no row to head, so they mark each block's first prompt with `⇡` instead.
+- `prompts from <id> ⧉` heads the earlier session, dated at the pane's right edge. Its rows are dotted: no jump reaches them, and a press says why. Press the heading to copy the full id.
+- `current session` heads this session's own part.
+- `[ click to load parent … ]` loads one earlier session per press, up to four back. Nothing is read until you ask.
 
 <details>
-<summary>Loading the earlier sessions, one press at a time</summary>
+<summary>Loading an earlier session, one press at a time</summary>
 
 <img src="docs/continued.gif" alt="session-rail: a pane showing only the current session's heading and prompts with a bracketed load button above them; a press brings in the parent block's four dotted rows under prompts from 4f3a9c21, and the button now names the next session back; a second press adds that block too and the button goes away" width="800">
+
+</details>
+
+## Colors and themes
+
+<img src="docs/preview.png" alt="The theme preview pane: eleven card themes sampled as prompt and stats text on their own panels in the current dark scheme, the family in use marked" width="800">
+
+Two palettes, dark and light, picked by "Color scheme" (`auto` follows your `/config` theme). Eleven card families, each with a dark and a light side. `/session-rail-preview` shows them in the scheme you are using.
+
+<details>
+<summary>One card through all eleven families</summary>
+
+<img src="docs/themes.gif" alt="session-rail: a hovered prompt's card redrawn once per card theme in the dark scheme — warm-taupe, warm-charcoal, sienna, mauve, teal, indigo, burgundy, olive, plum, ochre and slate — its panel, prompt highlight and stats tint moving together" width="800">
+
+</details>
+
+<img src="docs/themes-light.png" alt="The theme preview pane in the light scheme: the same eleven families on their light panels, the sample prompt in black and the stats line in each family's light accent" width="800">
+
+<details>
+<summary>All eleven families, with their colors</summary>
+
+| Card theme | dark | light | accent (dark / light) |
+| --- | --- | --- | --- |
+| `warm-taupe` (default) | `#3A3531` | `#E8E1D8` | `#D77757` / `#9E4422` |
+| `warm-charcoal` | `#332F2C` | `#E5DED6` | `#D77757` / `#9E4422` |
+| `sienna` | `#3A2D28` | `#EBDDD4` | `#D77757` / `#9E4422` |
+| `mauve` | `#342E31` | `#E5DDE0` | `#D8A8C4` / `#7A3A62` |
+| `teal` | `#1E3438` | `#D8E8E5` | `#5CC8CC` / `#0E6A70` |
+| `indigo` | `#282F45` | `#DEE3F4` | `#93A2E8` / `#3A4FA3` |
+| `burgundy` | `#3A2227` | `#F1DEE3` | `#D77757` / `#9E4422` |
+| `olive` | `#2F321F` | `#E5E7D3` | `#D77757` / `#9E4422` |
+| `plum` | `#34243C` | `#EBE0F3` | `#C08ADB` / `#6E3F9E` |
+| `ochre` | `#3A3018` | `#F3E8D0` | `#D77757` / `#9E4422` |
+| `slate` | `#2A2E33` | `#DEE2E6` | `#9DB4D6` / `#3F5A7A` |
+
+"Accent follows card theme" (on by default) lets `mauve`, `teal`, `indigo`, `plum` and `slate` tint the accent too; the warm families keep Claude's orange so the accent stays distinct from the green, yellow and red status colors. Every pair clears the body-text contrast floor on its own side.
 
 </details>
 
@@ -147,7 +188,14 @@ The band and the below line have no row to head, so they mark each block's first
 | `/session-rail-preview` | Open the theme preview pane, for every card theme or the one named, as `/session-rail-preview sienna` |
 | `/session-rail` | Reopen the rail in the current layout |
 
-The layout is also the "Rail mode" row in `/config`, and it is kept across sessions. Switching it with `/session-rail <layout>` also draws where the rail now sits around the prompt input. The "Expand on hover" row turns the hover cards on or off; they are on by default, and the "Scroll on hover" row scrolls the prompt on one line instead of expanding it. The "Color scheme" row picks the rail's palette: `auto` (the default) follows the `/config` theme — a built-in name says whether it is light or dark, and a custom theme is read from its definition's `base` — and switches as soon as the theme does, without a restart; `dark` or `light` fixes one, for a custom theme the rail cannot read. The "Card theme" row picks the color family of the hover card and the row or bar under the pointer: `warm-taupe` (the default), `warm-charcoal`, `sienna`, `mauve`, `teal`, `indigo`, `burgundy`, `olive`, `plum`, `ochre` or `slate`. Each family carries a dark and a light panel, and "Color scheme" decides which side is drawn, so the pair switches with the theme; a raw "Hover card background" still overrides the family. "Accent follows card theme" (on by default) decides whether the accent — the prompt being read, the `compacted` divider, the `started at …` / `resumed at …` lines, the hover card's stats line and the marquee seam — takes the family's own accent or stays Claude's orange. The Card theme row's help text in `/config` describes the selected family and the current side. `/session-rail-preview` (or `/session-rail preview`, also `preview theme`) opens a preview pane with all eleven as sample prompts on their panels, in the current scheme's highlight and accent tint, with the family in use marked; name one, as in `/session-rail-preview sienna`, to see that family alone as a two-line card. Esc closes the pane, and no color values are printed.
+The layout is also "Rail mode" in `/config`. The theme rows there are "Color scheme", "Card theme", "Accent follows card theme", "Expand on hover", "Scroll on hover", "Hover card background", "Hover card text" and "Hover card stats text".
+
+<details>
+<summary>Config rows in detail</summary>
+
+The "Color scheme" row picks the rail's palette: `auto` (the default) follows the `/config` theme — a built-in name says whether it is light or dark, and a custom theme is read from its definition's `base` — and switches as soon as the theme does, without a restart; `dark` or `light` fixes one. "Card theme" picks the color family of the hover card and the row or bar under the pointer; each family carries a dark and a light panel, and "Color scheme" draws the matching side. "Accent follows card theme" decides whether the accent — the prompt being read, the `compacted` divider, the `started at …` / `resumed at …` lines, the card's stats line and the marquee seam — takes the family's own accent or stays Claude's orange. The "Expand on hover" row turns the cards on or off; "Scroll on hover" scrolls a cut prompt on one line instead. "Hover card background" and "Hover card text" take a theme key or a raw color; empty follows the family's variant for the active scheme. A custom panel the bright highlight cannot sit on falls back to whichever white or black it can carry.
+
+</details>
 
 ### Keyboard
 
@@ -161,9 +209,7 @@ Bind the step commands in `~/.claude/keybindings.json`; they run mid-turn too:
 }
 ```
 
-In the horizontal layout, `ctrl+x tab` moves the focus to the bars: the ring starts on the prompt you are reading, `←` `→` move it across the bars on screen and show its prompt, `Enter` jumps there, `Esc` returns to the prompt input.
-
-While a prompt's turn is still running, its row sits above the reply being written; a jump to that prompt goes to the newest reply row instead, the live end of the transcript, at the bottom of the view (or at the top of that row when the reply is taller than the view).
+In the horizontal layout, `ctrl+x tab` moves the focus to the bars: `←` `→` move across them, `Enter` jumps, `Esc` returns to the prompt input.
 
 ## Tick legend
 
@@ -173,61 +219,19 @@ While a prompt's turn is still running, its row sits above the reply being writt
 | `─` `│` | Any other prompt |
 | `┄` `┆` | A prompt Claude Code refused to scroll to; `next` and `prev` skip it |
 | `⌁` / `compacted` | The prompt that opens the segment after a `/compact` |
-| `⇡` | The first prompt of an earlier session's block, in the band and below; the pane heads the block instead |
+| `⇡` | The first prompt of an earlier session's block, in the band and below |
 | `⠋` `⠙` `⠹` … | Its turn is running; the tick spins in place |
 
 | Color | Meaning |
 | --- | --- |
-| accent | The prompt you are reading, the `compacted` divider, and the `started at …` / `resumed at …` lines: Claude orange `#D77757` / `#9E4422`, or the card family's own accent when "Accent follows card theme" is on (see below) |
-| accent on card | A hover card's stats line and the marquee seam: the card family's accent, or `#E6A182` / `#9E4422` with Claude orange |
-| card highlight | A hover card's prompt and the row or bar under the pointer: `#FFFFFF` in dark themes, `#000000` in light ones; a custom panel that cannot carry it falls back to whichever white or black it can |
-| body text | The rail's rows, labels and a card's chrome: `#D4D0CB` in dark themes, `#35312D` in light ones |
-| card panel | The hover card and selected row: the "Card theme" family's dark or light variant (default `warm-taupe`: `#3A3531` / `#E8E1D8`) |
+| accent | The prompt you are reading, the `compacted` divider, and the `started at …` / `resumed at …` lines |
+| card highlight | A hover card's prompt and the row or bar under the pointer: white in dark themes, black in light ones |
+| body text | The rail's rows, labels and a card's chrome |
+| card panel | The hover card and the selected row, from the "Card theme" family |
 | green | Its turn is running |
 | yellow | The turn was interrupted |
 | red | The turn ended with an API error |
 | gray | Claude Code refused to scroll to it |
-
-The rail ships two palettes, dark and light, and the "Color scheme" row in `/config` chooses between them. On `auto` it reads the `/config` theme: a built-in name says its side — `light` or `solarized-light` gets the light palette, `dark` or `dark-daltonized` the dark one — and a custom theme is read from the `base` field of its definition (`themes/<name>.json` under the config folder), so a custom light theme gets the light palette even though its name says nothing. The accent is Claude's orange family by default: `#D77757` is the `claude` theme key's color in the dark themes, and the light palette darkens it to `#9E4422` so it reads on a warm white page. A hover card's prompt and its hovered row draw a highlight brighter than body text — `#FFFFFF` in dark themes, `#000000` in light ones — while its stats line takes the card family's accent tint, so the prompt is the card's brightest line and the row and its card still read as one surface. The status colors are theme keys, so they follow the person's theme; a hover card still names the turn's outcome in words.
-
-The "Card theme" row picks the panel's color family. Every family is a pair, and "Color scheme" draws the matching side:
-
-| Card theme | dark | light | accent (dark / light) | Character |
-| --- | --- | --- | --- | --- |
-| `warm-taupe` (default) | `#3A3531` | `#E8E1D8` | `#D77757` / `#9E4422` | Warm brown-grey |
-| `warm-charcoal` | `#332F2C` | `#E5DED6` | `#D77757` / `#9E4422` | Quieter warm neutral |
-| `sienna` | `#3A2D28` | `#EBDDD4` | `#D77757` / `#9E4422` | Red-brown, tied to the accent |
-| `mauve` | `#342E31` | `#E5DDE0` | `#D8A8C4` / `#7A3A62` | Warm grey with a plum cast |
-| `teal` | `#1E3438` | `#D8E8E5` | `#5CC8CC` / `#0E6A70` | Blue-green |
-| `indigo` | `#282F45` | `#DEE3F4` | `#93A2E8` / `#3A4FA3` | Navy |
-| `burgundy` | `#3A2227` | `#F1DEE3` | `#D77757` / `#9E4422` | Deep red |
-| `olive` | `#2F321F` | `#E5E7D3` | `#D77757` / `#9E4422` | Grey-green |
-| `plum` | `#34243C` | `#EBE0F3` | `#C08ADB` / `#6E3F9E` | Deep purple |
-| `ochre` | `#3A3018` | `#F3E8D0` | `#D77757` / `#9E4422` | Yellow-brown |
-| `slate` | `#2A2E33` | `#DEE2E6` | `#9DB4D6` / `#3F5A7A` | Cool neutral |
-
-With "Accent follows card theme" on (the default), the accent takes the family's column: the cool and purple families (`mauve`, `teal`, `indigo`, `plum`, `slate`) draw in their own hue, while the warm families and the ones whose hue would read as a status color (`burgundy` on error red, `olive` on running green, `ochre` on interrupted yellow) keep Claude's orange so "the prompt being read" stays distinct from "what happened". Turning the row off fixes Claude's orange for every family.
-
-Every pairing is checked on its own side: body text, the prompt highlight and the stats accent all clear the body-text contrast floor, so a family changes the panel's character without making the card harder to read. Across all eleven families the body text stays at `7.9:1` or better in dark themes and `9.7:1` or better in light ones, the prompt highlight at `12.1:1` / `15.8:1` or better, and the stats accent at `5.4:1` / `4.8:1` or better; a custom panel the highlight or accent cannot carry falls back to whichever white or black it can, at body-text contrast or better. A raw "Hover card background" still overrides the family; pair it with "Hover card text" if it is a theme key or a color name the rail cannot measure.
-
-### Previewing the card themes
-
-<img src="docs/preview.png" alt="The theme preview pane: eleven card themes sampled as prompt and stats text on their own panels in the current dark scheme, the family in use marked" width="800">
-
-`/session-rail-preview` opens this pane with all eleven families sampled in the current scheme; name one, as in `/session-rail-preview sienna`, for a single two-line card. The family in use is marked, and Escape closes the pane. No color values are printed: the sample is the explanation.
-
-<details>
-<summary>One card through all eleven families</summary>
-
-<img src="docs/themes.gif" alt="session-rail: a hovered prompt's card redrawn once per card theme in the dark scheme — warm-taupe, warm-charcoal, sienna, mauve, teal, indigo, burgundy, olive, plum, ochre and slate — its panel, prompt highlight and stats tint moving together" width="800">
-
-</details>
-
-<img src="docs/themes-light.png" alt="The theme preview pane in the light scheme: the same eleven families on their light panels, the sample prompt in black and the stats line in each family's light accent" width="800">
-
-The light side: a light `/config` theme draws the other side of every pair: a warm white page, `#35312D` rows, the `#9E4422` accent, and a hover card whose prompt is black on a pale panel. The preview follows the scheme, so `/session-rail-preview` shows the side the rail is actually drawing, and the families keep their characters — `teal` is still blue-green, `plum` still purple — without the dark panels. The family in use is the same one on either side; a `/config` theme change flips the page and the card together, without a restart.
-
-Three weights carry the hierarchy. Semibold marks the one thing being read: the prompt on screen, the row or bar under the pointer, a card's prompt, and the label inside the band's ring. Regular is everything else — ordinary rows, stats, times and chrome — and dim marks secondary text such as a row off the prompt being read. Inverse appears only for a moment, while a jump shows the row it landed on. Underline, italic and strikethrough are not used. A terminal draws semibold and bold alike, so the distinction is visual weight rather than a named style.
 
 ## How it works
 

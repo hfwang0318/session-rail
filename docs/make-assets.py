@@ -59,12 +59,16 @@ YELLOW = "#e5c07b"
 RED = "#f07171"
 GRAY = "#6c7078"
 CODE = "#c7c9cc"
-# The hover panel's colours, as the plugin's defaults paint them: a quiet
-# blue-grey behind the same body text as a row, and the accent for the pinned
-# stats line.
-CARD_BG = "#303D50"
+# The hover panel's colours, as the plugin's dark defaults paint them: a warm
+# neutral behind the row's body text for chrome, a bright highlight for the
+# prompt, and a lighter tint of the accent for the pinned stats line.
+CARD_BG = "#3A3531"
 CARD_TEXT = RAIL_TEXT
-CARD_STATS = ACCENT
+# A hover card's prompt and hovered row take a highlight brighter than body
+# text; its stats line takes the accent tint, so the prompt stays the card's
+# brightest line.
+CARD_PROMPT = "#FFFFFF"
+ACCENT_ON_CARD = "#E6A182"
 PAGE = "#111216"
 
 
@@ -260,7 +264,7 @@ def panel_label(
     x: float,
     y_center: float,
     text: str,
-    color: str = CARD_TEXT,
+    color: str = CARD_PROMPT,
     width: float | None = None,
 ) -> None:
     """A band card's line on its panel, bold, its background behind it."""
@@ -559,7 +563,7 @@ def draw_rail(
             else:
                 color, heavy, dotted = tick_color(prompt, index, current)
                 draw_tick(d, x + CELL, cy, color, heavy, dotted)
-            label(d, x + 3 * CELL, cy, cut(prompt.text, width_cells - 1), RAIL_TEXT if index == current else DIM)
+            label(d, x + 3 * CELL, cy, cut(prompt.text, width_cells - 1), RAIL_TEXT if index == current else DIM, bold=index == current)
 
     if hover_row is None or hover is None or window <= 0:
         return
@@ -589,7 +593,7 @@ def draw_rail(
     for row_index, (text, is_stats) in enumerate(drawn):
         top = card_top + row_index * LINE
         rect(d, card_x, top, card_w, LINE, fill=CARD_BG)
-        label(d, card_x + CELL / 2, top + LINE / 2, text, CARD_STATS if is_stats else CARD_TEXT, bold=True)
+        label(d, card_x + CELL / 2, top + LINE / 2, text, ACCENT_ON_CARD if is_stats else CARD_PROMPT, bold=not is_stats)
     if shown > 0 and total > shown:
         # The terminal's scrollbar, over the scrolling prompt alone.
         track_x = card_x + card_w - CELL / 2
@@ -723,6 +727,59 @@ LONG_PROMPT = (
     "the suite and listing any behavior that changes for code that passes its own timer handle, "
     "including the cases where clearTimeout is unavailable or returns nothing."
 )
+
+# The theme preview's eleven families, as the plugin's dark side paints them:
+# the paper, and the accent tint its stats sample takes. The warm families and
+# the status-adjacent ones use the orange card tint; the cool and purple ones
+# their own accent.
+PREVIEW_FAMILIES = [
+    ("warm-taupe", "#3A3531", ACCENT_ON_CARD),
+    ("warm-charcoal", "#332F2C", ACCENT_ON_CARD),
+    ("sienna", "#3A2D28", ACCENT_ON_CARD),
+    ("mauve", "#342E31", "#D8A8C4"),
+    ("teal", "#1E3438", "#5CC8CC"),
+    ("indigo", "#282F45", "#93A2E8"),
+    ("burgundy", "#3A2227", ACCENT_ON_CARD),
+    ("olive", "#2F321F", ACCENT_ON_CARD),
+    ("plum", "#34243C", "#C08ADB"),
+    ("ochre", "#3A3018", ACCENT_ON_CARD),
+    ("slate", "#2A2E33", "#9DB4D6"),
+]
+
+
+def still_preview(path: Path) -> None:
+    """The theme preview pane: each family sampled as prompt and stats text on
+    its own paper, the family in use marked, no color values printed."""
+    width, height = 1100, 580
+    img, d = window(width, height)
+    lines, starts = build_lines(PROMPTS, 42)
+    img.paste(
+        draw_transcript(lines, 360, 430, starts[2], 42),
+        (s(24), s(56)),
+    )
+    # The pane's divider: the preview docks beside the transcript.
+    line(d, 410, 44, 410, height - 12, BORDER)
+    x = 432
+    y = 76
+    label(d, x, y, "Card themes · warm-taupe · dark side", RAIL_TEXT, bold=True)
+    y += 2 * LINE
+    prompt = " Fix the flaky test "
+    stats = " · At 12:57, 2m 30s "
+    prompt_w = REGULAR.getlength(prompt) / SCALE
+    stats_w = REGULAR.getlength(stats) / SCALE
+    sample_x = x + 17 * CELL
+    for index, (name, paper, tint) in enumerate(PREVIEW_FAMILIES):
+        current = index == 0
+        label(d, x, y, "●" if current else " ", ACCENT, bold=current)
+        label(d, x + 2 * CELL, y, name.ljust(15), RAIL_TEXT, bold=current)
+        rect(d, sample_x - CELL / 2, y - LINE / 2 + 2, prompt_w + stats_w + CELL, LINE - 4, fill=paper)
+        label(d, sample_x, y, prompt, CARD_PROMPT, bold=True)
+        label(d, sample_x + prompt_w, y, stats, tint)
+        y += LINE
+    y += LINE
+    label(d, x, y, "Pick one at /config › Card theme. Esc closes this.", RAIL_TEXT)
+    img.save(path, optimize=True)
+
 
 CARD_SCENE = [
     Prompt(text, Turn(f"14:{2 + index:02d}", f"{6 + index * 3}s"))
@@ -1003,6 +1060,7 @@ def main() -> None:
         "horizontal": (still_horizontal, HERE / "horizontal.png"),
         "below": (still_below, HERE / "below.png"),
         "card-above": (still_card_above, HERE / "card-above.png"),
+        "preview": (still_preview, HERE / "preview.png"),
         "demo": (make_demo, HERE / "demo.gif"),
         "below-gif": (make_below, HERE / "below.gif"),
         "above-gif": (make_card_above, HERE / "card-above.gif"),

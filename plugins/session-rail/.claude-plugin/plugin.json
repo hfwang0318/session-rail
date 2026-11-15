@@ -1,6 +1,6 @@
 {
   "name": "session-rail",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "A rail of your session's prompts beside the transcript or above the prompt; hover to read one in full with when it was sent, click to jump to it. Fork of prompt-rail, with the engine's own message list as the primary history source.",
   "author": {
     "name": "hfwang, based on prompt-rail by oikon48"
@@ -27,6 +27,42 @@
         "below"
       ]
     },
+    "colorScheme": {
+      "type": "string",
+      "title": "Color scheme",
+      "description": "auto follows the /config theme: a built-in light theme gets the light palette, a dark theme the dark one, and a custom theme is read from its definition's base. dark or light forces one, for a custom theme the rail cannot read.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "dark",
+        "light"
+      ]
+    },
+    "cardTheme": {
+      "type": "string",
+      "title": "Card theme",
+      "description": "The color family of the hover card and of the row or bar under the pointer. Each family carries a dark and a light panel; Color scheme decides which side is drawn, so a theme change under /config switches both together. warm-taupe is the default; the rest range from quiet neutrals (warm-charcoal, slate) through warm accents (sienna, burgundy, ochre) to clearly hued panels (teal, indigo, olive, plum, mauve). A raw Hover card background overrides the family.",
+      "default": "warm-taupe",
+      "options": [
+        "warm-taupe",
+        "warm-charcoal",
+        "sienna",
+        "mauve",
+        "teal",
+        "indigo",
+        "burgundy",
+        "olive",
+        "plum",
+        "ochre",
+        "slate"
+      ]
+    },
+    "accentFollowsCardTheme": {
+      "type": "boolean",
+      "title": "Accent follows card theme",
+      "description": "Whether the accent — the prompt being read, the compacted divider, the started and resumed lines, the hover card's stats line and the marquee seam — follows the Card theme. On by default: mauve, teal, indigo, plum and slate draw their own accent, while warm-taupe, warm-charcoal, sienna, burgundy, olive and ochre keep Claude's orange so the accent stays distinct from the green, yellow and red status colors. Off fixes Claude's orange (#D77757 in dark themes, #9E4422 in light ones) for every family.",
+      "default": true
+    },
     "classicHooks": {
       "type": "boolean",
       "title": "Classic hooks",
@@ -48,20 +84,20 @@
     "cardBackground": {
       "type": "string",
       "title": "Hover card background",
-      "description": "The background of a hover card in every layout, and of the row or bar under the pointer: a theme key (e.g. inactive) or a raw color (a name such as red, or hex). In the pane the hovered row's ellipsis is covered by this same color, so the card reads as continuing its sentence. Default #303D50 is a quiet blue-grey chosen for dark themes and may be changed for a light one.",
-      "default": "#303D50"
+      "description": "The background of a hover card in every layout, and of the row or bar under the pointer: a theme key (e.g. inactive) or a raw color (a name such as red, or hex). In the pane the hovered row's ellipsis is covered by this same color, so the card reads as continuing its sentence. Empty follows the Card theme's variant for the active Color scheme (warm-taupe: #3A3531 in dark themes, #E8E1D8 in light ones).",
+      "default": ""
     },
     "cardText": {
       "type": "string",
       "title": "Hover card text",
-      "description": "The text color of a hover card in every layout, and of the row or bar under the pointer: a theme key or a raw color. Pick one that reads against Hover card background. Default #D4D0CB is the rail's ordinary text color, so the panel and the row it opens from read as one.",
-      "default": "#D4D0CB"
+      "description": "The text color of a hover card's prompt, its scrollbar thumb, padding and the band's ringed label, and — when no Hover card stats text is set — its stats line: a theme key or a raw color. Applying it also sets the hovered row. Pick one that reads against Hover card background. Empty follows the color scheme's body text (#D4D0CB in dark themes, #35312D in light ones) for the chrome, while the card's prompt takes the scheme's bright highlight (#FFFFFF in dark themes, #000000 in light ones); both are checked against the panel and fall back to whichever white or black a custom background can carry. The stats line instead draws the card theme's accent tint.",
+      "default": ""
     },
     "cardStatsText": {
       "type": "string",
       "title": "Hover card stats text",
-      "description": "The color of a pane card's stats line, which reads as a sentence: when the prompt was sent, how long its turn ran, how it ended and what it changed. The line is pinned at the card's foot, so it stays in view while the prompt above it scrolls. Default #D77757 is Claude's accent orange; a theme key or a raw color, chosen to read against Hover card background.",
-      "default": "#D77757"
+      "description": "The color of a pane card's stats line, which reads as a sentence: when the prompt was sent, how long its turn ran, how it ended and what it changed. The line is pinned at the card's foot, so it stays in view while the prompt above it scrolls. Empty follows the card theme's accent tint (#E6A182 in dark themes, #9E4422 in light ones), adjusted for the panel when a custom Hover card background cannot carry it; when Hover card text is set, that color takes its place. A theme key or a raw color overrides it.",
+      "default": ""
     }
   }
 }

@@ -1,8 +1,8 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { bar, cardAllot, cardPlan, configDirOf, ENGINE_MESSAGES_TEST_KEY, findTranscript, nextResumeMoments, SPIN, jumpNotice, jumpPointOf, liveWith, noteScroll, pickPrompt, promptKey, promptTextOf, reconsiderDecision, rowKey, sameBoundary, scrollTargetOf, sentLabel, stampLabel, stampShort, statsSentence, stepFrom, streamRequests, tick, transcriptCandidates, turnLine, zoneOfPath } from './index.tsx'
+import { bar, cardAllot, cardPlan, configDirOf, ENGINE_MESSAGES_TEST_KEY, findTranscript, nextResumeMoments, SPIN, jumpNotice, jumpPointOf, liveWith, noteScroll, pickPrompt, promptKey, promptTextOf, reconsiderDecision, rowKey, sameBoundary, scrollTargetOf, sentLabel, stampLabel, stampShort, statsSentence, stepFrom, streamRequests, THEME_TEST_KEY, tick, transcriptCandidates, turnLine, zoneOfPath } from './index.tsx'
 import { engineId, matchStored, mergePrompts, promptsFromMessages } from './history.ts'
 import { cardRows, cellWidth, dropFirstRow, isStructured, oneLine, windowRuns } from './text.ts'
-import { ACCENT, SELECTED_BACKGROUND, TEXT } from './theme.ts'
+import { accentFor, accentOnCardFor, ACCENT, ACCENT_ON_CARD, cardBackgroundFor, CARD_THEMES, CARD_THEME_NAMES, DARK, DEFAULT_CARD_THEME, isCardTheme, LIGHT, paletteFor, readableOn, READABLE_ON_DARK, READABLE_ON_LIGHT, schemeOfTheme, SELECTED_BACKGROUND, TEXT } from './theme.ts'
 
 const SURFACES = ['terminal', 'desktop'] as const
 
@@ -90,6 +90,108 @@ const drawPrompts = async ($: any, on: any, below?: string) => {
 const HINT = { isDraft: false, isWorking: false, hint: '(shift+tab to cycle)' }
 const hintLine = ($: any, surface: 'terminal' | 'desktop' = 'terminal', columns = 80) =>
   $.ui.mount({ plugin: 'session-rail', surface, component: 'PromptHint', viewport: { columns, rows: 40 }, props: HINT })
+
+test('the two palettes and the theme names they answer are fixed', () => {
+  expect(paletteFor('dark')).toEqual(DARK)
+  expect(paletteFor('light')).toEqual(LIGHT)
+  expect(DARK.cardBackground).toBe('#3A3531')
+  expect(LIGHT.cardBackground).toBe('#E8E1D8')
+  expect(DARK.cardTextHighlight).toBe(READABLE_ON_DARK)
+  expect(LIGHT.cardTextHighlight).toBe(READABLE_ON_LIGHT)
+  expect(READABLE_ON_DARK).toBe('#FFFFFF')
+  expect(READABLE_ON_LIGHT).toBe('#000000')
+  expect(schemeOfTheme('dark')).toBe('dark')
+  expect(schemeOfTheme('light')).toBe('light')
+  expect(schemeOfTheme('dark-daltonized')).toBe('dark')
+  expect(schemeOfTheme('light-daltonized')).toBe('light')
+  expect(schemeOfTheme('dark-ansi')).toBe('dark')
+  expect(schemeOfTheme('light-ansi')).toBe('light')
+  expect(schemeOfTheme('solarized-light')).toBe('light')
+  // A custom name answers nothing; its definition's `base` is read instead.
+  expect(schemeOfTheme('custom')).toBeUndefined()
+  expect(schemeOfTheme('custom:orca')).toBeUndefined()
+  expect(schemeOfTheme('tokyo-night')).toBeUndefined()
+  expect(schemeOfTheme('')).toBeUndefined()
+  expect(schemeOfTheme(undefined)).toBeUndefined()
+})
+
+// WCAG relative luminance and contrast, for the card themes' readability.
+const luminance = (hex: string) => {
+  const channel = (at: number) => {
+    const value = parseInt(hex.slice(at, at + 2), 16) / 255
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
+}
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number]
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+test('a color on a custom panel gives way when it would not read', () => {
+  // The highlight reads on its own side, and so does the stats accent.
+  expect(readableOn('#3A3531', READABLE_ON_DARK)).toBe(READABLE_ON_DARK)
+  expect(readableOn('#3A3531', ACCENT_ON_CARD)).toBe(ACCENT_ON_CARD)
+  // The white highlight on a light custom panel does not read; black takes
+  // over. The stats accent gives way the same way.
+  expect(readableOn('#E8E1D8', READABLE_ON_DARK)).toBe(READABLE_ON_LIGHT)
+  expect(readableOn('#E8E1D8', ACCENT_ON_CARD)).toBe(READABLE_ON_LIGHT)
+  // A body color that already reads is kept.
+  expect(readableOn('#112233', TEXT)).toBe(TEXT)
+  // A theme key or a color name cannot be measured, so the preferred color stays.
+  expect(readableOn('inactive', TEXT)).toBe(TEXT)
+  expect(readableOn(undefined, TEXT)).toBe(TEXT)
+})
+
+test('every card theme pairs a dark and a light panel, and warm taupe is the default', () => {
+  expect(CARD_THEME_NAMES).toEqual(['warm-taupe', 'warm-charcoal', 'sienna', 'mauve', 'teal', 'indigo', 'burgundy', 'olive', 'plum', 'ochre', 'slate'])
+  expect(DEFAULT_CARD_THEME).toBe('warm-taupe')
+  for (const name of CARD_THEME_NAMES) {
+    expect(CARD_THEMES[name].dark).toMatch(/^#[0-9A-F]{6}$/)
+    expect(CARD_THEMES[name].light).toMatch(/^#[0-9A-F]{6}$/)
+    expect(CARD_THEMES[name].dark).not.toBe(CARD_THEMES[name].light)
+  }
+  // The side is the color scheme's, not the theme's.
+  expect(cardBackgroundFor('teal', 'dark')).toBe('#1E3438')
+  expect(cardBackgroundFor('teal', 'light')).toBe('#D8E8E5')
+  expect(cardBackgroundFor('sienna', 'dark')).toBe('#3A2D28')
+  expect(cardBackgroundFor('sienna', 'light')).toBe('#EBDDD4')
+  // The cool and purple families carry their own accent; the warm and
+  // status-adjacent ones keep Claude's orange.
+  expect(accentFor('teal', 'dark')).toBe('#5CC8CC')
+  expect(accentFor('teal', 'light')).toBe('#0E6A70')
+  expect(accentOnCardFor('teal', 'dark')).toBe('#5CC8CC')
+  expect(accentFor('indigo', 'light')).toBe('#3A4FA3')
+  expect(accentFor('plum', 'dark')).toBe('#C08ADB')
+  expect(accentFor('mauve', 'light')).toBe('#7A3A62')
+  expect(accentFor('slate', 'dark')).toBe('#9DB4D6')
+  for (const name of ['warm-taupe', 'warm-charcoal', 'sienna', 'burgundy', 'olive', 'ochre'] as const) {
+    expect(accentFor(name, 'dark')).toBe(ACCENT)
+    expect(accentFor(name, 'light')).toBe('#9E4422')
+    expect(accentOnCardFor(name, 'dark')).toBe(ACCENT_ON_CARD)
+  }
+  // A value this build does not know falls back to the default pair.
+  expect(cardBackgroundFor('nope', 'dark')).toBe('#3A3531')
+  expect(cardBackgroundFor('nope', 'light')).toBe('#E8E1D8')
+  expect(cardBackgroundFor(undefined, 'light')).toBe('#E8E1D8')
+  expect(isCardTheme('plum')).toBe(true)
+  expect(isCardTheme('nope')).toBe(false)
+  expect(isCardTheme(undefined)).toBe(false)
+})
+
+test('every card theme keeps its body text, prompt highlight and stats accent readable', () => {
+  for (const name of CARD_THEME_NAMES) {
+    for (const scheme of ['dark', 'light'] as const) {
+      const card = CARD_THEMES[name][scheme]
+      const palette = paletteFor(scheme)
+      // The prompt is the bright highlight and the stats line the accent tint;
+      // body text, highlight and accent must clear the floor on their panel.
+      expect(contrast(palette.text, card)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(readableOn(card, palette.cardTextHighlight), card)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(readableOn(card, accentOnCardFor(name, scheme)), card)).toBeGreaterThanOrEqual(4.5)
+    }
+  }
+})
 
 test('a narrow vertical rail leaves the prompt text to hidden cards in the band', async ($, on) => {
   await drawPrompts($, on)
@@ -457,22 +559,22 @@ test('scrolling the transcript back moves the pane\'s heavy mark to the prompt i
   const heavy = async () => (await rail.findAll({ type: 'Button' })).map((b: any) => String(b.props.label)).findIndex((label: string) => label.includes('━'))
   // The row's own Text, not the head line that names the same prompt: the
   // head draws first, so the row's is the last Text with that text.
-  const isBold = async (text: string) => {
+  const isEmphasis = async (text: string) => {
     const nodes = await rail.findAll({ type: 'Text', text })
-    return nodes.at(-1)?.props.bold === true
+    return nodes.at(-1)?.props.weight === 'semibold'
   }
   await clock.settle()
   // Both prompts are in view: the earlier one is the turn being read, and its
   // text is bold beside the heavy tick.
   expect(await heavy()).toBe(0)
-  expect(await isBold(' first stored prompt')).toBe(true)
-  expect(await isBold(' <div> why does this overflow?')).toBe(false)
+  expect(await isEmphasis(' first stored prompt')).toBe(true)
+  expect(await isEmphasis(' <div> why does this overflow?')).toBe(false)
   // Scrolling back leaves only the later prompt's rows in view.
   await u1.redraw(prompt('first stored prompt', null))
   await clock.advance(200)
   expect(await heavy()).toBe(1)
-  expect(await isBold(' first stored prompt')).toBe(false)
-  expect(await isBold(' <div> why does this overflow?')).toBe(true)
+  expect(await isEmphasis(' first stored prompt')).toBe(false)
+  expect(await isEmphasis(' <div> why does this overflow?')).toBe(true)
 })
 
 test('the pane head names when the conversation opened, to the second', async ($, on) => {
@@ -1315,6 +1417,8 @@ type Beneath = {
   status: (string | undefined)[]
   // The transcript's path, as the engine names it.
   path: string
+  // Custom theme definitions under `<config>/themes`, by slug, as JSON text.
+  themes?: Record<string, string>
   // Each reader the plugin spawned, as its argv and its env, and whether
   // spawning fails (the desktop app and SDK hosts run no processes) or only
   // `tail` cannot start (a Windows PATH without Git's tools).
@@ -1392,6 +1496,14 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
   // the transcript.
   const isTranscript = (path: string) => path === disk.path || path.endsWith(disk.path)
   on('fs.read', ($: any, e: any) => {
+    // A custom theme's definition is the one non-transcript file the rail
+    // reads; a missing one fails as the host would.
+    const theme = /[\\/]themes[\\/]([^\\/]+)\.json$/.exec(e.path)
+    if (theme !== null) {
+      const text = theme[1] === undefined ? undefined : disk.themes?.[theme[1]]
+      if (text === undefined) throw new Error(`ENOENT: no such file or directory, open '${e.path}'`)
+      return { value: text }
+    }
     disk.reads++
     if (disk.readError !== undefined && isTranscript(e.path)) throw new Error(disk.readError)
     if (bytes(disk.transcript).length > READ_CAP) return { deny: 'over 4 MiB' }
@@ -2725,11 +2837,12 @@ test('/session-rail runs mid-turn and takes next and prev', async ($, on) => {
   world(on, {}, TRANSCRIPT, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   expect(disk.commands).toEqual([
-    expect.objectContaining({ name: 'session-rail', immediate: true, argumentHint: '[off|vertical|horizontal|below|next|prev|first|last|<n>|find <words>]' }),
+    expect.objectContaining({ name: 'session-rail', immediate: true, argumentHint: '[off|vertical|horizontal|below|preview|next|prev|first|last|<n>|find <words>]' }),
     // Argument-free, for a keybinding to name.
     expect.objectContaining({ name: 'session-rail-next', immediate: true }),
     expect.objectContaining({ name: 'session-rail-prev', immediate: true }),
     expect.objectContaining({ name: 'session-rail-toggle', immediate: true }),
+    expect.objectContaining({ name: 'session-rail-preview', immediate: true }),
   ])
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.command.run({ command: 'session-rail', args: 'next' })
@@ -4236,8 +4349,10 @@ test('the vertical pane opens its hover card under the row, without moving any r
   const shown = (await rail.findAll({ type: 'Text' })).filter((node: any) => node.props?.backgroundColor !== undefined)
   expect(shown.length).toBeGreaterThan(0)
   expect(shown.every((node: any) => cellWidth(String(node.text)) === 17)).toBe(true)
-  // A panel of its own: a dark background, light bold text.
-  expect(shown[0]?.props).toMatchObject({ backgroundColor: SELECTED_BACKGROUND, bold: true, color: TEXT })
+  // A panel of its own: a dark background, bright bold text.
+  // The card's prompt is the bright highlight, so the hovered row and its card
+  // read as the same selected prompt.
+  expect(shown[0]?.props).toMatchObject({ backgroundColor: SELECTED_BACKGROUND, weight: 'semibold', color: DARK.cardTextHighlight })
   expect(shown.every((node: any) => node.props?.backgroundColor === SELECTED_BACKGROUND)).toBe(true)
   // The row under the pointer carries the same hover paint as the card (its
   // hover is stripped from the test tree, so this half is checked in the app).
@@ -4324,6 +4439,15 @@ test('the hover card panel takes its colors from the settings', { options: { car
   expect(card?.props).toMatchObject({ backgroundColor: '#112233', color: '#eeeeee' })
 })
 
+test('a band card prompt uses the highlight color', async ($, on) => {
+  await drawPrompts($, on)
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const cards = (await band.findAll({ type: 'Text' })).filter((node: any) => node.props?.backgroundColor !== undefined)
+  expect(cards.length).toBeGreaterThan(0)
+  expect(cards.some((node: any) => node.props?.color === DARK.cardTextHighlight)).toBe(true)
+})
+
 test('the band cards take their colors from the settings in every layout', { options: { cardBackground: '#112233', cardText: '#eeeeee' } }, async ($, on) => {
   await drawPrompts($, on)
   const cardsOf = async (drawn: any) =>
@@ -4334,7 +4458,7 @@ test('the band cards take their colors from the settings in every layout', { opt
   const narrow = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   const narrowCards = await cardsOf(narrow)
   expect(narrowCards.length).toBeGreaterThan(0)
-  expect(narrowCards.every((node: any) => node.props?.color === '#eeeeee' && node.props?.bold === true)).toBe(true)
+  expect(narrowCards.every((node: any) => node.props?.color === '#eeeeee' && node.props?.weight === 'semibold')).toBe(true)
   await narrow.unmount()
   // The horizontal rail's cards sit in the band's text line.
   await $.command.run({ command: 'session-rail', args: 'horizontal' })
@@ -4362,12 +4486,12 @@ test('a card taller than the room below opens there with a scrollbar and leaves 
   // so the card's right edge holds. The stats take no bar.
   const bar = texts.filter((node: any) => /^[█│]$/.test(String(node.text)))
   expect(bar.length).toBeGreaterThan(1)
-  // The stats are the accent lines, drawn last: they stay at the card's foot
-  // while the prompt above them is a window.
-  const stats = texts.filter((node: any) => node.props?.color === ACCENT)
+  // The prompt is the bright highlight, drawn first; the accent stats stay at
+  // the card's foot while the prompt above them is a window.
+  const promptLines = texts.filter((node: any) => node.props?.color === DARK.cardTextHighlight && !/^[█│]$/.test(String(node.text)))
+  expect(promptLines.length).toBeGreaterThan(0)
+  const stats = texts.filter((node: any) => node.props?.color === ACCENT_ON_CARD && !/^[█│]$/.test(String(node.text)) && String(node.text).trim() !== '')
   expect(stats.length).toBeGreaterThan(0)
-  // The prompt's own lines, apart from the scrollbar's cells.
-  const promptLines = texts.filter((node: any) => node.props?.color === TEXT && !/^[█│]$/.test(String(node.text)))
   expect(texts.indexOf(stats[0])).toBeGreaterThan(texts.indexOf(promptLines[0]))
   expect(stats.map((node: any) => String(node.text)).join(' ').replace(/\s+/g, ' ')).toContain('At 09-24 00:00, ran 1m 23s')
   // The first painted line shows the prompt's rest, not its head again.
@@ -4396,6 +4520,76 @@ test('a card with room above opens upward with its foot on its row', async ($, o
   expect((await rail.find({ key: 'blank-18' }))?.props.display).toBe('none')
 })
 
+test('the preview command draws every card theme in the current scheme', async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  const ran = await $.command.run({ command: 'session-rail-preview' })
+  expect(String(ran.text)).toContain('warm-taupe')
+  expect(disk.panes).toContain('open session-rail-preview')
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail-preview', props: pane('dock', 64) })
+  const texts = await row.findAll({ type: 'Text' })
+  const panels = texts.filter((node: any) => typeof node.props?.backgroundColor === 'string')
+  // Each family is sampled on its dark panel, the side this scheme draws; the
+  // light side is not mixed in.
+  for (const name of CARD_THEME_NAMES) {
+    expect(panels.some((node: any) => node.props.backgroundColor === CARD_THEMES[name].dark)).toBe(true)
+    expect(panels.some((node: any) => node.props.backgroundColor === CARD_THEMES[name].light)).toBe(false)
+  }
+  // The sample prompt takes the highlight and the stats the accent tint, both
+  // on the theme's own panel.
+  const sample = panels.filter((node: any) => node.props.backgroundColor === CARD_THEMES[DEFAULT_CARD_THEME].dark)
+  expect(sample.some((node: any) => node.props.color === paletteFor('dark').cardTextHighlight)).toBe(true)
+  expect(sample.some((node: any) => node.props.color === accentOnCardFor(DEFAULT_CARD_THEME, 'dark'))).toBe(true)
+  // The family in use is marked and emphasized.
+  const marked = texts.find((node: any) => String(node.text).startsWith(DEFAULT_CARD_THEME))
+  expect(marked?.props.weight).toBe('semibold')
+})
+
+test('the preview command takes one family', async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  const ran = await $.command.run({ command: 'session-rail-preview', args: 'sienna' })
+  expect(String(ran.text)).toContain('sienna')
+  expect(disk.panes).toContain('open session-rail-preview')
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail-preview', props: pane('dock', 64) })
+  const texts = await row.findAll({ type: 'Text' })
+  const panels = texts.filter((node: any) => typeof node.props?.backgroundColor === 'string')
+  // Only sienna's dark panel is drawn: one line for the prompt, one for stats.
+  expect(panels.length).toBe(2)
+  expect(panels.every((node: any) => node.props.backgroundColor === CARD_THEMES.sienna.dark)).toBe(true)
+  expect(panels.some((node: any) => node.props.color === paletteFor('dark').cardTextHighlight)).toBe(true)
+  expect(panels.some((node: any) => node.props.color === accentOnCardFor('sienna', 'dark'))).toBe(true)
+})
+
+test('the preview command names the families when the one asked for is unknown', async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  const ran = await $.command.run({ command: 'session-rail', args: 'preview nope' })
+  expect(String(ran.text)).toContain('No card theme "nope"')
+  expect(String(ran.text)).toContain('sienna')
+  expect(disk.toasts.at(-1)).toContain('no card theme "nope"')
+})
+
+test('the preview shows the fixed orange when the accent does not follow', { options: { accentFollowsCardTheme: false } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  const ran = await $.command.run({ command: 'session-rail', args: 'preview theme' })
+  expect(String(ran.text)).toContain('warm-taupe')
+  const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail-preview', props: pane('dock', 64) })
+  const sample = (await row.findAll({ type: 'Text' })).filter((node: any) => node.props?.backgroundColor === CARD_THEMES.teal.dark)
+  // Teal's own tint gives way to Claude's orange on its card.
+  expect(sample.some((node: any) => node.props.color === ACCENT_ON_CARD)).toBe(true)
+  expect(sample.some((node: any) => node.props.color === accentOnCardFor('teal', 'dark'))).toBe(false)
+})
+
 test('the pane card stats line takes its own color from the settings', { options: { cardStatsText: '#445566' } }, async ($, on) => {
   const disk = beneath(SCROLLED)
   world(on, {}, SCROLLED, disk)
@@ -4408,6 +4602,210 @@ test('the pane card stats line takes its own color from the settings', { options
   const stats = shown.filter((node: any) => node.props?.color === '#445566')
   expect(stats.length).toBeGreaterThan(0)
   expect(stats.map((node: any) => String(node.text)).join(' ').replace(/\s+/g, ' ')).toContain('At 09-24 00:00, ran 1m 23s')
+  // The prompt is the card's subject, so it is semibold; the stats line reads
+  // as a quiet sentence beneath it, at the body weight.
+  expect(shown.some((node: any) => node.props?.weight === 'semibold')).toBe(true)
+  expect(stats.every((node: any) => node.props?.weight === undefined)).toBe(true)
+})
+
+// The /config theme row, staged where the test harness has no settings menu.
+const themedColors = async ($: any, on: any, initial: Record<string, unknown> = {}) => {
+  const disk = beneath(SCROLLED)
+  world(on, initial, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
+  const colors = (await rail.findAll({ type: 'Text' })).map((node: any) => node.props?.color).filter(Boolean)
+  await rail.unmount()
+  return colors
+}
+
+// What the mounted pane paints: text colors and panel backgrounds.
+const mountedPaint = async ($: any) => {
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
+  const nodes = await rail.findAll({ type: 'Text' })
+  await rail.unmount()
+  return {
+    colors: nodes.map((node: any) => node.props?.color).filter(Boolean),
+    backgrounds: nodes.map((node: any) => node.props?.backgroundColor).filter(Boolean),
+  }
+}
+
+test('colorScheme auto follows a light /config theme', async ($, on) => {
+  const colors = await themedColors($, on, { [THEME_TEST_KEY]: 'light' })
+  expect(colors).toContain(LIGHT.text)
+  expect(colors).toContain(LIGHT.accent)
+  expect(colors).not.toContain(DARK.text)
+})
+
+test('colorScheme auto follows a dark /config theme', async ($, on) => {
+  const colors = await themedColors($, on, { [THEME_TEST_KEY]: 'dark' })
+  expect(colors).toContain(DARK.text)
+  expect(colors).toContain(DARK.accent)
+  expect(colors).not.toContain(LIGHT.text)
+})
+
+test('colorScheme light forces the light palette over a dark theme', { options: { colorScheme: 'light' } }, async ($, on) => {
+  const colors = await themedColors($, on, { [THEME_TEST_KEY]: 'dark' })
+  expect(colors).toContain(LIGHT.text)
+  expect(colors).not.toContain(DARK.text)
+})
+
+test('colorScheme dark forces the dark palette over a light theme', { options: { colorScheme: 'dark' } }, async ($, on) => {
+  const colors = await themedColors($, on, { [THEME_TEST_KEY]: 'light' })
+  expect(colors).toContain(DARK.text)
+  expect(colors).not.toContain(LIGHT.text)
+})
+
+test('a card theme paints its dark panel under a dark scheme', { options: { colorScheme: 'dark', cardTheme: 'teal' } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, { [THEME_TEST_KEY]: 'light' }, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const paint = await mountedPaint($)
+  expect(paint.backgrounds).toContain('#1E3438')
+  expect(paint.backgrounds).not.toContain('#D8E8E5')
+})
+
+test('a card theme follows a light /config theme to its light panel', { options: { cardTheme: 'teal' } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, { [THEME_TEST_KEY]: 'light' }, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const paint = await mountedPaint($)
+  expect(paint.backgrounds).toContain('#D8E8E5')
+  expect(paint.backgrounds).not.toContain('#1E3438')
+})
+
+test('the accent follows the card theme by default', { options: { colorScheme: 'dark', cardTheme: 'teal' } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const paint = await mountedPaint($)
+  expect(paint.colors).toContain('#5CC8CC')
+  expect(paint.colors).not.toContain('#D77757')
+})
+
+test('the accent follows a card theme on the light side too', { options: { cardTheme: 'plum' } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, { [THEME_TEST_KEY]: 'light' }, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const paint = await mountedPaint($)
+  expect(paint.colors).toContain('#6E3F9E')
+  expect(paint.colors).not.toContain('#9E4422')
+})
+
+test('Accent follows card theme off keeps Claude orange for every family', { options: { accentFollowsCardTheme: false, colorScheme: 'dark', cardTheme: 'teal' } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const paint = await mountedPaint($)
+  expect(paint.colors).toContain('#D77757')
+  expect(paint.colors).toContain('#E6A182')
+  expect(paint.colors).not.toContain('#5CC8CC')
+})
+
+test('a warm card theme keeps Claude orange even with the accent following', { options: { colorScheme: 'dark', cardTheme: 'burgundy' } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const paint = await mountedPaint($)
+  expect(paint.colors).toContain('#D77757')
+  expect(paint.colors).toContain('#E6A182')
+})
+
+test('a raw Hover card background overrides the card theme', { options: { cardTheme: 'teal', cardBackground: '#445566' } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const paint = await mountedPaint($)
+  expect(paint.backgrounds).toContain('#445566')
+  expect(paint.backgrounds).not.toContain('#1E3438')
+})
+
+// A custom theme's name (`custom:orca`) does not say which side it is; its
+// definition's `base` does. The world serves that file and names a config
+// folder to find it under.
+const customThemeWorld = async ($: any, on: any, base: 'light' | 'dark') => {
+  const disk = beneath(SCROLLED)
+  disk.themes = { orca: JSON.stringify({ name: 'Orca', base, overrides: { text: base === 'light' ? '#2e3434' : '#d4d0cb' } }) }
+  world(on, { [THEME_TEST_KEY]: 'custom:orca' }, SCROLLED, disk)
+  on('env.get', ($: any, e: any) => ({ value: (e.name ?? e.key) === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }))
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+}
+
+test('auto follows a custom theme whose definition is based on light', async ($, on) => {
+  await customThemeWorld($, on, 'light')
+  const paint = await mountedPaint($)
+  expect(paint.colors).toContain(LIGHT.text)
+  expect(paint.backgrounds).toContain('#E8E1D8')
+  expect(paint.colors).not.toContain(DARK.text)
+})
+
+test('auto keeps the dark palette for a custom theme based on dark', async ($, on) => {
+  await customThemeWorld($, on, 'dark')
+  const paint = await mountedPaint($)
+  expect(paint.colors).toContain(DARK.text)
+  expect(paint.colors).not.toContain(LIGHT.text)
+})
+
+test('a live switch to a custom light theme reads its definition', async ($, on) => {
+  const disk = beneath(SCROLLED)
+  disk.themes = { orca: JSON.stringify({ name: 'Orca', base: 'light' }) }
+  world(on, {}, SCROLLED, disk)
+  on('env.get', ($: any, e: any) => ({ value: (e.name ?? e.key) === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }))
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  expect((await mountedPaint($)).colors).toContain(DARK.text)
+  await $.config.set({ key: 'theme', value: 'custom:orca' })
+  expect((await mountedPaint($)).colors).toContain(LIGHT.text)
+})
+
+test('a /config theme change switches a card theme to its paired panel and accent', { options: { cardTheme: 'teal' } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const dark = await mountedPaint($)
+  expect(dark.colors).toContain(DARK.text)
+  expect(dark.colors).toContain('#5CC8CC')
+  expect(dark.backgrounds).toContain('#1E3438')
+  await $.config.set({ key: 'theme', value: 'light' })
+  const light = await mountedPaint($)
+  expect(light.colors).toContain(LIGHT.text)
+  expect(light.colors).toContain('#0E6A70')
+  expect(light.backgrounds).toContain('#D8E8E5')
+  expect(light.backgrounds).not.toContain('#1E3438')
+})
+
+test('a forced colorScheme ignores a /config theme change', { options: { colorScheme: 'dark' } }, async ($, on) => {
+  const disk = beneath(SCROLLED)
+  world(on, {}, SCROLLED, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.config.set({ key: 'theme', value: 'light' })
+  await $.command.run({ command: 'session-rail', args: 'vertical' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
+  const colors = (await rail.findAll({ type: 'Text' })).map((node: any) => node.props?.color).filter(Boolean)
+  expect(colors).toContain(DARK.text)
+  expect(colors).not.toContain(LIGHT.text)
 })
 
 test('the expandOnHover setting off leaves hovering a prompt with no card', { options: { expandOnHover: false } }, async ($, on) => {

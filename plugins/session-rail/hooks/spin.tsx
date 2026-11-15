@@ -19,6 +19,10 @@ type Props = {
   autoFocus?: boolean
   cardBackground?: string
   cardText?: string
+  // The hovered row's highlight, so the tick brightens with the row it belongs to.
+  cardPromptText?: string
+  // The rail's body text, so a light theme's palette reaches this surface.
+  textColor?: string
 }
 type State = { frame: number }
 type Surface = ClientSurface<State>
@@ -48,11 +52,16 @@ const Spin: ClientModule<Props, State> = (props, surface) => {
       plain
       dimColor={props.isDim || undefined}
       label={label}
-      hover={{ scope: props.scope, backgroundColor: props.cardBackground, color: props.cardText, dimColor: false, bold: true, inverse: false }}
+      hover={{ scope: props.scope, backgroundColor: props.cardBackground, color: props.cardPromptText ?? props.cardText, dimColor: false, bold: true, inverse: false }}
       autoFocus={props.autoFocus || undefined}
       onPress={() => {}}
     >
-      <Text color={props.color ?? TEXT} inverse={props.isPulsed || undefined} dimColor={props.isDim && !props.isPulsed ? true : undefined}>
+      <Text
+        color={props.color ?? props.textColor ?? TEXT}
+        inverse={props.isPulsed || undefined}
+        dimColor={props.isDim && !props.isPulsed ? true : undefined}
+        hover={{ scope: props.scope, color: props.cardPromptText ?? props.cardText, dimColor: false, bold: true }}
+      >
         {label}
       </Text>
     </Button>

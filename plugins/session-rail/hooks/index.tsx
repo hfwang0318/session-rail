@@ -1,7 +1,7 @@
 import type { ClientProps, ElementConstructor, EngineInterface, Register, RenderElement, TextProps, Timer } from 'claude-code'
 import { matchText, mergePrompts, promptsFromMessages, type EngineMessage, type StoredPrompt } from './history.ts'
 import { cardRows, cellWidth, dropFirstRow, isStructured, marqueeText, oneLine, padTo } from './text.ts'
-import { ACCENT, SELECTED_BACKGROUND, TEXT } from './theme.ts'
+import { accentFor, accentOnCardFor, cardBackgroundFor, CARD_THEME_NAMES, CARD_THEME_NOTES, DEFAULT_CARD_THEME, isCardTheme, palette, readableOn, setPalette, schemeOfTheme, type CardTheme, type Scheme } from './theme.ts'
 import { SPIN, SPIN_MS } from './glyphs.ts'
 
 // The rail's colors come from one place (theme.ts). The spinner's frames are
@@ -9,6 +9,9 @@ import { SPIN, SPIN_MS } from './glyphs.ts'
 export { SPIN }
 
 const PANE = 'session-rail'
+// The preview's own pane, so it can be drawn beside the rail's and closed with
+// Escape without touching the rail.
+const PREVIEW_PANE = 'session-rail-preview'
 // Bring the prompt being read into the pane's own window, so its heavy row is
 // one the person can see when the list is taller than the pane. `block:
 // 'nearest'` moves nothing while the row already shows; 'end' names the newest
@@ -203,9 +206,6 @@ const LATELY_MS = 250
 // counted goes: a very long resumed session then writes a small value, not one
 // that grows without bound.
 const SINCE_CAP = 256
-// The pane's times — the conversation's start and each resume line — take the
-// rail's accent, so every mark the plugin makes reads as one hand.
-const TIME_COLOR = ACCENT
 // The most resume moments one conversation keeps, and how close two moments
 // may be and still be one resume reported by both the closing conversation's
 // `session.end` and the resumed one's classic `SessionStart`.
@@ -242,7 +242,20 @@ const JUMP_PULSE_MS = 600
 // The leftmost cells of a pane row left uncovered by a hover card: the pointer
 // travels down the list through this channel without crossing the overlay.
 const CHANNEL_COLUMNS = 3
-const USAGE = '[off|vertical|horizontal|below|next|prev|first|last|<n>|find <words>]'
+const USAGE = '[off|vertical|horizontal|below|preview|next|prev|first|last|<n>|find <words>]'
+// What a preview asks for: every family, one family, or a name this build does
+// not know. `preview`, `preview theme`, `preview-theme`, `themes`, and each of
+// those followed by a family name, all land here.
+type PreviewAsk = { theme?: CardTheme; unknown?: string }
+const previewAsk = (asked: string): PreviewAsk | undefined => {
+  const words = asked.trim().split(/\s+/).filter(Boolean)
+  const head = words.shift()
+  if (head !== 'preview' && head !== 'preview-theme' && head !== 'themes') return undefined
+  if (words[0] === 'theme') words.shift()
+  if (words.length === 0) return {}
+  const name = words.join(' ')
+  return isCardTheme(name) ? { theme: name } : { unknown: name }
+}
 // Commands that step through the prompts, each with the way it steps.
 const STEP_COMMANDS = [
   ['session-rail-next', 'next'],
@@ -1561,7 +1574,84 @@ async function engineMessagesOf($: EngineInterface): Promise<EngineRead> {
   }
 }
 
+// The `/config` theme row names the theme the person picked, so the palette can
+// follow a light or dark theme. A session with no settings menu (an SDK session)
+// has no row; a test stages one under this key, which a real session never
+// writes and which is read only after the real list cannot answer.
+export const THEME_TEST_KEY = '__session-rail-theme-test__'
+
+async function themeNameOf($: EngineInterface): Promise<string | undefined> {
+  try {
+    const rows = await $.config.list()
+    const row = rows.find(row => row.key === 'theme')
+    if (row !== undefined && typeof row.value === 'string') return row.value
+  } catch {
+    // No /config menu here, or the read was refused.
+  }
+  try {
+    const staged = await $.store.get(THEME_TEST_KEY)
+    if (typeof staged === 'string') return staged
+  } catch {
+    // No store either: the palette stays as the setting left it.
+  }
+  return undefined
+}
+
+// A custom theme's name says nothing about its side, but its definition does:
+// `<config>/themes/<name>.json` carries `"base": "light" | "dark"`. Read just
+// that file, and only when the name itself cannot answer. The name is reduced
+// to a slug first, so neither `custom:../x` nor a label with a path separator
+// can name a file outside the themes folder.
+async function customThemeScheme($: EngineInterface, value: string): Promise<Scheme | undefined> {
+  const raw = value.trim().replace(/^custom:/i, '')
+  if (!/^[A-Za-z0-9._-]+$/.test(raw)) return undefined
+  let config: { dir: string; sep: string } | undefined
+  try {
+    config = configDirOf($.plugin.root) ?? (await probeOf($).config?.())
+  } catch {
+    // No config folder to look under (or no environment to ask).
+  }
+  if (config === undefined) return undefined
+  // A theme called `Orca` is filed as `orca.json` here; on a case-sensitive
+  // disk the exact spelling is tried first, then the lower-cased one.
+  for (const slug of new Set([raw, raw.toLowerCase()])) {
+    try {
+      const text = await $.fs.read([config.dir, 'themes', `${slug}.json`].join(config.sep))
+      const base = (JSON.parse(text) as { base?: unknown }).base
+      const scheme = schemeOfTheme(base)
+      if (scheme !== undefined) return scheme
+    } catch {
+      // No such definition, or it is not readable JSON: try the next spelling.
+    }
+  }
+  return undefined
+}
+
+async function schemeOfThemeName($: EngineInterface, value: unknown): Promise<Scheme | undefined> {
+  const named = schemeOfTheme(value)
+  if (named !== undefined || typeof value !== 'string') return named
+  return customThemeScheme($, value)
+}
+
 export const register: Register = (on, options) => {
+  // The palette: the setting when it forces one, else the /config theme row
+  // read at session start. `palette()` is read at draw time, so a theme change
+  // under /config needs no reload.
+  const forcedScheme: Scheme | undefined = options.colorScheme === 'dark' || options.colorScheme === 'light' ? options.colorScheme : undefined
+  let activeScheme: Scheme = forcedScheme ?? 'dark'
+  setPalette(activeScheme)
+  // The family the preview pane draws, or undefined for all of them. The pane
+  // is opened by the preview command, and its render hook reads this at draw
+  // time; the hot reload restarts it as "all", which is a safe preview.
+  let previewWant: CardTheme | undefined
+  // The card family and the side its pair draws; both are read when the card
+  // is painted, so `applyPalette` refreshes them under a live theme change.
+  const cardTheme: CardTheme = isCardTheme(options.cardTheme) ? options.cardTheme : DEFAULT_CARD_THEME
+  // Whether the accent follows the card family (the default) or stays the
+  // palette's Claude orange whatever the family. Families whose hue would read
+  // as a status color carry the orange pair, so the setting changes only the
+  // cool and purple families.
+  const accentFollowsCardTheme = options.accentFollowsCardTheme !== false
   let entries: Entry[] = []
   // Assistant row key -> the key of the prompt it answers, from the transcript.
   let owners = new Map<string, string>()
@@ -2115,13 +2205,43 @@ export const register: Register = (on, options) => {
   // prompt beside them. The cards' setting decides whether hovering opens
   // anything at all.
   const scrollOnHover = expandOnHover && options.scrollOnHover === true
-  // The hover card's panel, as a theme key or a raw color: the defaults come
-  // from theme.ts and the settings let a light theme overrule them.
-  const cardBackground = typeof options.cardBackground === 'string' && options.cardBackground !== '' ? options.cardBackground : SELECTED_BACKGROUND
-  const cardText = typeof options.cardText === 'string' && options.cardText !== '' ? options.cardText : TEXT
-  // The stats line takes the rail's accent, pinned at the card's foot, so the
-  // two blocks a pane card holds read apart at a glance.
-  const cardStatsText = typeof options.cardStatsText === 'string' && options.cardStatsText !== '' ? options.cardStatsText : ACCENT
+  // The hover card's panel and text: a setting overrides the palette, and an
+  // empty setting follows the card theme's pair on the active side.
+  // `applyPalette` refreshes them when the theme changes under /config; every
+  // drawing site reads these at draw time.
+  const cardBackgroundOption = typeof options.cardBackground === 'string' && options.cardBackground !== '' ? options.cardBackground : undefined
+  const cardTextOption = typeof options.cardText === 'string' && options.cardText !== '' ? options.cardText : undefined
+  const cardStatsTextOption = typeof options.cardStatsText === 'string' && options.cardStatsText !== '' ? options.cardStatsText : undefined
+  let bodyText = palette().text
+  // The rail's own accent: the card family's when the follow setting is on,
+  // else the palette's Claude orange. The card's stats line and the marquee
+  // seam read `accentOnCard`, which follows the same rule.
+  let accent = accentFollowsCardTheme ? accentFor(cardTheme, activeScheme) : palette().accent
+  let accentOnCard = accentFollowsCardTheme ? accentOnCardFor(cardTheme, activeScheme) : palette().accentOnCard
+  let cardBackground = cardBackgroundOption ?? cardBackgroundFor(cardTheme, activeScheme)
+  let cardText = cardTextOption ?? palette().text
+  // The card's prompt and the row under the pointer take a highlight brighter
+  // than body text, so hovering lifts the prompt itself and not only its
+  // panel; the stats line keeps the accent tint. `readableOn` keeps the
+  // highlight at the body-text floor on a custom panel: the white or black
+  // that panel can carry. An explicit Hover card text sets the
+  // prompt and the row, and Hover card stats text sets the stats line; with no
+  // stats color, the general Hover card text keeps the whole card in one hand.
+  let cardPromptText = cardTextOption ?? readableOn(cardBackground, palette().cardTextHighlight)
+  let cardStatsText = cardStatsTextOption ?? (cardTextOption ?? readableOn(cardBackground, accentOnCard))
+  const applyPalette = () => {
+    bodyText = palette().text
+    accent = accentFollowsCardTheme ? accentFor(cardTheme, activeScheme) : palette().accent
+    accentOnCard = accentFollowsCardTheme ? accentOnCardFor(cardTheme, activeScheme) : palette().accentOnCard
+    cardBackground = cardBackgroundOption ?? cardBackgroundFor(cardTheme, activeScheme)
+    cardText = cardTextOption ?? palette().text
+    cardPromptText = cardTextOption ?? readableOn(cardBackground, palette().cardTextHighlight)
+    cardStatsText = cardStatsTextOption ?? (cardTextOption ?? readableOn(cardBackground, accentOnCard))
+  }
+  // The hover style a row's own Text takes: the same group and highlight as
+  // the card it opens. A Text must carry this itself — a hover on the enclosing
+  // Button recolors only the Button's label, not a Text that sets its color.
+  const rowHover = (i: number) => ({ scope: `session-rail-${i}`, color: cardPromptText, dimColor: false, bold: true })
   // The machine's time zone, read once from `/etc/localtime` when the first
   // card is drawn: the session's environment may set TZ, so the process's
   // clock is not the person's.
@@ -2218,7 +2338,7 @@ export const register: Register = (on, options) => {
       // every other plugin's and the built-ins, so a generic name would collide.
       name: 'session-rail',
       description:
-        'Show the prompt rail: vertical (a pane beside the transcript), horizontal (above the prompt), below (under the prompt) or off; next, prev, first, last, a number or find <words> jumps to a prompt.',
+        'Show the prompt rail: vertical (a pane beside the transcript), horizontal (above the prompt), below (under the prompt) or off; preview draws every card theme as colored swatches; next, prev, first, last, a number or find <words> jumps to a prompt.',
       argumentHint: USAGE,
       // Runs while a turn streams, so next and prev move through it then too.
       immediate: true,
@@ -2228,14 +2348,28 @@ export const register: Register = (on, options) => {
     for (const [name, way] of STEP_COMMANDS) {
       await $.command.register({ name, description: `Jump to the ${way} prompt in the prompt rail.`, immediate: true })
     }
-    await $.command.register({
-      name: 'session-rail-toggle',
-      description: 'Toggle the rail: off ↔ the mode last on (vertical, horizontal or below).',
-      immediate: true,
-    })
+    // Registered together, so the transcript read below starts on the same
+    // tick as before: `session.start` and `classic.SessionStart` race, and the
+    // read claims the transcript before its first await only if neither hook
+    // is delayed by an extra turn of the loop.
+    await Promise.all([
+      $.command.register({
+        name: 'session-rail-toggle',
+        description: 'Toggle the rail: off ↔ the mode last on (vertical, horizontal or below).',
+        immediate: true,
+      }),
+      $.command.register({
+        name: 'session-rail-preview',
+        description: 'Draw every card theme as a sample prompt in the current color scheme.',
+        immediate: true,
+      }),
+    ])
     isTerminal = e.surface === 'terminal'
     isBound = true
     tellNotice($, seen, isBound)
+    // Start the theme read, but do not await it before the transcript read is
+    // claimed: a concurrent classic.SessionStart must still share that read.
+    const themeRead = forcedScheme === undefined ? themeNameOf($).then(name => schemeOfThemeName($, name)) : undefined
     // Move a mode an earlier version stored into the setting, once. Writing
     // the setting reloads this module, so everything after it is best effort.
     const stored = await $.store.get(LEGACY_MODE_KEY)
@@ -2349,6 +2483,18 @@ export const register: Register = (on, options) => {
     const read = await engineMessagesOf($)
     if (applyEngineRead(read, id, at)) await redrawRail($)
     if (generation === at && !isRunning) listedAtRest = entries.length
+    // The palette follows the /config theme unless the setting forces one. The
+    // read started above, beside the transcript read; apply it before the rail
+    // is seated so the first draw already uses it.
+    if (themeRead !== undefined) {
+      const detected = await themeRead
+      if (detected !== undefined && detected !== activeScheme) {
+        activeScheme = detected
+        setPalette(detected)
+        applyPalette()
+        await redrawRail($)
+      }
+    }
     // Unasked, the engine seats a pane only from 144 columns (110 once the
     // person has opened it with /session-rail); below that it waits undrawn.
     await seatRail($, mode, isTerminal)
@@ -2394,9 +2540,51 @@ export const register: Register = (on, options) => {
 
   on('command.run', async ($, e, next) => {
     const isStep = STEP_COMMANDS.some(([name]) => name === e.command)
-    if (!isStep && e.command !== 'session-rail' && e.command !== 'session-rail-toggle') return next(e)
-    const asked = isStep || e.command === 'session-rail-toggle' ? '' : e.args.trim()
+    const isPreviewCommand = e.command === 'session-rail-preview'
+    if (!isStep && e.command !== 'session-rail' && e.command !== 'session-rail-toggle' && !isPreviewCommand) return next(e)
+    const rawArgs = (e.args ?? '').trim()
+    const asked = isStep || e.command === 'session-rail-toggle' ? '' : isPreviewCommand ? `preview ${rawArgs}`.trim() : rawArgs
     unring()
+    // A gallery of the card families, or one family's sample, drawn by the
+    // preview pane's render hook below in real colors. The text is what a
+    // terminal too narrow for the pane keeps, and the row the model reads.
+    const preview = previewAsk(asked)
+    if (preview !== undefined) {
+      if (preview.unknown !== undefined) {
+        $.ui.toast(`no card theme "${preview.unknown}"`)
+        return { text: `No card theme "${preview.unknown}". The families are: ${CARD_THEME_NAMES.join(', ')}.` }
+      }
+      previewWant = preview.theme
+      // A pane of its own, so the sample is drawn on a surface that paints the
+      // theme's colors; Escape closes it. The engine seats a pane a plugin opens
+      // only on a wide terminal, so an unplaced one falls back to the text.
+      let placed = false
+      try {
+        const opened = await $.ui.open({
+          id: PREVIEW_PANE,
+          title: 'Card themes',
+          focus: true,
+          closeOnEscape: true,
+          rows: preview.theme === undefined ? 14 : 4,
+          columns: 64,
+        })
+        placed = opened.isPlaced
+        if (!opened.isPlaced) $.ui.toast(`the theme preview needs a wider terminal: ${opened.reason}`)
+      } catch {
+        $.ui.toast('the theme preview could not be opened here')
+      }
+      // A pane already open is retitled, not redrawn; ask for the draw that
+      // reads the family just chosen.
+      $.ui.invalidate('ui.render')
+      const side = `${activeScheme} side`
+      const where = placed ? ' The preview pane shows it in color.' : ''
+      return {
+        text:
+          preview.theme === undefined
+            ? `Card themes (${side}): ${CARD_THEME_NAMES.join(', ')}. Pick one at /config › Card theme.${where}`
+            : `Card theme ${preview.theme} (${side}). Pick it at /config › Card theme.${where}`,
+      }
+    }
     // The toggle, as `/session-rail <mode>` does it: switch at once, then write
     // the setting, whose change reloads this module in the new mode.
     if (e.command === 'session-rail-toggle') {
@@ -2445,6 +2633,45 @@ export const register: Register = (on, options) => {
     if (!isMode(asked)) return {}
     await writeMode($, asked)
     return { text: placePicture(asked) }
+  })
+
+  // The preview pane's body: a sample prompt and stats line in each family's
+  // own colors, for the current scheme. `previewWant` names one family, or none
+  // for all of them. No color values are printed: the sample is the message.
+  on('ui.render', { component: 'Pane', requestId: PREVIEW_PANE }, ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const highlight = palette().cardTextHighlight
+    const tintOf = (name: CardTheme) => (accentFollowsCardTheme ? accentOnCardFor(name, activeScheme) : palette().accentOnCard)
+    const requested = previewWant
+    if (requested !== undefined) {
+      const panel = cardBackgroundFor(requested, activeScheme)
+      return (
+        <Box key="session-rail-preview" flexDirection="column">
+          <Text color={bodyText} weight="semibold">{`Card theme · ${requested} · ${activeScheme} side`}</Text>
+          <Text backgroundColor={panel} color={highlight} weight="semibold">{' Fix the flaky test '}</Text>
+          <Text backgroundColor={panel} color={tintOf(requested)}>{' At 12:57, ran 2m 30s and changed 1 file '}</Text>
+          <Text color={bodyText}>{'Pick it at /config › Card theme. Esc closes this.'}</Text>
+        </Box>
+      )
+    }
+    return (
+      <Box key="session-rail-preview" flexDirection="column">
+        <Text color={bodyText} weight="semibold">{`Card themes · ${cardTheme} · ${activeScheme} side`}</Text>
+        {CARD_THEME_NAMES.map(name => {
+          const panel = cardBackgroundFor(name, activeScheme)
+          const current = name === cardTheme
+          return (
+            <Box key={name} flexDirection="row">
+              <Text color={current ? accent : bodyText} weight={current ? 'semibold' : undefined}>{current ? '● ' : '  '}</Text>
+              <Text color={bodyText} weight={current ? 'semibold' : undefined}>{padTo(name, 15)}</Text>
+              <Text backgroundColor={panel} color={highlight} weight="semibold">{' Fix the flaky test '}</Text>
+              <Text backgroundColor={panel} color={tintOf(name)}>{' · At 12:57, 2m 30s '}</Text>
+            </Box>
+          )
+        })}
+        <Text color={bodyText}>{'Pick one at /config › Card theme. Esc closes this.'}</Text>
+      </Box>
+    )
   })
 
   // A turn's details count as the list's: a turn that ends changes its card.
@@ -2740,6 +2967,31 @@ export const register: Register = (on, options) => {
       return next(e)
     })
   }
+
+  // A theme change under /config switches the palette live. A forced
+  // colorScheme keeps its choice; auto follows the row's new value.
+  on('config.set', { key: 'theme' }, async ($, e, next) => {
+    const result = await next(e)
+    if (result.deny !== undefined || forcedScheme !== undefined) return result
+    const detected = await schemeOfThemeName($, e.value)
+    if (detected !== undefined && detected !== activeScheme) {
+      activeScheme = detected
+      setPalette(detected)
+      applyPalette()
+      await redrawRail($)
+    }
+    return result
+  })
+
+  // The Card theme row's help text, live: the family's own panel and accent
+  // colors, so the menu says what the name it shows paints, and where to see
+  // every family. The engine caches this answer until the loaded plugins change,
+  // and choosing a family reloads the module, so the line follows the pick.
+  on('config.describe', { key: 'session-rail.cardTheme' }, ($, e, next) => {
+    const base = e.description ?? ''
+    const now = `Current: ${cardTheme} — ${CARD_THEME_NOTES[cardTheme]} (${activeScheme} side).`
+    return next({ ...e, description: `${base}${base === '' ? '' : ' '}${now} Run /session-rail-preview to see every family.` })
+  })
 
   // A main-loop turn starts (a subagent's run raises none): the newest
   // prompt's turn is running.
@@ -3104,7 +3356,7 @@ export const register: Register = (on, options) => {
     if (outcome === 'error') return 'error'
     if (outcome === 'interrupted') return 'warning'
     if (outcome === 'running') return 'success'
-    if (i === currentIndex()) return ACCENT
+    if (i === currentIndex()) return accent
     if (isUnreachable(i)) return 'inactive'
     return undefined
   }
@@ -3229,7 +3481,7 @@ export const register: Register = (on, options) => {
   const cardLine = (Text: ElementConstructor<TextProps>, entry: Entry, i: number, width: number) => {
     const prefix = `${breakMark(i)}#${i + 1} `
     return (
-      <Text wrap="truncate-end" backgroundColor={cardBackground} color={cardText} bold>
+      <Text wrap="truncate-end" backgroundColor={cardBackground} color={cardPromptText} weight="semibold">
         {padTo(`${prefix}${withTurn(entry, width - cellWidth(prefix))}`, width)}
       </Text>
     )
@@ -3248,9 +3500,9 @@ export const register: Register = (on, options) => {
     const pad = Math.max(0, width - cellWidth(prefix) - room - cellWidth(suffix))
     return (
       <>
-        <Text color={cardText} bold>{prefix}</Text>
-        <Client key={`${keyPrefix}-${i}`} module="./marquee.tsx" props={{ text: marqueeOf(entry), cardBackground, cardText }} width={room} height={1} />
-        {suffix ? <Text color={cardText} bold>{suffix}</Text> : null}
+        <Text color={cardPromptText} weight="semibold">{prefix}</Text>
+        <Client key={`${keyPrefix}-${i}`} module="./marquee.tsx" props={{ text: marqueeOf(entry), cardBackground, cardText, cardPromptText, textColor: bodyText, accentOnCard }} width={room} height={1} />
+        {suffix ? <Text color={cardPromptText} weight="semibold">{suffix}</Text> : null}
         {pad > 0 ? <Text>{' '.repeat(pad)}</Text> : null}
       </>
     )
@@ -3278,12 +3530,12 @@ export const register: Register = (on, options) => {
     // transcript does not hold, so pressing one there could not scroll to it.
     if (e.props.view.agentId !== undefined) {
       const hasRoom = !isRail || e.props.bodyColumns >= INLINE_REVEAL_MIN_COLUMNS
-      return <Text color={TEXT} dimColor wrap="truncate-end">{hasRoom ? 'Prompts of the main conversation only' : '·'}</Text>
+      return <Text color={bodyText} dimColor wrap="truncate-end">{hasRoom ? 'Prompts of the main conversation only' : '·'}</Text>
     }
     if (entries.length === 0) {
       // A conversation with no prompt yet still says when it opened, so the
       // person knows a fresh session from a resumed one.
-      if (!isRail) return <Text color={TEXT} dimColor>No prompts yet</Text>
+      if (!isRail) return <Text color={bodyText} dimColor>No prompts yet</Text>
       // An emptied list has no prompt being read; a settle that still sees the
       // last drawn one must not keep redrawing.
       drawnCurrent = -1
@@ -3295,9 +3547,9 @@ export const register: Register = (on, options) => {
       const startLabel = stampLabel(startAt, timeZone)
       return (
         <Box flexDirection="column">
-          <Text color={TIME_COLOR} wrap="truncate-end">{`   ${oneLine(`started at ${startLabel}`, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+          <Text color={accent} wrap="truncate-end">{`   ${oneLine(`started at ${startLabel}`, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
           {resumedAt !== undefined ? (
-            <Text color={TIME_COLOR} wrap="truncate-end">
+            <Text color={accent} wrap="truncate-end">
               {`   ${oneLine(`resumed at ${stampLabel(resumedAt, timeZone)}`, Math.max(1, e.props.bodyColumns - 3))}`}
             </Text>
           ) : null}
@@ -3490,7 +3742,7 @@ export const register: Register = (on, options) => {
               sits below the fold. */}
           {headRows > 0 ? (
             <Box key="rail-head" flexDirection="column">
-              <Text key="rail-head-start" color={TIME_COLOR} wrap="truncate-end">{`   ${oneLine(startLabel, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+              <Text key="rail-head-start" color={accent} wrap="truncate-end">{`   ${oneLine(startLabel, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
             </Box>
           ) : null}
           {entries.map((entry, i) => {
@@ -3521,10 +3773,10 @@ export const register: Register = (on, options) => {
             return (
               <Box key={`row-${i}`} flexDirection="column">
                 {dividerAt.has(i) ? (
-                  <Text color={TIME_COLOR} wrap="truncate-end">{`   ${oneLine(resumeText(dividerAt.get(i)!), Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+                  <Text color={accent} wrap="truncate-end">{`   ${oneLine(resumeText(dividerAt.get(i)!), Math.max(1, e.props.bodyColumns - 3))}`}</Text>
                 ) : null}
                 {i > 0 && entry.breakBefore ? (
-                  <Text color={ACCENT} wrap="truncate-end">{`   ${oneLine('compacted', Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+                  <Text color={accent} wrap="truncate-end">{`   ${oneLine('compacted', Math.max(1, e.props.bodyColumns - 3))}`}</Text>
                 ) : null}
                 {scrolls && Client !== undefined ? (
                   <Client
@@ -3543,7 +3795,10 @@ export const register: Register = (on, options) => {
                       textWidth: width,
                       cardBackground,
                       cardText,
+                      cardPromptText,
                       cardStatsText,
+                      textColor: bodyText,
+                      accentOnCard,
                     }}
                   />
                 ) : (
@@ -3568,6 +3823,8 @@ export const register: Register = (on, options) => {
                           isDim: i !== current,
                           cardBackground,
                           cardText,
+                          cardPromptText,
+                          textColor: bodyText,
                         }}
                       />
                     ) : null}
@@ -3580,16 +3837,16 @@ export const register: Register = (on, options) => {
                           ? ` ${spinRow ? SPIN[0] : tickOf(i, current)} ${shownLine}`
                           : ` ${spinRow ? SPIN[0] : tickOf(i, current)} `
                       }
-                      hover={{ scope: `session-rail-${i}`, dimColor: false, bold: true, inverse: false, backgroundColor: cardBackground, color: cardText }}
+                      hover={{ scope: `session-rail-${i}`, dimColor: false, bold: true, inverse: false, backgroundColor: cardBackground, color: cardPromptText }}
                       onPress={() => {}}
                     >
                       {spinRow ? (
                         hasRoom ? (
-                          <Text key={`text-${i}`} color={TEXT} bold={i === current || undefined}>
+                          <Text key={`text-${i}`} color={bodyText} weight={i === current ? 'semibold' : undefined} hover={rowHover(i)}>
                             {` ${headText}`}
                           </Text>
                         ) : (
-                          <Text color={TEXT}> </Text>
+                          <Text color={bodyText} hover={rowHover(i)}> </Text>
                         )
                       ) : (
                         /* The row jumped to is drawn reversed whole, a wider
@@ -3597,21 +3854,22 @@ export const register: Register = (on, options) => {
                            tick's Text while the moment lasts. */
                         <Text
                           key={isPulsed(i) ? `pulse-${i}` : `tick-${i}`}
-                          color={colorOf(i) ?? TEXT}
+                          color={colorOf(i) ?? bodyText}
                           inverse={isPulsed(i) || undefined}
                           dimColor={!isPulsed(i) && colorOf(i) === undefined && i !== current}
+                          hover={rowHover(i)}
                         >
                           {` ${tickOf(i, current)}${isPulsed(i) && hasRoom ? ` ${shownLine}` : ''}`}
                         </Text>
                       )}
                       {!spinRow && hasRoom && !isPulsed(i) ? (
-                        <Text key={`text-${i}`} color={TEXT} bold={i === current || undefined}>
+                        <Text key={`text-${i}`} color={bodyText} weight={i === current ? 'semibold' : undefined} hover={rowHover(i)}>
                           {` ${headText}`}
                         </Text>
                       ) : null}
                     </Button>
                     {hasRoom && !isPulsed(i) && isCut ? (
-                      <Text color={TEXT} dimColor={i !== current}>
+                      <Text color={bodyText} dimColor={i !== current} hover={rowHover(i)}>
                         …
                       </Text>
                     ) : null}
@@ -3661,7 +3919,7 @@ export const register: Register = (on, options) => {
           {/* A resume whose history is the whole list still marks where the new
               prompts will start. */}
           {dividerAt.has(entries.length) ? (
-            <Text key="resume-tail" color={TIME_COLOR} wrap="truncate-end">{`   ${oneLine(resumeText(dividerAt.get(entries.length)!), Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+            <Text key="resume-tail" color={accent} wrap="truncate-end">{`   ${oneLine(resumeText(dividerAt.get(entries.length)!), Math.max(1, e.props.bodyColumns - 3))}`}</Text>
           ) : null}
           {/* The hover card floats over the pane's foot, pinned there, so
               opening one takes no line from the rows: the row under the
@@ -3677,23 +3935,23 @@ export const register: Register = (on, options) => {
                     {layout.prompt.map((line, n) =>
                       layout.bar ? (
                         <Box key={`card-${i}-line-${layout.offset + n}`} flexDirection="row" width={cardWidth} backgroundColor={cardBackground}>
-                          <Text key={`card-${i}-p-${layout.offset + n}`} backgroundColor={cardBackground} color={cardText} bold>{line}</Text>
-                          <Text key={`card-${i}-bar-${layout.offset + n}`} backgroundColor={cardBackground} color={n >= layout.thumbStart && n < layout.thumbStart + layout.thumb ? cardText : 'inactive'} bold>
+                          <Text key={`card-${i}-p-${layout.offset + n}`} backgroundColor={cardBackground} color={cardPromptText} weight="semibold">{line}</Text>
+                          <Text key={`card-${i}-bar-${layout.offset + n}`} backgroundColor={cardBackground} color={n >= layout.thumbStart && n < layout.thumbStart + layout.thumb ? cardText : 'inactive'}>
                             {n >= layout.thumbStart && n < layout.thumbStart + layout.thumb ? '█' : '│'}
                           </Text>
                         </Box>
                       ) : (
-                        <Text key={`card-${i}-p-${layout.offset + n}`} backgroundColor={cardBackground} color={cardText} bold>{line}</Text>
+                        <Text key={`card-${i}-p-${layout.offset + n}`} backgroundColor={cardBackground} color={cardPromptText} weight="semibold">{line}</Text>
                       ),
                     )}
                     {layout.gap ? (
                       layout.bar ? (
                         <Box key={`card-${i}-gap`} flexDirection="row" width={cardWidth} backgroundColor={cardBackground}>
-                          <Text backgroundColor={cardBackground} color={cardText} bold>{' '.repeat(Math.max(1, cardWidth - 1))}</Text>
-                          <Text backgroundColor={cardBackground} color={'inactive'} bold>{'│'}</Text>
+                          <Text backgroundColor={cardBackground} color={cardText}>{' '.repeat(Math.max(1, cardWidth - 1))}</Text>
+                          <Text backgroundColor={cardBackground} color={'inactive'}>{'│'}</Text>
                         </Box>
                       ) : (
-                        <Text key={`card-${i}-gap`} backgroundColor={cardBackground} color={cardText} bold>{' '.repeat(cardWidth)}</Text>
+                        <Text key={`card-${i}-gap`} backgroundColor={cardBackground} color={cardText}>{' '.repeat(cardWidth)}</Text>
                       )
                     ) : null}
                     {/* The stats are pinned at the card's foot in the accent,
@@ -3701,11 +3959,11 @@ export const register: Register = (on, options) => {
                     {layout.stats.map((line, n) =>
                       layout.bar ? (
                         <Box key={`card-${i}-stats-${n}`} flexDirection="row" width={cardWidth} backgroundColor={cardBackground}>
-                          <Text backgroundColor={cardBackground} color={cardStatsText} bold>{line}</Text>
+                          <Text backgroundColor={cardBackground} color={cardStatsText}>{line}</Text>
                           <Text backgroundColor={cardBackground}>{' '}</Text>
                         </Box>
                       ) : (
-                        <Text key={`card-${i}-stats-${n}`} backgroundColor={cardBackground} color={cardStatsText} bold>{line}</Text>
+                        <Text key={`card-${i}-stats-${n}`} backgroundColor={cardBackground} color={cardStatsText}>{line}</Text>
                       ),
                     )}
                   </Box>
@@ -3728,7 +3986,7 @@ export const register: Register = (on, options) => {
           const line = `${mark} ${shownLineOf(entry, width)}`
           return (
             <Button key={`jump-${i}`} plain dimColor={i !== current} label={line} onPress={() => {}}>
-              <Text color={TEXT}>{line}</Text>
+              <Text color={bodyText}>{line}</Text>
             </Button>
           )
         })}
@@ -3819,7 +4077,7 @@ export const register: Register = (on, options) => {
       // own redraw instead of leaving the band blank.
       if (Client === undefined && shown.some(entry => isRunningFor(entry.id))) keepSpinning($)
       const bars = [
-        isOverflowing ? <Text color={TEXT} dimColor>{first > 0 ? '‹' : ' '}</Text> : null,
+        isOverflowing ? <Text color={bodyText} dimColor>{first > 0 ? '‹' : ' '}</Text> : null,
         ...shown.map((entry, offset) => {
           const i = first + offset
           const running = isRunningFor(entry.id) && !isPulsed(i)
@@ -3841,6 +4099,8 @@ export const register: Register = (on, options) => {
                   autoFocus: isCellGrid && i === center,
                   cardBackground,
                   cardText,
+                  cardPromptText,
+                  textColor: bodyText,
                 }}
               />
             )
@@ -3852,17 +4112,17 @@ export const register: Register = (on, options) => {
               plain
               dimColor={i !== current}
               label={mark}
-              hover={{ scope: `session-rail-${i}`, backgroundColor: cardBackground, color: cardText, dimColor: false, bold: true, inverse: false }}
+              hover={{ scope: `session-rail-${i}`, backgroundColor: cardBackground, color: cardPromptText, dimColor: false, bold: true, inverse: false }}
               autoFocus={(isCellGrid && i === center) || undefined}
               onPress={() => {}}
             >
-              <Text color={colorOf(i) ?? TEXT} inverse={isPulsed(i) || undefined}>
+              <Text color={colorOf(i) ?? bodyText} inverse={isPulsed(i) || undefined} hover={rowHover(i)}>
                 {mark}
               </Text>
             </Button>
           )
         }),
-        hidesAfter ? <Text color={TEXT} dimColor>›</Text> : null,
+        hidesAfter ? <Text color={bodyText} dimColor>›</Text> : null,
       ]
       if (!isCellGrid) {
         // Each bar and mark a cell wide, then a gap.
@@ -3882,7 +4142,7 @@ export const register: Register = (on, options) => {
               {bars}
               {/* With no prompt known on screen, the newest: bars alone read as a broken rail. */}
               <Box marginLeft={1}>
-                <Text color={TEXT} dimColor wrap="truncate-end">{label(center, room)}</Text>
+                <Text color={bodyText} dimColor wrap="truncate-end">{label(center, room)}</Text>
               </Box>
             </Box>
           </Box>,
@@ -3893,11 +4153,11 @@ export const register: Register = (on, options) => {
           <Box height={1} width={width}>
             {/* With no prompt known on screen, the newest: an empty line reads as a broken rail. */}
             {shownRing === undefined ? (
-              <Text color={TEXT} dimColor wrap="truncate-end">{label(center)}</Text>
+              <Text color={bodyText} dimColor wrap="truncate-end">{label(center)}</Text>
             ) : scrollOnHover && Client !== undefined && entries[shownRing] ? (
               marqueeLine(Text, Client, entries[shownRing], shownRing, width, 'shown-marquee')
             ) : (
-              <Text wrap="truncate-end" backgroundColor={cardBackground} color={cardText} bold>{padTo(card(shownRing), width)}</Text>
+              <Text wrap="truncate-end" backgroundColor={cardBackground} color={cardText} weight="semibold">{padTo(card(shownRing), width)}</Text>
             )}
             {expandOnHover
               ? entries.map((entry, i) => (
@@ -3970,6 +4230,8 @@ export const register: Register = (on, options) => {
                     isDim: i !== current,
                     cardBackground,
                     cardText,
+                    cardPromptText,
+                    textColor: bodyText,
                   }}
                 />
               )
@@ -3981,10 +4243,10 @@ export const register: Register = (on, options) => {
                 plain
                 dimColor={i !== current}
                 label={mark}
-                hover={{ scope: `session-rail-${i}`, backgroundColor: cardBackground, color: cardText, dimColor: false, bold: true, inverse: false }}
+                hover={{ scope: `session-rail-${i}`, backgroundColor: cardBackground, color: cardPromptText, dimColor: false, bold: true, inverse: false }}
                 onPress={() => {}}
               >
-                <Text color={colorOf(i) ?? TEXT} inverse={isPulsed(i) || undefined}>
+                <Text color={colorOf(i) ?? bodyText} inverse={isPulsed(i) || undefined} hover={rowHover(i)}>
                   {mark}
                 </Text>
               </Button>
@@ -3993,7 +4255,7 @@ export const register: Register = (on, options) => {
           {step('step-next', '›', stepFrom(current, entries.length, 1, isUnreachable))}
           <Box marginLeft={1} width={room} height={1}>
             {/* With no prompt known on screen, the newest: bars alone read as a broken rail. */}
-            <Text color={TEXT} dimColor wrap="truncate-end">{`${reading}${entries[center] === undefined ? '' : shownLineOf(entries[center], room - reading.length)}`}</Text>
+            <Text color={bodyText} dimColor wrap="truncate-end">{`${reading}${entries[center] === undefined ? '' : shownLineOf(entries[center], room - reading.length)}`}</Text>
             {expandOnHover
               ? shown.map((entry, offset) => {
                   const i = first + offset

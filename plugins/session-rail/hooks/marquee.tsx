@@ -1,6 +1,6 @@
 import type { ClientModule, ClientSurface } from 'claude-code'
 import { cellWidth, oneLine, padTo, windowRuns } from './text.ts'
-import { ACCENT, TEXT } from './theme.ts'
+import { ACCENT_ON_CARD, TEXT } from './theme.ts'
 import { SPIN, SPIN_MS } from './glyphs.ts'
 
 // How long one step of a marquee takes, and how many steps it rests at the
@@ -10,7 +10,7 @@ const STEP_MS = 150
 const REST_STEPS = 8
 // What holds the end of the prompt apart from its head as the loop turns: the
 // tail folds back (↩) and the head picks up again (↳), with space around them.
-// The card draws it in the accent color; crossing it takes a step per cell,
+// The card draws it in the accent tint; crossing it takes a step per cell,
 // which reads as a pause between the two.
 const GAP = ' ↩   ↳ '
 
@@ -38,7 +38,14 @@ type Props = {
   // cards of the other layouts and a docked row lights in it.
   cardBackground?: string
   cardText?: string
+  // A band card's prompt: the rail's highlight color, or Hover card text when
+  // the person set one. A row under the pointer takes that highlight.
+  cardPromptText?: string
   cardStatsText?: string
+  // The rail's body text and the accent tint for the seam, so a light theme's
+  // palette reaches this separate surface.
+  textColor?: string
+  accentOnCard?: string
 }
 type State = { offset: number; rest: number; isHovered: boolean; frame: number }
 type Surface = ClientSurface<State>
@@ -143,12 +150,12 @@ const Marquee: ClientModule<Props, State> = (props, surface) => {
   control.loop = width > 0 && cellWidth(flat) > width ? [...cycle].length : 0
 
   const isScrolling = control.loop > 0 && (control.isHovered || (!isRow && control.width > 0))
-  // The seam is drawn in the accent color, so the head of the prompt reads
+  // The seam is drawn in the accent tint, so the head of the prompt reads
   // apart from its tail rather than as one run of words.
   const runs = isScrolling ? windowRuns(cycle, control.offset, width, [...flat].length) : undefined
   const plain = padTo(oneLine(flat, width), width)
   const drawn = runs?.map((run, i) => (
-    <Text key={`run-${i}`} color={run.isGap ? ACCENT : undefined}>
+    <Text key={`run-${i}`} color={run.isGap ? (props.accentOnCard ?? ACCENT_ON_CARD) : undefined}>
       {run.text}
     </Text>
   ))
@@ -157,7 +164,7 @@ const Marquee: ClientModule<Props, State> = (props, surface) => {
 
   if (!isRow)
     return (
-      <Text backgroundColor={props.cardBackground} color={props.cardText} bold>
+      <Text backgroundColor={props.cardBackground} color={props.cardPromptText ?? props.cardText} weight="semibold">
         {drawn ?? plain}
       </Text>
     )
@@ -167,19 +174,19 @@ const Marquee: ClientModule<Props, State> = (props, surface) => {
         <Text
           inverse={props.isPulsed || undefined}
           backgroundColor={control.isHovered ? props.cardBackground : undefined}
-          color={control.isHovered ? props.cardText : TEXT}
-          bold={control.isHovered || undefined}
+          color={control.isHovered ? (props.cardPromptText ?? props.cardText) : (props.textColor ?? TEXT)}
+          weight={control.isHovered ? 'semibold' : undefined}
           dimColor={control.isHovered || props.isPulsed ? undefined : props.isDim ? true : undefined}
         >
           {' '}
-          <Text color={props.color ?? TEXT}>{tick}</Text>
+          <Text color={control.isHovered ? (props.cardPromptText ?? props.cardText) : (props.color ?? props.textColor ?? TEXT)}>{tick}</Text>
           {' '}
           {drawn ?? plain}
         </Text>
       </Button>
       {control.isHovered && props.summary ? (
         <Box paddingLeft={3} backgroundColor={props.cardBackground}>
-          <Text color={props.cardStatsText ?? ACCENT} bold wrap="wrap">
+          <Text color={props.cardStatsText ?? props.accentOnCard ?? ACCENT_ON_CARD} wrap="wrap">
             {props.summary}
           </Text>
         </Box>

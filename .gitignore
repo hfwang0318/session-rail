@@ -6,3 +6,9 @@ plugins/session-rail/tsconfig.json
 
 node_modules/
 .DS_Store
+
+# Impeccable's project context, generated design doc and sidecar: local design
+# work, not part of the published plugin.
+PRODUCT.md
+DESIGN.md
+.impeccable/

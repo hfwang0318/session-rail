@@ -5311,6 +5311,44 @@ test('the current session heading opens after the whole parent block', async ($,
   expect(heading).toBeLessThan(own)
 })
 
+test('a third session read on a press keeps one current session heading', async ($, on) => {
+  const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const p2 = 'cccccccc-3333-4333-8333-333333333333'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  // This session was created by the fork machinery: its copies of the first
+  // parent are stamped, and one of that parent's prompts was not copied.
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'p2', parentUuid: 'c0', sessionId: 's1', session_id: p1, forkedFrom: { sessionId: p1, messageUuid: 'p2' }, origin: { kind: 'human' }, message: { role: 'user', content: 'copied parent prompt' } },
+    { type: 'user', uuid: 'u2', parentUuid: 'p2', origin: { kind: 'human' }, message: { role: 'user', content: 'own prompt' } },
+  ]))
+  disk.extra = {
+    [p1]: jsonl([
+      { type: 'user', uuid: 'c1', isCompactSummary: true, sessionId: p1, session_id: p2, message: { role: 'user', content: summary } },
+      { type: 'user', uuid: 'p1', parentUuid: 'c1', origin: { kind: 'human' }, message: { role: 'user', content: 'older parent prompt' } },
+      { type: 'user', uuid: 'p2', parentUuid: 'p1', origin: { kind: 'human' }, message: { role: 'user', content: 'copied parent prompt' } },
+    ]),
+    [p2]: jsonl([{ type: 'user', uuid: 'g1', origin: { kind: 'human' }, message: { role: 'user', content: 'grandparent prompt' } }]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  for (let level = 0; level < 2; level++) {
+    const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+    await press.press({ key: 'load-parent' })
+    await press.unmount()
+  }
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  const lines = (await rail.findAll({ type: 'Text' }))
+    .map((node: any) => String(node.text))
+    // The pane head is a "current session" line too, dated; the block headings
+    // here carry no stamp (their rows have no timestamp).
+    .filter((text: string) => /^ {3}(prompts from|current session)/.test(text) && !/\d{2}-\d{2} \d{2}:\d{2}$/.test(text))
+  // The second merge is handed a child whose own part already opens with a
+  // heading: it must keep that place, not work out a second one inside the
+  // block the first merge headed.
+  expect(lines).toEqual(['   prompts from cccccccc ⧉', '   prompts from aaaaaaaa ⧉', '   current session'])
+})
+
 test('an earlier session is read one level at a time, on a press', async ($, on) => {
   const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
   const p2 = 'bbbbbbbb-2222-4222-8222-222222222222'

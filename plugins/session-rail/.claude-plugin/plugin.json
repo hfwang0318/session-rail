@@ -15,16 +15,6 @@
   ],
   "types": "./types/session-rail.d.ts",
   "userConfig": {
-    "mode": {
-      "type": "string",
-      "title": "Rail mode",
-      "description": "off: no rail. vertical: a pane beside the transcript, one row per prompt. /session-rail off|vertical changes it too and shows where the rail sits.",
-      "default": "vertical",
-      "options": [
-        "off",
-        "vertical"
-      ]
-    },
     "colorScheme": {
       "type": "string",
       "title": "Color scheme",

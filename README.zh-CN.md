@@ -55,11 +55,11 @@
 
 ## rail
 
-### 纵向：对话记录旁
+### 对话记录旁
 
 <img src="docs/vertical.png" alt="纵向 rail：对话记录旁的面板中每条提示词占一行；面板头部标出 current session 及其开始时间，悬停被截断的行会展开完整提示词、发送时间、时长与改动文件" width="800">
 
-`/session-rail vertical`。每条提示词一行，位于对话记录旁边。粗体的那一行就是正在阅读的提示词。
+每条提示词一行，位于对话记录旁边。粗体的那一行就是正在阅读的提示词。`/session-rail-toggle` 可隐藏它，或再次显示。
 
 ## 悬停阅读，点击跳转
 
@@ -147,8 +147,6 @@
 
 | 命令 | 作用 |
 | --- | --- |
-| `/session-rail vertical` | 对话记录旁的面板 |
-| `/session-rail off` | 隐藏 rail |
 | `/session-rail next` | 跳到下一条提示词 |
 | `/session-rail prev` | 跳到上一条提示词 |
 | `/session-rail first`、`last` | 跳到第一条或最新一条提示词 |
@@ -156,11 +154,11 @@
 | `/session-rail find <words>` | 跳到包含这些词的最新一条提示词 |
 | `/session-rail preview`（`preview theme`） | 打开预览面板，按当前配色方案展示每一种卡片主题的示例 |
 | `/session-rail-next`、`/session-rail-prev` | 无参数跳到下一条或上一条提示词，供键位绑定使用 |
-| `/session-rail-toggle` | 隐藏 rail，或以最后使用的模式重新显示，无参数，供键位绑定使用 |
+| `/session-rail-toggle` | 隐藏 rail，或再次显示，无参数，供键位绑定使用 |
 | `/session-rail-preview` | 打开主题预览面板，展示全部卡片主题，或指定的一个，例如 `/session-rail-preview sienna` |
 | `/session-rail` | 重新打开 rail |
 
-模式也对应 `/config` 中的 “Rail mode”。主题相关的行有 “Color scheme”、“Card theme”、“Accent follows card theme”、“Expand on hover”、“Scroll on hover”、“Hover card background”、“Hover card text” 和 “Hover card stats text”。“Classic hooks” 保持 `classic.SessionStart` 和 `classic.Stop` 注册（默认开启）；只有在受管设置跳过它们时才关闭它，因为此后 rail 会在 `CLAUDE_CONFIG_DIR` 或 `~/.claude` 下查找对话记录。
+`/config` 中的行有 “Color scheme”、“Card theme”、“Accent follows card theme”、“Expand on hover”、“Scroll on hover”、“Hover card background”、“Hover card text” 和 “Hover card stats text”。“Classic hooks” 保持 `classic.SessionStart` 和 `classic.Stop` 注册（默认开启）；只有在受管设置跳过它们时才关闭它，因为此后 rail 会在 `CLAUDE_CONFIG_DIR` 或 `~/.claude` 下查找对话记录。
 
 <details>
 <summary>/config 各行细节</summary>

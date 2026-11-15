@@ -202,7 +202,6 @@ test('a narrow vertical rail leaves the prompt text to hidden cards in the band'
 
 test('a wide vertical rail shows each prompt beside its tick and keeps the band empty', async ($, on) => {
   await drawPrompts($, on)
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 37) })
   expect((await rail.findAll({ type: 'Button' })).map(b => b.props.label)).toEqual([' ─ first prompt', ' ━ second prompt'])
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
@@ -216,14 +215,15 @@ test('wide characters are cut by the cells they take', async ($, on) => {
   expect((await rail.findAll({ type: 'Button' })).map(b => b.props.label)[2]).toBe(' ─ 日本語…')
 })
 
-test('/session-rail <mode> answers with a picture of where the rail sits by the prompt', async ($, on) => {
-  await drawPrompts($, on)
-  const picture = async (mode: string) => String((await $.command.run({ command: 'session-rail', args: mode }))?.text ?? '').split('\n')
-  const at = (lines: string[], pattern: RegExp) => lines.findIndex(line => pattern.test(line))
-  const vertical = await picture('vertical')
-  expect(at(vertical, /← the rail/)).toBeGreaterThanOrEqual(0)
-  expect(at(vertical, /❯/)).toBeGreaterThanOrEqual(0)
-  expect(await picture('off')).toEqual(['off'])
+test('/session-rail names the arguments it takes when one names nothing', async ($, on) => {
+  const disk = beneath()
+  world(on, {}, TRANSCRIPT, disk)
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.command.run({ command: 'session-rail', args: 'sideways' })
+  expect(disk.toasts.at(-1)).toBe('/session-rail [preview|next|prev|first|last|<n>|find <words>]')
+  // A word it does not know leaves the rail as it was.
+  expect(disk.panes.at(-1)).not.toBe('close session-rail')
 })
 
 test('a narrow rail keeps what the mods after it draw in the band', async ($, on) => {
@@ -240,7 +240,6 @@ test('a narrow rail keeps what the mods after it draw in the band', async ($, on
     expect(drawn.filter(isBelow).length).toBe(1)
   }
   // A vertical rail too narrow to reveal beside its ticks keeps hidden cards in the band.
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 4) })
   await expectWithBelow(await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND }))
 })
@@ -262,7 +261,6 @@ test('the vertical pane keeps the focus ring off its rows, the engine\'s own sto
     return {}
   })
   await drawPrompts($, on)
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // A ringed row beside the row under the pointer lights two rows at once;
   // a click still presses, and next and prev are the keyboard route.
   const ringed = await $.ui.focus({ component: 'Pane', requestId: 'session-rail', plugin: 'session-rail', element: 'jump-0', origin: { kind: 'person' } })
@@ -278,7 +276,6 @@ test('a jump marks the prompt it landed on for a moment', async ($, on) => {
   const disk = beneath(jsonl([]))
   world(on, {}, disk.transcript, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', null) })
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: prompt('second prompt', { first: 0, last: 1, of: 2 }) })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
@@ -309,7 +306,6 @@ test('scrolling the transcript back moves the pane\'s heavy mark to the prompt i
   world(on, {}, TRANSCRIPT, disk)
   on('ui.scroll', () => ({ value: {} }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const shown = { first: 0, last: 1, of: 2 }
   const u1 = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('first stored prompt', shown) })
   const u2 = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u2', props: prompt('<div> why does this overflow?', shown) })
@@ -340,7 +336,6 @@ test("the pane head names the current session's start, dated at the pane's edge"
   const disk = beneath(jsonl(rows))
   world(on, {}, disk.transcript, disk)
   await $.classic.SessionStart({ source: 'startup', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
   // The first stored prompt's moment, not the moment the module loaded, drawn
@@ -356,7 +351,6 @@ test('the pane head names only when the conversation started', async ($, on) => 
   const disk = beneath(SCROLLED)
   world(on, {}, SCROLLED, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.ui.mount({
     plugin: 'session-rail',
     surface: 'terminal',
@@ -387,7 +381,6 @@ test('a resumed session marks where the history it brought ends', async ($, on) 
   disk.transcript = jsonl(rows)
   disk.mtimeMs = 2
   await stop($)
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(String(node.text)))
@@ -408,7 +401,6 @@ test('a fresh session draws no resume divider', async ($, on) => {
   const disk = beneath(jsonl(rows))
   world(on, {}, disk.transcript, disk)
   await $.classic.SessionStart({ source: 'startup', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
   expect(texts.some((text: string) => text.includes('resumed'))).toBe(false)
@@ -425,7 +417,6 @@ test('a prompt sent after a resume stays under the divider before its row is sto
   // The engine draws the just-sent prompt before its stored row lands, so the
   // entry has no sent time yet.
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt('after resume', null) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(String(node.text)))
@@ -450,7 +441,6 @@ test('a prompt stamped before the resume by a clock behind stays under the line'
   ])
   disk.mtimeMs = 2
   await stop($)
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at /.test(String(node.text)))
@@ -468,7 +458,6 @@ test('a resume with no transcript keeps the divider above the prompt sent since'
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await submit($, 'after resume')
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt('after resume', null) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at /.test(String(node.text)))
@@ -488,7 +477,6 @@ test('a repeated prompt sent after a resume stays below the divider', async ($, 
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await submit($, 'continue')
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt('continue', null) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at /.test(String(node.text)))
@@ -514,7 +502,6 @@ test('a Remote Control prompt counts once for the resume boundary', async ($, on
   const since = ((store.state.get('resume') as any)?.since ?? []) as [string, number][]
   expect(since.reduce((sum, [, count]) => sum + count, 0)).toBe(1)
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt('continue', null) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at /.test(String(node.text)))
@@ -581,7 +568,6 @@ test('a hostile boundary keeps the rail drawing and its line readable', async ($
     e.key === 'resume' ? { value: { value: store.state.get('resume'), version: 1 } } : next(e),
   )
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const texts = drawn.filter((node: any) => node.type === 'Text').map((node: any) => String(node.text))
@@ -686,7 +672,6 @@ test('a hover card below a resume divider counts the divider line', async ($, on
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await submit($, LONG_PROMPT)
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt(LONG_PROMPT, null) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   // Head 1 + history row 1 + divider 1 + the row itself one below: top 4 for a
   // card that opens under row 1.
@@ -724,7 +709,6 @@ test('a refused state write leaves the in-memory boundary and the hook chain wor
   await $.turn.start({ text: 'after resume', turnId: 't1' })
   await submit($, 'after resume')
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt('after resume', null) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
   expect(texts.some((text: string) => text.includes('resumed'))).toBe(true)
@@ -740,7 +724,6 @@ test('a history row clocked after the resume stays above a restored line', async
     e.key === 'resume' ? { value: { value: store.state.get('resume'), version: 1 } } : next(e),
   )
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at /.test(String(node.text)))
@@ -760,7 +743,6 @@ test('a resume told only through session.end keeps its first listing above the l
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.session.end({ reason: 'resume', sessionId: 's1' })
   await $.turn.start({ text: 'future history', turnId: 't1' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at /.test(String(node.text)))
@@ -784,7 +766,6 @@ test('the total keeps the line above sends whose keys the cap dropped', async ($
     e.key === 'resume' ? { value: { value: store.state.get('resume'), version: 1 } } : next(e),
   )
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at /.test(String(node.text)))
@@ -809,7 +790,6 @@ test('a refused state read still starts the session and draws the rail', async (
   const disk = { ...beneath(TRANSCRIPT), refuseResumeGet: true }
   world(on, { 'transcript:s1': { path: '/t/s1.jsonl', at: 1 } }, TRANSCRIPT, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const labels = (await rail.findAll({ type: 'Button' })).map((node: any) => String(node.props.label))
   expect(labels.some((label: string) => label.includes('first stored prompt'))).toBe(true)
@@ -826,7 +806,6 @@ test('the line follows history the engine drops from the top of its list', async
   // The engine's 4096-entry window drops the oldest prompt as it takes n1.
   store.set(ENGINE_MESSAGES_TEST_KEY, ['h1', 'h2', 'h3', 'n1'].map(text => ({ role: 'user', text })))
   await stop($)
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at /.test(String(node.text)))
@@ -846,7 +825,6 @@ test('a session.end resume draws the boundary, and a /clear after it removes it'
   // The fallback path where classic hooks are passed over.
   await $.session.end({ reason: 'resume', sessionId: 's1' })
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt('after resume', null) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const divider = drawn.findIndex((node: any) => node.type === 'Text' && /^ {3}resumed at /.test(String(node.text)))
@@ -895,7 +873,6 @@ test('a narrow pane draws no head and a divider that fits', async ($, on) => {
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await submit($, 'after resume')
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt('after resume', null) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 8) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
   for (const text of texts) expect(cellWidth(text)).toBeLessThanOrEqual(8)
@@ -911,7 +888,6 @@ test('a pane too short for the head starts its rows at the top line', async ($, 
   const disk = beneath(jsonl(rows))
   world(on, {}, disk.transcript, disk)
   await $.classic.SessionStart({ source: 'startup', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const props = { ...pane('dock', 40), scroll: { offset: 0, bodyRows: 1 } }
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
@@ -927,7 +903,6 @@ test('with no prompt being read the head names only the start', async ($, on) =>
   const disk = beneath(jsonl(rows))
   world(on, {}, disk.transcript, disk)
   await $.classic.SessionStart({ source: 'startup', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
   expect(texts.some((text: string) => /^ {3}current session/.test(text))).toBe(true)
@@ -970,7 +945,6 @@ test('every resume the module was told of draws its own divider', async ($, on) 
     e.key === 'resume' ? { value: { value: store.state.get('resume'), version: 1 } } : next(e),
   )
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const lines = drawn.map((node: any) => (node.type === 'Text' ? String(node.text) : ''))
@@ -1007,7 +981,6 @@ test('a new process draws the resume lines its store kept', async ($, on) => {
     disk,
   )
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const lines = drawn.map((node: any) => (node.type === 'Text' ? String(node.text) : ''))
@@ -1039,7 +1012,6 @@ test('a boundary restored without counts places its latest line by timestamps', 
     e.key === 'resume' ? { value: { value: store.state.get('resume'), version: 1 } } : next(e),
   )
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const drawn = await rail.findAll({})
   const lines = drawn.map((node: any) => (node.type === 'Text' ? String(node.text) : ''))
@@ -1081,7 +1053,6 @@ test('a resume the classic hooks passed over keeps its load and store moments', 
   // conversation's id becomes known.
   await $.turn.start({ text: 'test two', turnId: 't1' })
   await stop($)
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
   expect(texts.filter((text: string) => /^ {3}resumed at /.test(text)).length).toBe(3)
@@ -1098,7 +1069,6 @@ test('an overlay over a row with a divider still covers the row line', async ($,
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await submit($, LONG_PROMPT)
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt(LONG_PROMPT, null) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const props = { ...pane('dock', 20), scroll: { offset: 0, bodyRows: 2 } }
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props })
   // The overlay is a child of the row line's Box, so `top` is 0 even when the
@@ -2364,205 +2334,45 @@ test('a scroll redraws the rail only when the prompt being read changes, and nev
   expect(disk.invalidations).toBe(before.invalidations)
 })
 
-test('/session-rail <mode> writes the mode setting and switches at once', async ($, on) => {
-  const disk = beneath()
-  world(on, {}, TRANSCRIPT, disk)
-  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'off' })
-  expect(disk.settings.get('session-rail.mode')).toBe('off')
-  expect(disk.panes.at(-1)).toBe('close session-rail')
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
-  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
-  expect(disk.panes.at(-1)).toBe('open session-rail')
-  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
-  expect((await rail.findAll({ type: 'Button' })).length).toBe(4)
-})
-
-// A session with no /config row for the plugin's fields (the desktop app's
-// SDK sessions) makes $.config.set throw rather than deny.
-test('/session-rail <mode> still switches when the setting has no /config row', async ($, on) => {
-  const toasts: string[] = []
-  on('ui.render', { component: 'UserMessage' }, ($: any, e: any) => {
-    const { Text } = $.ui.resolve(e)
-    return <Text>{e.props.text}</Text>
-  })
-  // Stand in for the engine's empty band when the plugin passes it on.
-  on('ui.render', { component: 'AbovePrompt' }, ($: any, e: any) => $.ui.resolve(e).Box({}))
-  mock.store(on)
-  on('session.id', () => ({ value: 's1' }))
-  on('command.register', () => ({ value: {} }))
-  on('session.start', ($: any, e: any) => ({ cwd: e.cwd }))
-  on('config.list', () => ({ value: [] }))
-  // A session with no /config row for the plugin's fields (the desktop app's
-  // SDK sessions) makes $.config.set throw rather than deny.
-  on('config.set', () => {
-    throw new Error('$.config.set: no /config row with key session-rail.mode ($.config.list names them)')
-  })
-  on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.close', () => ({ value: undefined }))
-  on('ui.toast', ($: any, e: any) => {
-    toasts.push(e.text)
-    return { value: undefined }
-  })
-  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', { first: 0, last: 1, of: 2 }) })
-  const answer = await $.command.run({ command: 'session-rail', args: 'off' })
-  expect(answer).toBeDefined()
-  // The mode applies to this session even though it could not be kept.
-  expect(toasts.at(-1)).toMatch(/not saved/)
-  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
-  expect((await rail.findAll({ type: 'Button' })).length).toBe(1)
-})
-
-test('a mode kept for the session only survives a reload of the module', async ($, on) => {
-  const disk = beneath()
-  world(on, { 'session-mode:s1': 'off' }, TRANSCRIPT, disk)
-  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  expect(disk.panes).toEqual(['close session-rail'])
-})
-
-test('a mode the setting cannot keep is kept for the session', async ($, on) => {
-  const store = new Map<string, unknown>()
-  on('store.get', ($: any, e: any) => ({ value: store.get(e.key) }))
-  on('store.set', ($: any, e: any) => {
-    store.set(e.key, e.value)
-    return { value: undefined }
-  })
-  on('store.keys', () => ({ value: [...store.keys()] }))
-  on('store.delete', () => ({ value: undefined }))
-  on('session.id', () => ({ value: 's1' }))
-  on('config.set', () => {
-    throw new Error('$.config.set: no /config row with key session-rail.mode')
-  })
-  on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('ui.close', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
-  await $.command.run({ command: 'session-rail', args: 'off' })
-  expect(store.get('session-mode:s1')).toBe('off')
-})
-
-test('the mode no longer lives in the store: an earlier version\'s moves to the setting', async ($, on) => {
-  const disk = beneath()
-  // A mode other than the default, so writing the setting can be told apart.
-  const store = world(on, { mode: 'off' }, TRANSCRIPT, disk)
-  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  expect(disk.settings.get('session-rail.mode')).toBe('off')
-  expect(store.has('mode')).toBe(false)
-  expect(disk.panes).toEqual(['close session-rail'])
-})
-
-test('a session starts in the mode the setting holds, vertical by default', async ($, on) => {
-  const disk = beneath()
-  world(on, {}, TRANSCRIPT, disk)
-  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  expect(disk.settings.size).toBe(0)
-  // The vertical layout is the pane beside the transcript.
-  expect(disk.panes).toEqual(['open session-rail'])
-  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
-  expect((await rail.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
-})
-
-test('/session-rail off hides the rail until a mode turns it back on', async ($, on) => {
-  const disk = beneath()
-  world(on, {}, TRANSCRIPT, disk)
-  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail', args: 'off' })
-  expect(disk.settings.get('session-rail.mode')).toBe('off')
-  expect(disk.panes.at(-1)).toBe('close session-rail')
-  // Bare /session-rail says how to turn it on instead of opening anything.
-  const panes = disk.panes.length
-  await $.command.run({ command: 'session-rail', args: '' })
-  expect(disk.panes.length).toBe(panes)
-  expect(disk.toasts.at(-1)).toMatch(/off/)
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
-  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
-  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
-  expect((await rail.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
-})
-
-// One bare command behind a key: off ↔ the mode last on, so the person never
-// types a mode to bring the rail back.
-test('/session-rail-toggle hides the rail and brings back the mode last on', async ($, on) => {
+test('/session-rail-toggle hides the rail and shows it again', async ($, on) => {
   const disk = beneath()
   const store = world(on, {}, TRANSCRIPT, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   // Registered bare, so a keybinding can name it (`command:session-rail-toggle`).
   expect(disk.commands.map(command => command.name)).toContain('session-rail-toggle')
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.command.run({ command: 'session-rail-toggle' })
-  expect(disk.settings.get('session-rail.mode')).toBe('off')
   expect(disk.panes.at(-1)).toBe('close session-rail')
+  // The answer is kept for this session, so a reload comes back the same way.
+  expect(store.get('rail-on:s1')).toBe(false)
+  // A hidden rail stays hidden: a bare /session-rail says how to show it.
+  const panes = disk.panes.length
+  await $.command.run({ command: 'session-rail', args: '' })
+  expect(disk.panes.length).toBe(panes)
+  expect(disk.toasts.at(-1)).toMatch(/hidden/)
   await $.command.run({ command: 'session-rail-toggle' })
-  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
   expect(disk.panes.at(-1)).toBe('open session-rail')
-  expect(store.get('last-on')).toBe('vertical')
-})
-
-test('/session-rail-toggle from a mode goes off, and from off with nothing remembered comes back vertical', async ($, on) => {
-  const disk = beneath()
-  world(on, {}, TRANSCRIPT, disk)
-  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  // The default mode is vertical: the toggle takes it off.
-  await $.command.run({ command: 'session-rail-toggle' })
-  expect(disk.settings.get('session-rail.mode')).toBe('off')
-  expect(disk.panes.at(-1)).toBe('close session-rail')
-  // Nothing but vertical was ever on, so it is what comes back.
-  await $.command.run({ command: 'session-rail-toggle' })
-  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
-  expect(disk.panes.at(-1)).toBe('open session-rail')
+  expect(store.get('rail-on:s1')).toBe(true)
+  // The rail has one shape, so the toggle writes no /config row.
+  expect(disk.settings.size).toBe(0)
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   expect((await rail.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
 })
 
-// A mode this module never wrote (one set in /config, or kept from before the
-// toggle existed) is still the one the toggle brings back.
-test('/session-rail-toggle brings back a mode it did not write itself', async ($, on) => {
+// A module reloaded mid-session starts again from the answer the store kept.
+test('a rail hidden before a reload starts hidden', async ($, on) => {
   const disk = beneath()
-  world(on, { 'session-mode:s1': 'vertical' }, TRANSCRIPT, disk)
-  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail-toggle' })
-  expect(disk.settings.get('session-rail.mode')).toBe('off')
-  await $.command.run({ command: 'session-rail-toggle' })
-  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
-})
-
-test('/session-rail-toggle ignores a remembered mode that is not one to come back to', async ($, on) => {
-  const disk = beneath()
-  world(on, { 'session-mode:s1': 'off', 'last-on': 'sideways' }, TRANSCRIPT, disk)
-  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'session-rail-toggle' })
-  expect(disk.settings.get('session-rail.mode')).toBe('vertical')
-})
-
-// The kit loads the module with its default options, so the session starts
-// again after the command, as a module reloaded with the setting off does.
-test('a session starts with no rail while the setting is off', async ($, on) => {
-  const disk = beneath()
-  world(on, {}, TRANSCRIPT, disk)
-  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'off' })
-  disk.panes.length = 0
+  world(on, { 'rail-on:s1': false }, TRANSCRIPT, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   expect(disk.panes).toEqual(['close session-rail'])
 })
 
-test('the next and previous prompts step over ones that cannot be scrolled to', () => {
-  const none = () => false
-  expect([stepFrom(1, 4, 1, none), stepFrom(1, 4, -1, none)]).toEqual([2, 0])
-  // At either end there is nowhere to go.
-  expect([stepFrom(3, 4, 1, none), stepFrom(0, 4, -1, none)]).toEqual([-1, -1])
-  // Unknown where the reader is: the first or the last prompt.
-  expect([stepFrom(-1, 4, 1, none), stepFrom(-1, 4, -1, none)]).toEqual([0, 3])
-  const second = (i: number) => i === 2
-  expect([stepFrom(1, 4, 1, second), stepFrom(3, 4, -1, second)]).toEqual([3, 1])
-  expect(stepFrom(-1, 0, 1, none)).toBe(-1)
+test('a session with no answer kept starts with the rail shown', async ($, on) => {
+  const disk = beneath()
+  world(on, {}, TRANSCRIPT, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  expect(disk.panes).toEqual(['open session-rail'])
 })
 
 test('/session-rail runs mid-turn and takes next and prev', async ($, on) => {
@@ -2570,7 +2380,7 @@ test('/session-rail runs mid-turn and takes next and prev', async ($, on) => {
   world(on, {}, TRANSCRIPT, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   expect(disk.commands).toEqual([
-    expect.objectContaining({ name: 'session-rail', immediate: true, argumentHint: '[off|vertical|preview|next|prev|first|last|<n>|find <words>]' }),
+    expect.objectContaining({ name: 'session-rail', immediate: true, argumentHint: '[preview|next|prev|first|last|<n>|find <words>]' }),
     // Argument-free, for a keybinding to name.
     expect.objectContaining({ name: 'session-rail-next', immediate: true }),
     expect.objectContaining({ name: 'session-rail-prev', immediate: true }),
@@ -2580,7 +2390,7 @@ test('/session-rail runs mid-turn and takes next and prev', async ($, on) => {
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.command.run({ command: 'session-rail', args: 'next' })
   await $.command.run({ command: 'session-rail', args: 'prev' })
-  // Neither is taken for a bad argument, and neither changes the mode.
+  // Neither is taken for a bad argument, and neither writes a setting.
   expect(disk.toasts.filter(text => text.includes('/session-rail ['))).toEqual([])
   expect(disk.settings.size).toBe(0)
 })
@@ -2671,7 +2481,6 @@ test('a narrow band keeps room for the details by cutting the prompt first', asy
 test('the hover card of a narrow vertical rail carries the turn\'s details', async ($, on) => {
   world(on, {}, TURNS)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 4) })
   const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   expect(await band.find({ type: 'Text', text: cardRe(`#1 first · ${at('2026-09-24T00:00:00.000Z')} · 1m 23s · app.ts, README.md`) })).toBeDefined()
@@ -2702,7 +2511,6 @@ test('nothing the rail learns draws the transcript rows again', async ($, on) =>
   on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   on('ui.scroll', () => ({ value: { deny: NOT_DRAWN } }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // A new prompt is drawn, its turn runs and ends, and the transcript has it.
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u2', props: prompt('second', null) })
   await $.turn.start({ text: 'second', turnId: 't1' })
@@ -2912,7 +2720,6 @@ test('a pane card\'s stats read as a sentence', () => {
 test('the rails color a turn\'s mark by how it went, and the cards say it in words', async ($, on) => {
   world(on, {}, OUTCOMES)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const railColors = (await rail.findAll({ type: 'Text' })).map((t: any) => t.props.color)
   // An interrupted turn is the warning color, an API error the error color.
@@ -2928,7 +2735,6 @@ test('the running turn\'s card says so until it ends, then how it ended', async 
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   await $.classic.SessionStart({ source: 'startup', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // The prompt's row is stored and drawn, then its turn starts.
   const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('first', null) })
   await row.unmount()
@@ -2945,7 +2751,6 @@ test('a running turn\'s tick spins until the turn ends', async ($, on) => {
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   await $.classic.SessionStart({ source: 'startup', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const row = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('first', null) })
   await row.unmount()
   await $.turn.start({ text: 'first', turnId: 't1' })
@@ -2995,7 +2800,6 @@ test('the rail never pins a status line', async ($, on) => {
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u3', props: prompt('continue', { first: 0, last: 1, of: 2 }) })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.classic.Stop({ session_id: 's1', transcript_path: '/t/s1.jsonl', stop_hook_active: false })
   expect(disk.status).toEqual([])
 })
@@ -3030,7 +2834,6 @@ test('a new prompt\'s turn runs under that prompt, not the one before it', async
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   on('turn.complete', ($: any, e: any) => ({ text: e.answer }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // The turn for "second" starts before its row is stored under its uuid.
   await $.turn.start({ text: 'second', turnId: 't2' })
   expect(await cardDetails($)).toEqual(['first'])
@@ -3047,7 +2850,6 @@ test('a repeated prompt\'s turn does not run under the earlier one with the same
   world(on)
   on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // The transcript ends in "continue"; the person sends "continue" again.
   await $.turn.start({ text: 'continue', turnId: 't5' })
   const isRunning = async () => (await cardDetails($)).map((details: string) => details.endsWith('running'))
@@ -3394,7 +3196,6 @@ test('a prompt typed as a slash command with arguments is listed as the command 
   ])
   world(on, {}, transcript, beneath(transcript))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   // The engine draws the command's own row too; it maps to the stored prompt
   // by the same command line, so the list holds it once.
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'c1', props: prompt(command, null) })
@@ -3975,7 +3776,6 @@ test('the vertical hover card carries the rest of the prompt and when it was sen
     { type: 'system', uuid: 'd1', subtype: 'turn_duration', durationMs: 9000 },
   ]))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   // The row beside the tick cuts the prompt to its first line; the card picks
   // up after that line rather than showing it twice.
@@ -3997,7 +3797,6 @@ test('the vertical hover card carries the rest of the prompt and when it was sen
 test('a prompt the vertical row holds whole is not repeated in the hover card', async ($, on) => {
   world(on, {}, TURNS)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   // The row beside the tick already says `first`, so the card carries only the stats.
   expect(await rail.findAll({ type: 'Text', text: 'first' })).toHaveLength(1)
@@ -4015,7 +3814,6 @@ test('the vertical pane opens its hover card under the row, without moving any r
   ])
   world(on, {}, two)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   // The card is an overlay anchored to the row under the pointer, so opening
   // one takes no line and pushes nothing down.
@@ -4077,7 +3875,6 @@ test('a pane card sets a cut prompt apart from its stats with a blank line', asy
   const disk = beneath(SCROLLED)
   world(on, {}, SCROLLED, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   const lines = (await rail.findAll({ type: 'Text' }))
     .filter((node: any) => node.props?.backgroundColor !== undefined)
@@ -4096,7 +3893,6 @@ test('a prompt with lines keeps them whole in its card, below its row too', asyn
   ]))
   world(on, {}, disk.transcript, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const painted = (await rail.findAll({ type: 'Text' }))
     .filter((node: any) => node.props?.backgroundColor !== undefined)
@@ -4117,7 +3913,6 @@ test('a card of a prompt held whole keeps its stats alone, with no blank line', 
   ])
   world(on, {}, one)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const lines = (await rail.findAll({ type: 'Text' }))
     .filter((node: any) => node.props?.backgroundColor !== undefined)
@@ -4131,7 +3926,6 @@ test('the hover card panel takes its colors from the settings', { options: { car
   const disk = beneath(SCROLLED)
   world(on, {}, SCROLLED, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   const card = (await rail.findAll({ type: 'Text' })).find((node: any) => node.props?.backgroundColor !== undefined)
   expect(card?.props).toMatchObject({ backgroundColor: '#112233', color: '#eeeeee' })
@@ -4151,7 +3945,6 @@ test('the band cards take their colors from the settings', { options: { cardBack
   const cardsOf = async (drawn: any) =>
     (await drawn.findAll({ type: 'Text' })).filter((node: any) => node.props?.backgroundColor === '#112233')
   // A narrow vertical rail leaves the cards to the band.
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 4) })
   const narrow = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
   const narrowCards = await cardsOf(narrow)
@@ -4163,7 +3956,6 @@ test('a card taller than the room below opens there with a scrollbar and leaves 
   const disk = beneath(SCROLLED)
   world(on, {}, SCROLLED, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: { ...pane('dock', 20), scroll: { offset: 0, bodyRows: 8 } } })
   // The row sits under the pane's one head line; the card opens under it and
   // takes the 6 rows left of the 8.
@@ -4194,7 +3986,6 @@ test('a card with room above opens upward with its foot on its row', async ($, o
   ]
   world(on, {}, jsonl(rows))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   const card = await rail.find({ key: 'card-18' })
   // Only the long prompt has a card: every painted line belongs to it.
@@ -4282,7 +4073,6 @@ test('the pane card stats line takes its own color from the settings', { options
   const disk = beneath(SCROLLED)
   world(on, {}, SCROLLED, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   const shown = (await rail.findAll({ type: 'Text' })).filter((node: any) => node.props?.backgroundColor !== undefined)
   // The prompt's own lines keep Hover card text; the stats line is quieter.
@@ -4302,7 +4092,6 @@ const themedColors = async ($: any, on: any, initial: Record<string, unknown> = 
   world(on, initial, SCROLLED, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   const colors = (await rail.findAll({ type: 'Text' })).map((node: any) => node.props?.color).filter(Boolean)
   await rail.unmount()
@@ -4351,7 +4140,6 @@ test('a card theme paints its dark panel under a dark scheme', { options: { colo
   world(on, { [THEME_TEST_KEY]: 'light' }, SCROLLED, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const paint = await mountedPaint($)
   expect(paint.backgrounds).toContain('#1E3438')
   expect(paint.backgrounds).not.toContain('#D8E8E5')
@@ -4362,7 +4150,6 @@ test('a card theme follows a light /config theme to its light panel', { options:
   world(on, { [THEME_TEST_KEY]: 'light' }, SCROLLED, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const paint = await mountedPaint($)
   expect(paint.backgrounds).toContain('#D8E8E5')
   expect(paint.backgrounds).not.toContain('#1E3438')
@@ -4373,7 +4160,6 @@ test('the accent follows the card theme by default', { options: { colorScheme: '
   world(on, {}, SCROLLED, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const paint = await mountedPaint($)
   expect(paint.colors).toContain('#5CC8CC')
   expect(paint.colors).not.toContain('#D77757')
@@ -4384,7 +4170,6 @@ test('the accent follows a card theme on the light side too', { options: { cardT
   world(on, { [THEME_TEST_KEY]: 'light' }, SCROLLED, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const paint = await mountedPaint($)
   expect(paint.colors).toContain('#6E3F9E')
   expect(paint.colors).not.toContain('#9E4422')
@@ -4395,7 +4180,6 @@ test('Accent follows card theme off keeps Claude orange for every family', { opt
   world(on, {}, SCROLLED, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const paint = await mountedPaint($)
   expect(paint.colors).toContain('#D77757')
   expect(paint.colors).toContain('#E6A182')
@@ -4407,7 +4191,6 @@ test('a warm card theme keeps Claude orange even with the accent following', { o
   world(on, {}, SCROLLED, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const paint = await mountedPaint($)
   expect(paint.colors).toContain('#D77757')
   expect(paint.colors).toContain('#E6A182')
@@ -4418,7 +4201,6 @@ test('a raw Hover card background overrides the card theme', { options: { cardTh
   world(on, {}, SCROLLED, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const paint = await mountedPaint($)
   expect(paint.backgrounds).toContain('#445566')
   expect(paint.backgrounds).not.toContain('#1E3438')
@@ -4434,7 +4216,6 @@ const customThemeWorld = async ($: any, on: any, base: 'light' | 'dark') => {
   on('env.get', ($: any, e: any) => ({ value: (e.name ?? e.key) === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }))
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
 }
 
 test('auto follows a custom theme whose definition is based on light', async ($, on) => {
@@ -4459,7 +4240,6 @@ test('a live switch to a custom light theme reads its definition', async ($, on)
   on('env.get', ($: any, e: any) => ({ value: (e.name ?? e.key) === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined }))
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   expect((await mountedPaint($)).colors).toContain(DARK.text)
   await $.config.set({ key: 'theme', value: 'custom:orca' })
   expect((await mountedPaint($)).colors).toContain(LIGHT.text)
@@ -4470,7 +4250,6 @@ test('a /config theme change switches a card theme to its paired panel and accen
   world(on, {}, SCROLLED, disk)
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const dark = await mountedPaint($)
   expect(dark.colors).toContain(DARK.text)
   expect(dark.colors).toContain('#5CC8CC')
@@ -4489,7 +4268,6 @@ test('a forced colorScheme ignores a /config theme change', { options: { colorSc
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
   await $.config.set({ key: 'theme', value: 'light' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   const colors = (await rail.findAll({ type: 'Text' })).map((node: any) => node.props?.color).filter(Boolean)
   expect(colors).toContain(DARK.text)
@@ -4512,7 +4290,6 @@ test('Expand on hover off leaves a prompt whose card would open above uncovered'
   ]
   world(on, {}, jsonl(rows))
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   // The card is never drawn, so no blank panel row may cover the row either.
   expect(await rail.find({ key: 'blank-18' })).toBeUndefined()
@@ -4525,7 +4302,6 @@ test('the vertical rail draws a divider at a compaction boundary', async ($, on)
     { role: 'user', text: 'after compact' },
   ])
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const divider = (await rail.findAll({ type: 'Text' })).find((t: any) => String(t.text).includes('compacted'))
   expect(divider).toBeDefined()
@@ -4611,7 +4387,6 @@ test('scrollOnHover: the hovered row scrolls its prompt with the details beneath
   world(on, {}, SCROLLED, disk)
   mock.clock(on)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   // The row is the marquee's Client; the card is no longer drawn.
   expect(await rail.find({ key: 'scroll-0' })).toBeDefined()
@@ -4664,7 +4439,6 @@ test('scrollOnHover: a jump lights the row it landed on', { options: { scrollOnH
   const clock = mock.clock(on)
   world(on, {}, SCROLLED)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   // The row is the marquee's Client; the jump's mark is drawn inside it.
   const lit = async () => (await rail.findAll({ in: 'scroll-0' })).some((node: any) => node.props?.inverse === true)
@@ -4679,7 +4453,6 @@ test('scrollOnHover: a jump lights the row it landed on', { options: { scrollOnH
 test('scrollOnHover is ignored while Expand on hover is off', { options: { scrollOnHover: true, expandOnHover: false } }, async ($, on) => {
   world(on, {}, SCROLLED)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   expect((await rail.findAll({ type: 'Button' })).length).toBe(1)
   expect(await rail.find({ type: 'Client' })).toBeUndefined()
@@ -4777,7 +4550,6 @@ test('the hover card reads a sent time in the machine zone, not the session TZ',
   disk.zonePath = '/var/db/timezone/zoneinfo/Asia/Shanghai'
   world(on, {}, SCROLLED, disk)
   await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
-  await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 20) })
   // The prompt's 00:00Z stamp reads 08:00 in Shanghai. This process runs on
   // UTC, where the same stamp would read 00:00.

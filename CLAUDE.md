@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`session-rail` is a Claude Code **mod** (a TypeScript plugin built on function hooks) plus the marketplace that publishes it. It lists the session's prompts as a rail — a pane beside the transcript (`vertical`, the default), or off — with hover cards and click-to-jump. It is a fork of `oikon48/prompt-rail`; the history source was rebuilt around the engine's own message list. `docs/refactor-comparison.md` (Chinese) records what changed and why.
+`session-rail` is a Claude Code **mod** (a TypeScript plugin built on function hooks) plus the marketplace that publishes it. It lists the session's prompts as a rail — a pane beside the transcript — with hover cards and click-to-jump. It is a fork of `oikon48/prompt-rail`; the history source was rebuilt around the engine's own message list. `docs/refactor-comparison.md` (Chinese) records what changed and why.
 
 There is no build step: Claude Code loads `plugins/session-rail/hooks/index.tsx` and its TypeScript imports directly. It requires Claude Code 2.1.287 or later, where mods are on by default.
 
@@ -29,12 +29,12 @@ There is no build step: Claude Code loads `plugins/session-rail/hooks/index.tsx`
 
 `hooks/hooks.json` names one module, `./index.tsx`. Its `register(on, options)` registers everything:
 
-- slash commands: `session-rail` (the mode, jumps and the `preview` gallery), `session-rail-next`, `session-rail-prev`, `session-rail-toggle`, `session-rail-preview`;
+- slash commands: `session-rail` (jumps and the `preview` gallery), `session-rail-next`, `session-rail-prev`, `session-rail-toggle`, `session-rail-preview`;
 - session hooks: `session.start`, `command.run`, `turn.start`, `turn.complete`, `session.end`, `prompt.submit`, `session.receive`;
 - classic hooks: `classic.SessionStart` and `classic.Stop`, unless `options.classicHooks === false`;
 - UI hooks: render hooks on `UserMessage`, `AssistantMessage`, `ToolUse`, `ToolResult`, `ToolGroup`, `Pane` (the rail, and the `session-rail-preview` pane) and `AbovePrompt` (the hidden cards a narrow dock leaves there), plus `ui.focus`, `ui.scroll` and `ui.press` on the rail's own elements; `config.describe` describes the Card theme row's selected family.
 
-Every handler is `($, e, next)`. An event the hook does not own must be passed through with `next(e)`. Render hooks wrap the engine's own drawing: call `next(e)` first, then add or replace elements. Options come from the `userConfig` rows in `plugin.json` (`mode`, `colorScheme`, `cardTheme`, `accentFollowsCardTheme`, `classicHooks`, `expandOnHover`, `scrollOnHover`, `cardBackground`, `cardText`, `cardStatsText`).
+Every handler is `($, e, next)`. An event the hook does not own must be passed through with `next(e)`. Render hooks wrap the engine's own drawing: call `next(e)` first, then add or replace elements. Options come from the `userConfig` rows in `plugin.json` (`colorScheme`, `cardTheme`, `accentFollowsCardTheme`, `classicHooks`, `expandOnHover`, `scrollOnHover`, `cardBackground`, `cardText`, `cardStatsText`).
 
 ### History: engine first, transcript second
 
@@ -81,8 +81,8 @@ Nearly every handler awaits file I/O. Preserve these rules:
 
 ### Persistence
 
-- `session-rail.mode` is the plugin setting written with `$.config.set`; this is the `/config` row, and changing it reloads the module. Without a `/config` row (SDK sessions), the mode is kept in the store for the current session only.
-- `$.store` keys: `last-on`, `session-mode:<session id>`, `transcript:<session id>`, `resume-moments:<session id>` (20 most recent sessions).
+- The rail has one shape, so it has no setting: `/session-rail-toggle` hides its pane or shows it again, and `session.start` reads that answer back from the store so a reload keeps it.
+- `$.store` keys: `rail-on:<session id>`, `transcript:<session id>`, `resume-moments:<session id>` (20 most recent sessions).
 - `$.state` keys: `moved` and `resume`, typed in `types/session-rail.d.ts`. Session state survives a hot reload; store state survives processes; `/clear` clears the resume state.
 
 ## Conventions

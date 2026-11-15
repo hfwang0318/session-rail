@@ -110,7 +110,7 @@ mods API 的类型文件由 `/plugin-types` 生成，插件不提交它；CI 每
 | --- | --- | --- |
 | state `moved` | 数字 | 缺失按 0 |
 | state `resume` | `{ sessionId, at, moments, branches, counts, total, since }` | 逐字段校验；未知字段忽略；缺 `branches` 视为空；`moments` 缺失时退回 `at` |
-| store `last-on` / `session-mode:<id>` | 模式字符串 | 非模式值忽略 |
+| store `rail-on:<id>` | 布尔 | 非布尔值忽略，按显示处理 |
 | store `transcript:<id>` | `{ path, at }` | 只接受字符串路径 |
 | store `resume-moments:<id>` | `{ moments, branches, at }` | 只接受数字数组，且 `branches ⊆ moments` |
 

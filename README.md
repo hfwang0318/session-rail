@@ -55,11 +55,11 @@ A rail of your prompts for Claude Code. Hover to read one, click to jump back to
 
 ## The rail
 
-### Vertical, beside the transcript
+### Beside the transcript
 
 <img src="docs/vertical.png" alt="The vertical rail: one row per prompt in a pane beside the transcript; the pane's head names the current session and when it started, and hovering a cut row expands its whole prompt, sent time, duration and files" width="800">
 
-`/session-rail vertical`. One row per prompt, beside the transcript. The bold row is the prompt you are reading.
+One row per prompt, beside the transcript. The bold row is the prompt you are reading. `/session-rail-toggle` hides it, or shows it again.
 
 ## Hover to read, click to jump
 
@@ -147,8 +147,6 @@ Two palettes, dark and light, picked by "Color scheme" (`auto` follows your `/co
 
 | Command | What it does |
 | --- | --- |
-| `/session-rail vertical` | A pane beside the transcript |
-| `/session-rail off` | Hide the rail |
 | `/session-rail next` | Jump to the next prompt |
 | `/session-rail prev` | Jump to the previous prompt |
 | `/session-rail first`, `last` | Jump to the first or the newest prompt |
@@ -156,11 +154,11 @@ Two palettes, dark and light, picked by "Color scheme" (`auto` follows your `/co
 | `/session-rail find <words>` | Jump to the newest prompt that holds the words |
 | `/session-rail preview` (`preview theme`) | Open a preview pane with every card theme sampled in the current color scheme |
 | `/session-rail-next`, `/session-rail-prev` | Jump to the next or previous prompt, with no argument, for a keybinding |
-| `/session-rail-toggle` | Hide the rail, or bring it back in the mode last on, with no argument, for a keybinding |
+| `/session-rail-toggle` | Hide the rail, or show it again, with no argument, for a keybinding |
 | `/session-rail-preview` | Open the theme preview pane, for every card theme or the one named, as `/session-rail-preview sienna` |
 | `/session-rail` | Reopen the rail |
 
-The mode is also "Rail mode" in `/config`. The theme rows there are "Color scheme", "Card theme", "Accent follows card theme", "Expand on hover", "Scroll on hover", "Hover card background", "Hover card text" and "Hover card stats text". "Classic hooks" keeps `classic.SessionStart` and `classic.Stop` registered (on by default); turn it off only where managed settings pass them over, since the rail then finds the transcript under `CLAUDE_CONFIG_DIR` or `~/.claude`.
+The `/config` rows are "Color scheme", "Card theme", "Accent follows card theme", "Expand on hover", "Scroll on hover", "Hover card background", "Hover card text" and "Hover card stats text". "Classic hooks" keeps `classic.SessionStart` and `classic.Stop` registered (on by default); turn it off only where managed settings pass them over, since the rail then finds the transcript under `CLAUDE_CONFIG_DIR` or `~/.claude`.
 
 <details>
 <summary>Config rows in detail</summary>

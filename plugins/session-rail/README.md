@@ -54,21 +54,19 @@ Start a new session and the rail opens on its own.
 
 | Command | What it does |
 | --- | --- |
-| `/session-rail vertical` | A pane beside the transcript (the default) |
-| `/session-rail off` | Hide the rail |
 | `/session-rail next`, `prev` | Jump to the next or previous prompt |
 | `/session-rail first`, `last` | Jump to the first or the newest prompt |
 | `/session-rail 12`, `#12` | Jump to prompt #12 |
 | `/session-rail find <words>` | Jump to the newest prompt that holds the words |
 | `/session-rail preview` (`preview theme`) | Open a preview pane with every card theme sampled in the current color scheme |
 | `/session-rail-next`, `/session-rail-prev` | Jump to the next or previous prompt, for a keybinding |
-| `/session-rail-toggle` | Hide the rail, or bring it back, for a keybinding |
+| `/session-rail-toggle` | Hide the rail, or show it again, for a keybinding |
 | `/session-rail-preview` | Open the theme preview pane, for every card theme or the one named, as `/session-rail-preview sienna` |
 | `/session-rail` | Reopen the rail |
 
 ## Settings
 
-`/config` carries the rail's rows: "Rail mode" (kept across sessions), "Color scheme" (`auto` follows your theme, live), "Card theme" (eleven families, each with a dark and a light side), "Accent follows card theme", "Expand on hover", "Scroll on hover", "Hover card background", "Hover card text", "Hover card stats text" and "Classic hooks". `/session-rail-preview` shows the card families in the current scheme.
+`/config` carries the rail's rows: "Color scheme" (`auto` follows your theme, live), "Card theme" (eleven families, each with a dark and a light side), "Accent follows card theme", "Expand on hover", "Scroll on hover", "Hover card background", "Hover card text", "Hover card stats text" and "Classic hooks". `/session-rail-preview` shows the card families in the current scheme.
 
 A running turn's row sits above the reply being written, so a jump to it lands on the newest reply row; the prompt itself is echoed under a provisional id that names no transcript row, which is why clicking it never reports a failed jump.
 
@@ -86,8 +84,8 @@ session-rail makes no network requests and sends nothing anywhere, neither the t
 - It reads the current session's transcript file (the `.jsonl` file Claude Code writes for the session) to add each prompt's stored id, when it was sent, its turn details, and prompts older than the engine's 4096-entry window.
 - Where no hook names that file, as on a machine with managed settings or in a Team or Enterprise organization, where Claude Code's security default keeps the classic hooks from installed plugins, it looks for the file where Claude Code keeps it: `projects/<folder>/<session id>.jsonl` under the config folder, the folder named after the session's working directory. The config folder is the one the installed copy sits under; for a copy loaded from a folder of its own, it reads `CLAUDE_CONFIG_DIR`, else `HOME` (`USERPROFILE` on Windows) to reach `~/.claude`. It checks whether that file exists, and for a working directory whose folder name Claude Code shortens, it lists the folder names under `projects` to find the one that matches. Apart from the custom theme definition described above, it reads no other file under the config folder.
 - When a transcript is too large to read in one call, it streams the file with `tail -c +N <transcript>`, which writes the file from byte N on to the mod, so a later read takes only what is new; the first read of a resumed large session streams the whole file. On a Windows path where `tail` cannot start, it runs `powershell -NoProfile -NonInteractive` with a short script that copies the same file from that position. The output of either goes to the mod alone. It runs no other program. A transcript on a Windows network share is read over that share.
-- It writes one setting, its own `session-rail.mode` (the "Rail mode" row in `/config`), when you pick a mode. It sets no other setting and no environment variable of the session; the PowerShell fallback passes the file path and read position in that child process's own environment.
-- In the mod's own store it keeps the mode last on, the mode kept for the current session, the transcript paths of the most recent sessions, so a resumed session can find its rail again, and, for the 20 most recent sessions, the moments each was resumed at, so a new process can draw the lines its earlier processes drew. In the engine's in-memory session state, which is not written to disk but can be read by other plugins, it keeps the session id, every moment the session was resumed at, which of those began with a `/branch`, the number of prompts sent since the latest, and, for up to 256 distinct prompt texts, how many times each was sent, keyed by a short hash of the text and its length and never the text itself, so the `resumed` lines survive a hot reload; a new process starts with none of the counts, and a `/clear` writes the state away. A test build may stage a message list under one reserved store key; a normal install never writes it, and reads it only if the engine's own list cannot be read at all.
+- It writes no setting and no environment variable of the session (the PowerShell fallback passes the file path and read position in that child process's own environment); the PowerShell fallback passes the file path and read position in that child process's own environment.
+- In the mod's own store it keeps whether the rail is shown for this session, the transcript paths of the most recent sessions, so a resumed session can find its rail again, and, for the 20 most recent sessions, the moments each was resumed at, so a new process can draw the lines its earlier processes drew. In the engine's in-memory session state, which is not written to disk but can be read by other plugins, it keeps the session id, every moment the session was resumed at, which of those began with a `/branch`, the number of prompts sent since the latest, and, for up to 256 distinct prompt texts, how many times each was sent, keyed by a short hash of the text and its length and never the text itself, so the `resumed` lines survive a hot reload; a new process starts with none of the counts, and a `/clear` writes the state away. A test build may stage a message list under one reserved store key; a normal install never writes it, and reads it only if the engine's own list cannot be read at all.
 
 Its hooks watch and do not change what passes through them:
 

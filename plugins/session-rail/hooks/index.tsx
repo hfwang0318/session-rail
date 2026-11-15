@@ -41,16 +41,10 @@ const RAIL_COLUMNS = 4
 const INLINE_REVEAL_MIN_COLUMNS = 12
 // Cells a hover card keeps for the prompt's text beside the turn's details.
 const MIN_CARD_TEXT = 12
-// The mode is the plugin's `mode` setting (userConfig), a row in /config. An
-// earlier version kept it in the store under this key, shared by every session.
-const LEGACY_MODE_KEY = 'mode'
-// `session-mode:<session id>` -> a mode the setting could not keep (a session
-// with no /config row for plugin fields), so a module reloaded mid-session
-// starts in it again. Keyed by session, so a later session starts clean.
-const SESSION_MODE_KEY_PREFIX = 'session-mode:'
-// The mode last on (vertical), so `session-rail-toggle` turned off has a mode
-// to come back to; vertical until another was written.
-const LAST_ON_KEY = 'last-on'
+// `rail-on:<session id>` -> whether the rail is shown, so a module reloaded
+// mid-session (whose session.start carries no answer) comes back as the
+// person left it. Keyed by session, so a later session starts shown.
+const RAIL_ON_KEY_PREFIX = 'rail-on:'
 // `transcript:<session id>` -> { path, at }, so a hot-reloaded module (whose
 // session.start carries no path) can rebuild its list. One key per session, so
 // sessions starting together never rewrite each other's; the newest few stay.
@@ -255,7 +249,7 @@ const JUMP_PULSE_MS = 600
 // The leftmost cells of a pane row left uncovered by a hover card: the pointer
 // travels down the list through this channel without crossing the overlay.
 const CHANNEL_COLUMNS = 3
-const USAGE = '[off|vertical|preview|next|prev|first|last|<n>|find <words>]'
+const USAGE = '[preview|next|prev|first|last|<n>|find <words>]'
 // What a preview asks for: every family, one family, or a name this build does
 // not know. `preview`, `preview theme`, `preview-theme`, `themes`, and each of
 // those followed by a family name, all land here.
@@ -274,28 +268,6 @@ const STEP_COMMANDS = [
   ['session-rail-next', 'next'],
   ['session-rail-prev', 'previous'],
 ] as const
-
-// vertical: ticks in a docked pane; off: no rail at all. One setting, so
-// /config keeps a single row.
-type Mode = 'off' | 'vertical'
-const isMode = (value: unknown): value is Mode => value === 'off' || value === 'vertical'
-
-// Where a mode puts the rail, drawn around the prompt input, for the answer
-// to `/session-rail <mode>`: /config draws a row's help on one line, so this
-// is where a picture of the choice can be shown. The engine heads a command's
-// answer with the plugin's name, so the picture does not.
-const PROMPT_BOX = ['  ────────────────────────────────', '  ❯', '  ────────────────────────────────']
-export const placePicture = (mode: Mode) => {
-  if (mode === 'vertical') {
-    return [
-      'a pane beside the transcript',
-      '  ⏺ the transcript …           │ ─',
-      '                               │ ━   ← the rail',
-      ...PROMPT_BOX,
-    ].join('\n')
-  }
-  return 'off'
-}
 
 type Entry = {
   id: string
@@ -1476,30 +1448,12 @@ export function transcriptCandidates(config: { dir: string; sep: string }, cwd: 
   return folders.filter(name => name.startsWith(cut)).map(at)
 }
 
-// Open the pane where the mode draws the rail in it; close it when the rail
-// is off.
-async function seatRail($: EngineInterface, mode: Mode) {
-  if (mode === 'off') {
-    await $.ui.close({ id: PANE })
-  } else {
+// Open the rail's pane, or close it while the rail is hidden.
+async function seatRail($: EngineInterface, isOn: boolean) {
+  if (isOn) {
     await $.ui.open({ id: PANE, title: 'Prompts', columns: RAIL_COLUMNS })
-  }
-}
-
-// Write the mode setting, as a change in /config would; say so if refused.
-// The key stays fixed text in the call, so the Claude directory's checks can
-// read which setting the mod writes.
-// A session with no /config row for plugin fields (the desktop app's SDK
-// sessions) throws instead of denying, and the mode then holds for this
-// session only.
-async function writeMode($: EngineInterface, mode: Mode) {
-  if (mode !== 'off') await $.store.set(LAST_ON_KEY, mode)
-  try {
-    const result = await $.config.set({ key: 'session-rail.mode', value: mode })
-    if (result.deny) $.ui.toast(`the mode was not saved: ${result.deny}`)
-  } catch (err) {
-    await $.store.set(`${SESSION_MODE_KEY_PREFIX}${await $.session.id()}`, mode)
-    $.ui.toast(`${mode} for this session; the mode was not saved: ${(err as Error).message}`)
+  } else {
+    await $.ui.close({ id: PANE })
   }
 }
 
@@ -1840,7 +1794,7 @@ async function reconsiderTranscript(
 }
 
 // What one read of the engine's list yielded: the messages, or a read that
-// failed. A failure keeps the list and the mode the rail already has.
+// failed. A failure keeps the list the rail already has.
 export type EngineRead = { kind: 'messages'; messages: readonly EngineMessage[] } | { kind: 'failed' }
 
 // The mods testing harness carries an older `$.session` (no `messages`), so a
@@ -2491,8 +2445,9 @@ export const register: Register = (on, options) => {
     return isSwitched
   }
 
-  // A change of the setting reloads this module with the new value.
-  let mode: Mode = isMode(options.mode) ? options.mode : 'vertical'
+  // Whether the rail's pane is shown: `/session-rail-toggle` flips it, and
+  // `session.start` reads it back from the store so a reload keeps it.
+  let isRailOn = true
   // Whether hovering a prompt opens its card. A change of the setting reloads
   // this module with the new value.
   const expandOnHover = options.expandOnHover !== false
@@ -2644,7 +2599,7 @@ export const register: Register = (on, options) => {
     await Promise.all([
       $.command.register({
         name: 'session-rail-toggle',
-        description: 'Toggle the rail: off ↔ the mode last on (vertical).',
+        description: 'Toggle the rail: hidden or shown.',
         immediate: true,
       }),
       $.command.register({
@@ -2658,17 +2613,9 @@ export const register: Register = (on, options) => {
     // Start the theme read, but do not await it before the transcript read is
     // claimed: a concurrent classic.SessionStart must still share that read.
     const themeRead = forcedScheme === undefined ? themeNameOf($).then(name => schemeOfThemeName($, name)) : undefined
-    // Move a mode an earlier version stored into the setting, once. Writing
-    // the setting reloads this module, so everything after it is best effort.
-    const stored = await $.store.get(LEGACY_MODE_KEY)
-    if (stored !== undefined) await $.store.delete(LEGACY_MODE_KEY)
-    if (isMode(stored) && stored !== mode) {
-      mode = stored
-      await writeMode($, mode)
-    }
-    // A mode kept for this session only outlives a reload of this module.
-    const kept = await $.store.get(`${SESSION_MODE_KEY_PREFIX}${await $.session.id()}`)
-    if (isMode(kept)) mode = kept
+    // Whether the rail is shown outlives a reload of this module.
+    const kept = await $.store.get(`${RAIL_ON_KEY_PREFIX}${await $.session.id()}`)
+    if (typeof kept === 'boolean') isRailOn = kept
     // Also fired after a hot reload, when the list starts empty: rebuild it from
     // the transcript this session's classic SessionStart remembered, or, with
     // the classic hooks passed over, the one found on disk.
@@ -2787,7 +2734,7 @@ export const register: Register = (on, options) => {
     }
     // Unasked, the engine seats a pane only from 144 columns (110 once the
     // person has opened it with /session-rail); below that it waits undrawn.
-    await seatRail($, mode)
+    await seatRail($, isRailOn)
     return next(e)
   })
 
@@ -2874,21 +2821,13 @@ export const register: Register = (on, options) => {
             : `Card theme ${preview.theme} (${side}). Pick it at /config › Card theme.${where}`,
       }
     }
-    // The toggle, as `/session-rail <mode>` does it: switch at once, then write
-    // the setting, whose change reloads this module in the new mode.
+    // The toggle: hide the rail's pane or show it again, and keep the answer
+    // for this session so a reload of this module comes back the same way.
     if (e.command === 'session-rail-toggle') {
-      if (mode === 'off') {
-        const lastOn = await $.store.get(LAST_ON_KEY)
-        mode = isMode(lastOn) && lastOn !== 'off' ? lastOn : 'vertical'
-      } else {
-        // Remembered here too: the mode may have come from /config or an
-        // earlier version, neither of which went through writeMode.
-        await $.store.set(LAST_ON_KEY, mode)
-        mode = 'off'
-      }
-      await seatRail($, mode)
+      isRailOn = !isRailOn
+      await $.store.set(`${RAIL_ON_KEY_PREFIX}${await $.session.id()}`, isRailOn)
+      await seatRail($, isRailOn)
       await redrawRail($)
-      await writeMode($, mode)
       return {}
     }
     const index = askedIndex(e.command, asked)
@@ -2907,22 +2846,21 @@ export const register: Register = (on, options) => {
       if (!entry) $.ui.toast(missingFor(e.command, asked))
       return {}
     }
-    if (asked && !isMode(asked)) {
+    // A word that names no prompt and no gallery ask is no argument at all.
+    if (asked) {
       $.ui.toast(`/session-rail ${USAGE}`)
       return {}
     }
-    // Reopening a rail that is off would only close it again: say how to turn it on.
-    if (!asked && mode === 'off') {
-      $.ui.toast('the rail is off; /session-rail vertical turns it on')
+    // A hidden rail stays hidden: reopening it would only close it again.
+    if (!isRailOn) {
+      $.ui.toast('the rail is hidden; /session-rail-toggle shows it')
       return {}
     }
-    if (isMode(asked)) mode = asked
-    await seatRail($, mode)
+    // Reopen the pane if it was closed from the surface's own controls.
+    isRailOn = true
+    await seatRail($, true)
     await redrawRail($)
-    // Last: a changed setting reloads this module, which then starts in it.
-    if (!isMode(asked)) return {}
-    await writeMode($, asked)
-    return { text: placePicture(asked) }
+    return {}
   })
 
   // The preview pane's body: a sample prompt and stats line in each family's
@@ -3139,9 +3077,9 @@ export const register: Register = (on, options) => {
   }
 
   // Apply one engine read to the list, unless the conversation it belongs to
-  // ended while the read ran. A failed read keeps the list and the mode the
-  // rail already has; only an engine without the service falls back to the
-  // transcript alone.
+  // ended while the read ran. A failed read keeps the list the rail already
+  // has; only an engine without the service falls back to the transcript
+  // alone.
   const applyEngineRead = (read: EngineRead, id: string, at: number) => {
     if (generation !== at || session?.id !== id) return false
     return read.kind === 'messages' && refreshEngine(read.messages)
@@ -4466,7 +4404,7 @@ export const register: Register = (on, options) => {
     timeZone = await zoneRead
     noteView(e.props.view.agentId)
     // Nothing while the rail is off, a survey holds the band or a subagent's transcript is in view.
-    if (mode === 'off' || e.props.hasSurvey || e.props.view.agentId !== undefined || entries.length === 0) return next(e)
+    if (!isRailOn || e.props.hasSurvey || e.props.view.agentId !== undefined || entries.length === 0) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     // The terminal and desktop tables carry the Client a scrolling card is
     // drawn in; a surface without one keeps its card cut.

@@ -41,6 +41,14 @@ MENLO = "/System/Library/Fonts/Menlo.ttc"
 REGULAR = ImageFont.truetype(MENLO, FONT_SIZE, index=0)
 BOLD = ImageFont.truetype(MENLO, FONT_SIZE, index=1)
 
+# The banner is not a terminal scene: it is drawn once for the README's head,
+# so its type is larger than a row's and is kept in its own faces.
+BANNER_TITLE = ImageFont.truetype(MENLO, 72, index=1)
+BANNER_SUB = ImageFont.truetype(MENLO, 28, index=0)
+BANNER_SMALL = ImageFont.truetype(MENLO, 22, index=0)
+BANNER_CHIP = ImageFont.truetype(MENLO, 20, index=0)
+BANNER_META = ImageFont.truetype(MENLO, 18, index=0)
+
 BG = "#1a1b1e"
 WINDOW = "#1b1c20"
 PANEL = "#202126"
@@ -1262,6 +1270,103 @@ def still_continued(path: Path) -> None:
     img.save(path, optimize=True)
 
 
+# -------------------------------------------------------------------- banner
+
+
+def banner_text(
+    d: ImageDraw.ImageDraw,
+    x: float,
+    y: float,
+    text: str,
+    font: ImageFont.FreeTypeFont,
+    color: str,
+    anchor: str = "lm",
+) -> None:
+    d.text((sx(x), sx(y)), text, font=font, fill=color, anchor=anchor)
+
+
+def banner_feature_line(
+    d: ImageDraw.ImageDraw,
+    x: float,
+    y: float,
+    parts: list[str],
+    font: ImageFont.FreeTypeFont,
+    color: str,
+    accent: str,
+) -> None:
+    """The small uppercase line under the title, its separators in the accent."""
+    for index, part in enumerate(parts):
+        if index:
+            banner_text(d, x, y, " / ", font, accent)
+            x += font.getlength(" / ") / SCALE
+        banner_text(d, x, y, part, font, color)
+        x += font.getlength(part) / SCALE
+
+
+def banner_chip(d: ImageDraw.ImageDraw, x: float, y: float, text: str, font: ImageFont.FreeTypeFont) -> float:
+    """A rounded tag naming one session operation; returns the width it took."""
+    pad = 10
+    width = font.getlength(text) / SCALE + pad * 2
+    height = 26
+    rect(d, x, y, width, height, radius=height / 2, fill="#2A2420", outline="#4A3A32", width=1)
+    d.text((sx(x + width / 2), sx(y + height / 2)), text, font=font, fill=ACCENT, anchor="mm")
+    return width
+
+
+def still_banner(path: Path) -> None:
+    """The README's head: the rail as a prompt index, with the session blocks
+    a continuation, a branch and a compaction draw around it."""
+    width, height = 800, 340
+    img = Image.new("RGB", (s(width), s(height)), PAGE)
+    d = ImageDraw.Draw(img)
+    rect(d, 10, 10, width - 20, height - 20, radius=16, fill=WINDOW)
+    # A faint plotter grid, set in from the rounded edge.
+    for gx in range(26, width - 24, 24):
+        line(d, gx, 26, gx, height - 26, "#222327", 0.5)
+    for gy in range(26, height - 24, 24):
+        line(d, 26, gy, width - 26, gy, "#222327", 0.5)
+    rect(d, 10, 10, width - 20, height - 20, radius=16, outline=BORDER)
+
+    rect(d, 46, 48, 26, 3, fill=ACCENT)
+    banner_text(d, 46, 88, "session-rail", BANNER_TITLE, TEXT)
+    banner_text(d, 46, 128, "Every prompt, every branch, one rail.", BANNER_SUB, RAIL_TEXT)
+    banner_feature_line(d, 46, 164, ["PROMPT INDEX", "SESSION HISTORY", "BRANCHES"], BANNER_SMALL, DIM, ACCENT)
+    x = 46.0
+    for text in ("compaction", "resume", "/branch", "/fork"):
+        x += banner_chip(d, x, 190, text, BANNER_CHIP) + 8
+    banner_text(d, 46, 246, "Every branch, fork and compaction, drawn in place.", BANNER_SMALL, DIM)
+    banner_text(d, 46, 302, "Claude Code 2.1.287+  ·  terminal & desktop", BANNER_META, DIM)
+
+    # The pane's own rows: the earlier block above, this session's below, with
+    # a compaction and a resume between them. The first current prompt is the
+    # one being read, so its tick and row take the accent.
+    rect(d, 410, 40, 344, 260, radius=12, fill="#23201D", outline=CARD_BG)
+    d.ellipse([sx(422), sx(55), sx(428), sx(61)], fill=ACCENT)
+    banner_text(d, 438, 58, "SESSION HISTORY", BANNER_META, DIM)
+    entries = [
+        Prompt("Add a cache-aside read to the loader", Turn("10:42", "2m 01s"), unreachable=True),
+        Prompt("Why is the write invisible until reload?", Turn("10:46", "11s"), unreachable=True),
+        Prompt("Ship the session-rail README", Turn("17:08", "1m 20s", ["README.md"])),
+        Prompt("Wire the branch transcript", Turn("17:12", "48s", ["index.tsx"])),
+        Prompt("Run the full test suite", Turn("17:14", outcome="running")),
+        Prompt("Tune the hover card", Turn("17:18", "32s", ["theme.ts"])),
+    ]
+    rows = [
+        pane_heading("prompts from 4f3a9c21 ⧉", "10:42", accent=True),
+        pane_prompt(entries, 0),
+        pane_prompt(entries, 1),
+        pane_heading("current session", "17:08", accent=True),
+        pane_prompt(entries, 2),
+        pane_prompt(entries, 3),
+        pane_prompt(entries, 4, spinner=True),
+        PaneRow("compacted"),
+        pane_resume("09:12"),
+        pane_prompt(entries, 5),
+    ]
+    draw_pane(d, 424, 78, 36, rows, current=2)
+    img.save(path, optimize=True)
+
+
 # ----------------------------------------------------------------------- gifs
 
 
@@ -1690,6 +1795,7 @@ def save_gif(frames: list[Image.Image], path: Path, duration: int = 80, colors: 
 def main() -> None:
     wanted = set(sys.argv[1:])
     jobs = {
+        "banner": (still_banner, HERE / "banner.png"),
         "vertical": (still_vertical, HERE / "vertical.png"),
         "horizontal": (still_horizontal, HERE / "horizontal.png"),
         "below": (still_below, HERE / "below.png"),

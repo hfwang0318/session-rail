@@ -1,6 +1,6 @@
 <div align="center">
 
-# session-rail
+<img src="docs/banner.png" alt="session-rail: every prompt in one rail, with an earlier-session block, a current-session block, a compacted divider and a resumed line" width="800">
 
 A rail of your prompts for Claude Code. Hover to read one, click to jump back to it.
 

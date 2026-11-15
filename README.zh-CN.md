@@ -1,6 +1,6 @@
 <div align="center">
 
-# session-rail
+<img src="docs/banner.png" alt="session-rail：所有提示词汇成一条 rail，包含更早会话块、本会话块、compacted 隔断与 resumed 线" width="800">
 
 为 Claude Code 准备的提示词轨道。悬停即可通读一条提示词，点击就能跳回它。
 

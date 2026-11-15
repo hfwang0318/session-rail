@@ -577,7 +577,7 @@ test('scrolling the transcript back moves the pane\'s heavy mark to the prompt i
   expect(await isEmphasis(' <div> why does this overflow?')).toBe(true)
 })
 
-test('the pane head names when the conversation opened, to the second', async ($, on) => {
+test("the pane head names the current session's start, dated at the pane's edge", async ($, on) => {
   const rows = [{ type: 'user', uuid: 'h1', timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'history prompt' } }]
   const disk = beneath(jsonl(rows))
   world(on, {}, disk.transcript, disk)
@@ -585,9 +585,12 @@ test('the pane head names when the conversation opened, to the second', async ($
   await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
-  // The first stored prompt's moment, to the second, not the moment the module
-  // loaded.
-  expect(texts).toContain(`   started at ${stampLabel(Date.parse(String(rows[0]!.timestamp)))}`)
+  // The first stored prompt's moment, not the moment the module loaded, drawn
+  // as a block heading: the label at the prompt's column, the stamp flush with
+  // the pane's right edge.
+  const head = texts.find((text: string) => text.startsWith('   current session'))!
+  expect(head.endsWith(stampShort(Date.parse(String(rows[0]!.timestamp))))).toBe(true)
+  expect(cellWidth(head)).toBe(40)
 })
 
 test('the pane head names only when the conversation started', async ($, on) => {
@@ -606,9 +609,9 @@ test('the pane head names only when the conversation started', async ($, on) => 
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   await clock.settle()
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
-  // The start stamp is the whole head; the prompt being read is marked by its
+  // The start line is the whole head; the prompt being read is marked by its
   // own row, so the head does not repeat it.
-  expect(texts.some((text: string) => /^ {3}started at \d{4}-/.test(text))).toBe(true)
+  expect(texts.some((text: string) => /^ {3}current session/.test(text))).toBe(true)
   expect(texts.some((text: string) => text.includes('▸'))).toBe(false)
   expect(texts.filter((text: string) => text.includes('a prompt far too')).length).toBe(1)
 })
@@ -635,7 +638,11 @@ test('a resumed session marks where the history it brought ends', async ($, on) 
   expect(divider).toBeGreaterThanOrEqual(0)
   expect(after).toBeGreaterThan(divider)
   // The head still names the conversation's original start, not the resume.
-  expect(drawn.some((node: any) => node.type === 'Text' && String(node.text) === `   started at ${stampLabel(Date.parse(String(history[0]!.timestamp)))}`)).toBe(true)
+  const head = drawn
+    .filter((node: any) => node.type === 'Text')
+    .map((node: any) => String(node.text))
+    .find((text: string) => text.startsWith('   current session'))
+  expect(head?.endsWith(stampShort(Date.parse(String(history[0]!.timestamp))))).toBe(true)
 })
 
 test('a fresh session draws no resume divider', async ($, on) => {
@@ -1136,7 +1143,7 @@ test('a narrow pane draws no head and a divider that fits', async ($, on) => {
   for (const text of texts) expect(cellWidth(text)).toBeLessThanOrEqual(8)
   // The head would have no room for a prompt name, so it is left out.
   expect(texts.some((text: string) => /^ {3}▸/.test(text))).toBe(false)
-  expect(texts.some((text: string) => /^ {3}started at \d{4}-/.test(text))).toBe(false)
+  expect(texts.some((text: string) => /^ {3}current session/.test(text))).toBe(false)
   // The divider is cut to the pane, but still marks the boundary.
   expect(texts.some((text: string) => text.includes('resu'))).toBe(true)
 })
@@ -1153,7 +1160,7 @@ test('a pane too short for the head starts its rows at the top line', async ($, 
   // The head would leave no room for a prompt on a one-row pane, so it is left
   // out and the row takes the top.
   expect(texts.some((text: string) => /^ {3}▸/.test(text))).toBe(false)
-  expect(texts.some((text: string) => /^ {3}started at \d{4}-/.test(text))).toBe(false)
+  expect(texts.some((text: string) => /^ {3}current session/.test(text))).toBe(false)
   expect(texts.some((text: string) => text === ' history prompt')).toBe(true)
 })
 
@@ -1165,7 +1172,7 @@ test('with no prompt being read the head names only the start', async ($, on) =>
   await $.command.run({ command: 'session-rail', args: 'vertical' })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
-  expect(texts.some((text: string) => /^ {3}started at \d{4}-/.test(text))).toBe(true)
+  expect(texts.some((text: string) => /^ {3}current session/.test(text))).toBe(true)
   // No row is on screen, so no prompt is named: the head keeps the start line
   // alone rather than a bare marker.
   expect(texts.some((text: string) => text.includes('▸'))).toBe(false)
@@ -5299,7 +5306,9 @@ test('an earlier session is read one level at a time, on a press', async ($, on)
     const load = await rail.find({ type: 'Button', key: 'load-parent' })
     const headings = (await rail.findAll({ type: 'Text' }))
       .map((node: any) => String(node.text))
-      .filter((text: string) => /^ {3}(prompts from|current session)/.test(text))
+      // The pane head is a "current session" line too, dated; the block
+      // headings here carry no stamp (their rows have no timestamp).
+      .filter((text: string) => /^ {3}(prompts from|current session)/.test(text) && !/\d{2}-\d{2} \d{2}:\d{2}$/.test(text))
     await rail.unmount()
     return { out, isOffered: load !== undefined, headings }
   }
@@ -5367,15 +5376,21 @@ test('each session the rail lists is dated at its first prompt', async ($, on) =
   await press.press({ key: 'load-parent' })
   await press.unmount()
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
-  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  const nodes = await rail.findAll({ type: 'Text' })
+  const texts = nodes.map((node: any) => String(node.text))
   // Each block's heading carries the moment its session opened, flush with the
   // pane's right edge, and the head above them draws no second start.
   const parentHeader = texts.find((text: string) => text.startsWith('   prompts from aaaaaaaa ⧉'))!
   const currentHeader = texts.find((text: string) => text.startsWith('   current session'))!
+  // This session's own block takes the accent, the same as an earlier
+  // session's heading: both name where a block starts.
+  expect((nodes.find((node: any) => String(node.text).startsWith('   current session')) as any).props.color).toBe(ACCENT)
   expect(parentHeader.endsWith(stampShort(Date.parse(parentSent)))).toBe(true)
   expect(currentHeader.endsWith(stampShort(Date.parse(currentSent)))).toBe(true)
   expect(cellWidth(parentHeader)).toBe(cellWidth(currentHeader))
-  expect(texts.some((text: string) => text.includes('started at'))).toBe(false)
+  // The blocks date themselves, so the pane head draws no second start line:
+  // one "current session" heading, the current block's.
+  expect(texts.filter((text: string) => /^ {3}current session/.test(text))).toHaveLength(1)
 })
 
 test("a branch heads its copied prompts with the session they came from, and keeps them jumpable", async ($, on) => {
@@ -5403,10 +5418,12 @@ test("a branch heads its copied prompts with the session they came from, and kee
       .map((b: any) => String(b.props.label)),
   ).toEqual([' ─ first prompt', ' ─ second prompt', ' ─ after the branch'])
   // The block is headed with the session it came from. Its prompts are here,
-  // so no "load parent" offer waits above them.
+  // so no "load parent" offer waits above them. The branch's own part is
+  // labeled "current session", below its copied history: nothing has been
+  // sent since it started, so the label waits at the end.
   expect(await rail.find({ type: 'Text', text: /prompts from aaaaaaaa/ })).toBeDefined()
   expect(await rail.find({ type: 'Button', key: 'load-parent' })).toBeUndefined()
-  expect(await rail.find({ type: 'Text', text: /current session/ })).toBeUndefined()
+  expect(await rail.find({ type: 'Text', text: /current session/ })).toBeDefined()
 })
 
 test('a branch keeps its heading when the engine lists the prompts too', async ($, on) => {
@@ -5432,7 +5449,7 @@ test('a branch keeps its heading when the engine lists the prompts too', async (
   ).toEqual([' ─ first prompt', ' ─ after the branch'])
 })
 
-test('a /branch start draws a branched line rather than a resumed one', async ($, on) => {
+test('a /branch start marks the boundary as the current session', async ($, on) => {
   mock.clock(on)
   const disk = { ...beneath(TRANSCRIPT), isMissing: true }
   const store = world(on, {}, TRANSCRIPT, disk)
@@ -5443,15 +5460,16 @@ test('a /branch start draws a branched line rather than a resumed one', async ($
   await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt('after the branch', null) })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
-  // A branch starts through the resume path, but naming it a resume would
-  // read as the wrong command.
-  expect(texts.some((text: string) => /^ {3}branched at /.test(text))).toBe(true)
+  // A branch starts through the resume path, but it begins the conversation's
+  // own part: it is headed the way a continued session's own block is, not
+  // named as a resume.
+  expect(texts.some((text: string) => /^ {3}current session/.test(text))).toBe(true)
   expect(texts.some((text: string) => text.includes('resumed at'))).toBe(false)
   // The kind is kept with the boundary, so the next process draws it too.
   expect((store.state.get('resume') as any)?.branches).toHaveLength(1)
 })
 
-test('a branch transcript names a stored boundary as a branch', async ($, on) => {
+test('a branch transcript names a stored boundary as the current session', async ($, on) => {
   mock.clock(on)
   const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
   const disk = beneath(jsonl([
@@ -5469,8 +5487,292 @@ test('a branch transcript names a stored boundary as a branch', async ($, on) =>
   await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
-  expect(texts.some((text: string) => /^ {3}branched at /.test(text))).toBe(true)
+  expect(texts.some((text: string) => /^ {3}current session/.test(text))).toBe(true)
   expect(texts.some((text: string) => text.includes('resumed at'))).toBe(false)
+})
+
+test('a fork heads the history it shared with its parent', async ($, on) => {
+  const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const note = [
+    '<task-notification>',
+    '<fork-source>',
+    "This session began as a fork (copy) of another session that is still running: a session whose self-reported name is 'parent-1'. The conversation up to 2026-09-24T00:10:00.000Z is shared history with it; the two sessions have since diverged.",
+    '</fork-source>',
+    '</task-notification>',
+  ].join('\n')
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'u1', timestamp: '2026-09-24T00:00:00.000Z', origin: { kind: 'human' }, message: { role: 'user', content: 'shared prompt' } },
+    // A copied reply keeps the session that wrote it in `session_id` (snake).
+    { type: 'assistant', uuid: 'a1', sessionId: 's1', session_id: parentId, timestamp: '2026-09-24T00:00:05.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'reply' }] } },
+    { type: 'user', uuid: 'n1', timestamp: '2026-09-24T00:10:01.000Z', origin: { kind: 'task-notification' }, message: { role: 'user', content: note } },
+    { type: 'user', uuid: 'u2', timestamp: '2026-09-24T00:11:00.000Z', origin: { kind: 'human' }, message: { role: 'user', content: 'after the fork' } },
+    // A reply written after the fork keeps the parent's id on the row too; it
+    // must not pass the session's own prompt off as copied.
+    { type: 'assistant', uuid: 'a2', sessionId: 's1', session_id: parentId, timestamp: '2026-09-24T00:11:01.000Z', message: { role: 'assistant', content: [{ type: 'text', text: 'reply 2' }] } },
+  ]))
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'fork', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  // Only the history shared before the fork is headed; the session's own
+  // prompt below the note is not.
+  const from = texts.filter((text: string) => /^ {3}prompts from aaaaaaaa/.test(text))
+  expect(from).toHaveLength(1)
+  expect(texts.some((text: string) => /^ {3}current session/.test(text))).toBe(true)
+  // The copied rows are in this file, so their prompt stays jumpable.
+  expect(
+    (await rail.findAll({ type: 'Button' }))
+      .filter((b: any) => String(b.props.key).startsWith('jump-'))
+      .map((b: any) => String(b.props.label)),
+  ).toEqual([' ─ shared prompt', ' ─ after the fork'])
+})
+
+test('a branch file reads its stamps, not the fork note it copied', async ($, on) => {
+  const branchId = 'bbbbbbbb-2222-4222-8222-222222222222'
+  const olderId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const note = "This session began as a fork (copy) of another session. The conversation up to 2026-09-24T00:10:00.000Z is shared history with it."
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'u1', sessionId: 's1', session_id: branchId, timestamp: '2026-09-24T00:11:00.000Z', forkedFrom: { sessionId: branchId, messageUuid: 'u1' }, origin: { kind: 'human' }, message: { role: 'user', content: 'branched prompt' } },
+    { type: 'user', uuid: 'n1', sessionId: 's1', origin: { kind: 'task-notification' }, timestamp: '2026-09-24T00:12:00.000Z', message: { role: 'user', content: note } },
+    // Written before the note's moment, under another session's id, and not
+    // copied: the note's window alone would name it a block of that session.
+    { type: 'user', uuid: 'u2', sessionId: 's1', session_id: olderId, timestamp: '2026-09-24T00:05:00.000Z', origin: { kind: 'human' }, message: { role: 'user', content: 'own prompt' } },
+  ]))
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'fork', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  // The copies' own stamps say which session they came from; the note copied
+  // along with them would otherwise head the session's own prompt too.
+  expect(texts.filter((text: string) => /^ {3}prompts from bbbbbbbb ⧉/.test(text))).toHaveLength(1)
+  expect(texts.some((text: string) => /^ {3}prompts from aaaaaaaa/.test(text))).toBe(false)
+})
+
+test("a continued file's copied rows add no second block heading", async ($, on) => {
+  const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+    // A row the continuation copied: it keeps the session that wrote it,
+    // which must not read as a block of its own.
+    { type: 'user', uuid: 'u1', parentUuid: 'c0', origin: { kind: 'human' }, message: { role: 'user', content: 'copied prompt' } },
+    { type: 'assistant', uuid: 'a1', sessionId: 's1', session_id: p1, message: { role: 'assistant', content: [{ type: 'text', text: 'reply' }] } },
+    { type: 'user', uuid: 'u2', parentUuid: 'a1', origin: { kind: 'human' }, message: { role: 'user', content: 'own prompt' } },
+    { type: 'assistant', uuid: 'a2', sessionId: 's1', message: { role: 'assistant', content: [{ type: 'text', text: 'reply 2' }] } },
+  ]))
+  disk.extra = {
+    [p1]: jsonl([{ type: 'user', uuid: 'p0', origin: { kind: 'human' }, message: { role: 'user', content: 'older prompt' } }]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  await press.press({ key: 'load-parent' })
+  await press.unmount()
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const lines = (await rail.findAll({ type: 'Text' }))
+    .map((node: any) => String(node.text))
+    .filter((text: string) => /^ {3}(prompts from|current session)/.test(text))
+  // The head above the list names this session once; the block heading inside
+  // the list names it again where its own part opens. The copied rows between
+  // them are this file's history, not a block of their own.
+  const head = lines.filter((text: string) => /^ {3}current session +\d{2}-\d{2} \d{2}:\d{2}$/.test(text))
+  expect(head).toHaveLength(1)
+  expect(lines.filter((text: string) => !head.includes(text))).toEqual([
+    '   prompts from aaaaaaaa ⧉',
+    '   current session',
+  ])
+})
+
+test("a continuation's own copies are not blocks of their own", async ($, on) => {
+  const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  // A continuation created by the fork machinery stamps the rows it copies
+  // with the session it copied them from — the same session its summary names.
+  const copied = (uuid: string, parentUuid: string | undefined, text: string, reply = false) => ({
+    type: reply ? 'assistant' : 'user',
+    uuid,
+    ...(parentUuid === undefined ? {} : { parentUuid }),
+    sessionId: 's1',
+    session_id: p1,
+    forkedFrom: { sessionId: p1, messageUuid: uuid },
+    ...(reply
+      ? { message: { role: 'assistant', content: [{ type: 'text', text }] } }
+      : { origin: { kind: 'human' }, message: { role: 'user', content: text } }),
+  })
+  const disk = beneath(jsonl([
+    copied('u1', undefined, 'copied prompt'),
+    copied('a1', 'u1', 'reply', true),
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'u2', parentUuid: 'c0', origin: { kind: 'human' }, message: { role: 'user', content: 'own prompt' } },
+    { type: 'assistant', uuid: 'a2', sessionId: 's1', message: { role: 'assistant', content: [{ type: 'text', text: 'reply 2' }] } },
+  ]))
+  disk.extra = {
+    [p1]: jsonl([{ type: 'user', uuid: 'p0', origin: { kind: 'human' }, message: { role: 'user', content: 'older prompt' } }]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  await press.press({ key: 'load-parent' })
+  await press.unmount()
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const lines = (await rail.findAll({ type: 'Text' }))
+    .map((node: any) => String(node.text))
+    .filter((text: string) => /^ {3}(prompts from|current session)/.test(text) && !/\d{2}-\d{2} \d{2}:\d{2}$/.test(text))
+  // The copies name the session this file continues, whose block the merge
+  // heads; a heading from them would hide this session's own part.
+  expect(lines).toEqual(['   prompts from aaaaaaaa ⧉', '   current session'])
+})
+
+test('a branch of a continued session keeps its branch blocks', async ($, on) => {
+  const continuedFrom = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const branchedFrom = 'bbbbbbbb-2222-4222-8222-222222222222'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const disk = beneath(jsonl([
+    // The branch copied these from the session it was branched from…
+    { type: 'user', uuid: 'u1', sessionId: 's1', session_id: branchedFrom, forkedFrom: { sessionId: branchedFrom, messageUuid: 'u1' }, origin: { kind: 'human' }, message: { role: 'user', content: 'branched prompt' } },
+    { type: 'assistant', uuid: 'a1', parentUuid: 'u1', sessionId: 's1', session_id: branchedFrom, forkedFrom: { sessionId: branchedFrom, messageUuid: 'a1' }, message: { role: 'assistant', content: [{ type: 'text', text: 'reply' }] } },
+    // …and this summary, copied with them (and stamped like them), names the
+    // session that branched session in turn continued: not where these rows
+    // came from.
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: continuedFrom, forkedFrom: { sessionId: branchedFrom, messageUuid: 'c0' }, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'u2', parentUuid: 'c0', origin: { kind: 'human' }, message: { role: 'user', content: 'own prompt' } },
+    { type: 'assistant', uuid: 'a2', sessionId: 's1', message: { role: 'assistant', content: [{ type: 'text', text: 'reply 2' }] } },
+  ]))
+  disk.extra = {
+    [continuedFrom]: jsonl([{ type: 'user', uuid: 'g0', origin: { kind: 'human' }, message: { role: 'user', content: 'grandparent prompt' } }]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'fork', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  expect(texts.filter((text: string) => /^ {3}prompts from bbbbbbbb ⧉/.test(text))).toHaveLength(1)
+  // The branch's rows are in this file, so they stay jumpable.
+  expect(
+    (await rail.findAll({ type: 'Button' }))
+      .filter((b: any) => String(b.props.key).startsWith('jump-'))
+      .map((b: any) => String(b.props.label)),
+  ).toEqual([' ─ branched prompt', ' ─ own prompt'])
+  await rail.unmount()
+  // Reading the session the branch's source continued heads that block too,
+  // and this session's own part opens after the branch's: the branch's copied
+  // rows are blocks, not the place where this session's part begins.
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  await press.press({ key: 'load-parent' })
+  await press.unmount()
+  const loaded = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  expect(
+    (await loaded.findAll({ type: 'Text' }))
+      .map((node: any) => String(node.text))
+      .filter((text: string) => /^ {3}(prompts from|current session)/.test(text) && !/\d{2}-\d{2} \d{2}:\d{2}$/.test(text)),
+  ).toEqual(['   prompts from aaaaaaaa ⧉', '   prompts from bbbbbbbb ⧉', '   current session'])
+})
+
+test('a session compacted and then branched keeps its branch block', async ($, on) => {
+  const source = 'bbbbbbbb-2222-4222-8222-222222222222'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const copied = (uuid: string, parentUuid: string | undefined, text: string) => ({
+    type: 'user',
+    uuid,
+    ...(parentUuid === undefined ? {} : { parentUuid }),
+    sessionId: 's1',
+    session_id: source,
+    forkedFrom: { sessionId: source, messageUuid: uuid },
+    origin: { kind: 'human' },
+    message: { role: 'user', content: text },
+  })
+  // The source had compacted itself, so the branch copied its summary along
+  // with the rest: the summary names the session the branch copied from, just
+  // as the rows' stamps do. It was a branch, not a continuation.
+  const disk = beneath(jsonl([
+    copied('u1', undefined, 'before the compact'),
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: source, forkedFrom: { sessionId: source, messageUuid: 'c0' }, message: { role: 'user', content: summary } },
+    { type: 'assistant', uuid: 'a0', parentUuid: 'u1', sessionId: 's1', session_id: source, forkedFrom: { sessionId: source, messageUuid: 'a0' }, message: { role: 'assistant', content: [{ type: 'text', text: 'reply' }] } },
+    copied('u2', 'c0', 'after the compact'),
+    { type: 'assistant', uuid: 'a2', parentUuid: 'u2', sessionId: 's1', session_id: source, forkedFrom: { sessionId: source, messageUuid: 'a2' }, message: { role: 'assistant', content: [{ type: 'text', text: 'reply 2' }] } },
+    { type: 'user', uuid: 'u3', parentUuid: 'a2', origin: { kind: 'human' }, message: { role: 'user', content: 'own prompt' } },
+    { type: 'assistant', uuid: 'a3', sessionId: 's1', message: { role: 'assistant', content: [{ type: 'text', text: 'reply 3' }] } },
+  ]))
+  disk.extra = {
+    [source]: jsonl([{ type: 'user', uuid: 's0', origin: { kind: 'human' }, message: { role: 'user', content: 'source prompt' } }]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'fork', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  expect(texts.filter((text: string) => /^ {3}prompts from bbbbbbbb ⧉/.test(text))).toHaveLength(1)
+  // The copied prompts are in this file: the block stays jumpable rather than
+  // waiting behind the load row.
+  expect(
+    (await rail.findAll({ type: 'Button' }))
+      .filter((b: any) => String(b.props.key).startsWith('jump-'))
+      .map((b: any) => String(b.props.label)),
+  ).toEqual([' ─ before the compact', ' ─ after the compact', ' ─ own prompt'])
+})
+
+test('the band marks where an earlier session ends and this one begins', async ($, on) => {
+  const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'u1', parentUuid: 'c0', origin: { kind: 'human' }, message: { role: 'user', content: 'own prompt' } },
+  ]))
+  disk.extra = {
+    [p1]: jsonl([{ type: 'user', uuid: 'p0', origin: { kind: 'human' }, message: { role: 'user', content: 'older prompt' } }]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  await press.press({ key: 'load-parent' })
+  await press.unmount()
+  await $.command.run({ command: 'session-rail', args: 'horizontal' })
+  // The band has no row to head, so the arrow stands in for the pane's
+  // "current session" heading: it marks the prompt that opens this part.
+  const band = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'AbovePrompt', props: BAND })
+  const texts = (await band.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  expect(texts.some((text: string) => text.includes('⇡ #2'))).toBe(true)
+})
+
+test('the offer to read an earlier session sits above the pane head', async ($, on) => {
+  const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'u1', parentUuid: 'c0', origin: { kind: 'human' }, message: { role: 'user', content: 'own prompt' } },
+  ]))
+  disk.extra = {
+    [p1]: jsonl([{ type: 'user', uuid: 'p0', origin: { kind: 'human' }, message: { role: 'user', content: 'older prompt' } }]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const nodes = await rail.findAll({})
+  const offer = nodes.findIndex((node: any) => node.type === 'Button' && node.props?.key === 'load-parent')
+  const head = nodes.findIndex((node: any) => node.type === 'Text' && /^ {3}current session/.test(String(node.text)))
+  // The earlier session's prompts would open above this one's own: the row
+  // that reads them is drawn where that block will go, above the head.
+  expect(offer).toBeGreaterThanOrEqual(0)
+  expect(head).toBeGreaterThan(offer)
+})
+
+test('an empty conversation still offers the session it continues, above its head', async ($, on) => {
+  const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+  ]))
+  disk.extra = {
+    [p1]: jsonl([{ type: 'user', uuid: 'p0', origin: { kind: 'human' }, message: { role: 'user', content: 'older prompt' } }]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  // No prompt has been sent yet: the empty pane still dates itself and still
+  // offers the history, the offer first.
+  const nodes = await rail.findAll({})
+  const offer = nodes.findIndex((node: any) => node.type === 'Button' && node.props?.key === 'load-parent')
+  const head = nodes.findIndex((node: any) => node.type === 'Text' && /^ {3}current session/.test(String(node.text)))
+  expect(offer).toBeGreaterThanOrEqual(0)
+  expect(head).toBeGreaterThan(offer)
 })
 
 test('a resumed session whose parent file was a branch keeps its resumed line', async ($, on) => {
@@ -5496,5 +5798,4 @@ test('a resumed session whose parent file was a branch keeps its resumed line', 
   // The parent block's copied rows say that file was a branch; this
   // conversation still began with a resume.
   expect(texts.some((text: string) => text.includes('resumed at'))).toBe(true)
-  expect(texts.some((text: string) => text.includes('branched at'))).toBe(false)
 })

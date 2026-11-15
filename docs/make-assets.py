@@ -495,6 +495,11 @@ START_STAMP = "2026-09-24 14:01:58"
 HEAD_ROWS = 1
 
 
+def short_stamp(stamp: str) -> str:
+    """`2026-09-24 14:01:58` -> `09-24 14:01`, the heading's short stamp."""
+    return stamp[5:16] if len(stamp) >= 16 else stamp
+
+
 def rail_rows(entries: list[Prompt], current: int, hover: int | None, width_cells: int, expand: bool) -> list[RailRow]:
     """Rows as they stack: a hover card floats over them and moves none."""
     rows: list[RailRow] = []
@@ -576,10 +581,12 @@ def draw_rail(
     stack = rail_rows(entries, current, hover, width_cells, expand)
     hover_row = next((row for row in stack if row.index == hover), None)
 
-    # The pane's head: when the conversation opened. It starts at the text
+    # The pane's head: the conversation's own block, its start time flush with
+    # the pane's right edge as every block heading's is. It starts at the text
     # column, as the resume and compacted lines do, so a card opening above
     # covers it whole.
-    label(d, x + 3 * CELL, y + LINE / 2, f"started at {START_STAMP}", accent)
+    label(d, x + 3 * CELL, y + LINE / 2, "current session", accent)
+    label(d, x + (width_cells + 2) * CELL, y + LINE / 2, short_stamp(START_STAMP), accent, anchor="rm")
 
     # Where the card opens, mirroring the plugin's cardFit.
     lines: list[tuple[str, bool]] = []
@@ -709,7 +716,7 @@ def draw_copy_mark(d: ImageDraw.ImageDraw, x: float, y_center: float, color: str
 
 
 def pane_head(start: str = START_STAMP) -> PaneRow:
-    return PaneRow("head", f"started at {start}")
+    return PaneRow("head", "current session", short_stamp(start))
 
 
 def pane_heading(text: str, time: str = "", accent: bool = False) -> PaneRow:
@@ -753,7 +760,11 @@ def draw_pane(
         cy = y + (row_index - first) * LINE + LINE / 2
         top = y + (row_index - first) * LINE
         if row.kind == "head":
+            # The conversation's own block: the label at the text column and
+            # the start time flush with the pane's right edge.
             label(d, x + 3 * CELL, cy, row.text, accent)
+            if row.time:
+                label(d, right, cy, row.time, accent, anchor="rm")
         elif row.kind == "heading":
             color = accent if row.accent else skin.dim
             text = row.text
@@ -1263,7 +1274,7 @@ def still_continued(path: Path) -> None:
         pane_heading("prompts from 4f3a9c21 ⧉", "11-15 10:42", accent=True),
     ]
     rows += [pane_prompt(CONTINUED_PARENTS, index) for index in range(len(CONTINUED_PARENTS))]
-    rows.append(pane_heading("current session", "11-15 17:08"))
+    rows.append(pane_heading("current session", "11-15 17:08", accent=True))
     rows += [pane_prompt(CONTINUED_CURRENT, index) for index in range(len(CONTINUED_CURRENT))]
     draw_pane(d, 672, 64, 41, rows, current=2)
     draw_composer(d, 24, 560, 616, "Ask Claude to change something…")
@@ -1623,7 +1634,7 @@ def continued_rows(level: int) -> list[PaneRow]:
     if level >= 2:
         rows.append(pane_heading(f"prompts from {PARENT_TWO} ⧉", accent=True))
         rows += [pane_prompt(GIF_PARENT_TWO, index) for index in range(len(GIF_PARENT_TWO))]
-    rows.append(pane_heading("current session"))
+    rows.append(pane_heading("current session", accent=True))
     rows += [pane_prompt(CONTINUED_CURRENT, index) for index in range(len(CONTINUED_CURRENT))]
     return rows
 

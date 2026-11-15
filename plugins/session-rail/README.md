@@ -26,9 +26,10 @@ session-rail is a mod: a pane beside the transcript, or a row of bars above or b
 
 ## Resume, continue, fork
 
-- `/resume` draws a `resumed at …` line after the old run, over the first prompt of the new one. The head keeps the conversation's original start.
+- `/resume` draws a `resumed at …` line after the old run, over the first prompt of the new one. The head keeps the conversation's original start and reads `current session`.
 - A fork (`claude --resume <id> --fork-session`) or a context overflow is drawn as one conversation, one block per session: `prompts from <id> ⧉` dated at the pane's right edge, then `current session`. Press the heading to copy the full id.
-- A `/branch` started inside a session is drawn the same way from the branch's own transcript: each copied row names the session it came from. Its rows are in this file, so they stay jumpable and no load button is offered. The line at its start reads `branched at …`, where a `/resume`'s reads `resumed at …`.
+- A `/branch` started inside a session is drawn the same way from the branch's own transcript: each copied row names the session it came from. Its rows are in this file, so they stay jumpable and no load button is offered. The line at its start reads `current session`, dated at the pane's right edge, where a `/resume`'s reads `resumed at …`.
+- A `/fork` starts a new session on a copy of the running one. The rail heads the prompts it copied with `prompts from <id> ⧉`, and the fork point with `current session`. The copies carry no /branch stamp: the original writer's session id and the fork note's shared-history moment tell them from the rows written in the new session.
 - Earlier sessions are read on demand: `[ click to load parent … ]` loads one session per press, up to four back. Their rows are dotted, since no jump reaches them; a press explains why.
 
 ## Themes

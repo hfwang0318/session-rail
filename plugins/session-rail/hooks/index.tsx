@@ -165,6 +165,10 @@ export const promptTextOf = (raw: string): string | undefined => {
 }
 // A message uuid, as the transcript stores it (see rowKey).
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// The note a /fork writes into its transcript: the moment the two
+// conversations shared history to. Rows after it are the fork's own; rows
+// before it were copied from the parent session.
+const FORK_SHARED_UNTIL = /The conversation up to (\S+) is shared history/
 // A short key for a prompt's normalized text. The engine's session state can
 // be read by any plugin, so the count of prompts sent since a resume keeps a
 // hash rather than the text; the length makes a 32-bit collision rarer.
@@ -339,9 +343,10 @@ type Entry = {
   // into this file and keeps their `forkedFrom`; those blocks get the same
   // heading, but no `beside`, since a jump can reach rows held here.
   from?: string
-  // The prompt's row was copied by a /branch (see indexRows): the conversation
-  // began as a branch of another, and the line at the boundary reads
-  // `branched at …` rather than `resumed at …`.
+  // The prompt's row was copied from an earlier session: a /branch stamps its
+  // copies, a /fork keeps the writer's session id (see indexRows). The
+  // conversation began as a branch or fork of another, and the line at its
+  // start reads `current session` rather than `resumed at …`.
   forked?: boolean
   // The prompt opens this session's own part of a continued conversation: the
   // heading above it reads "current session".
@@ -802,6 +807,61 @@ const parseRows = (jsonl: string) => jsonl.split('\n').flatMap(line => (line.tri
 const indexRows = (rows: any[]): TranscriptIndex => {
   const live = liveBranch(rows)
   const prompts: IndexedPrompt[] = []
+  // A /branch stamps each copied row with the session it came from (see
+  // parseRow). A /fork copies rows without that stamp but keeps the writer's
+  // session id in `session_id` (snake), where `sessionId` names this file's
+  // session, and its note names the moment the two conversations shared
+  // history to: a row stamped after it was written here, however it is
+  // stamped. The note is only read when no row carries the /branch stamp.
+  const stamped = rows.some(row => typeof row.forkedFrom?.sessionId === 'string')
+  let sharedUntil: number | undefined
+  if (!stamped) {
+    for (const row of rows) {
+      const text = typeof row.message?.content === 'string' ? row.message.content : undefined
+      const at = text === undefined ? undefined : FORK_SHARED_UNTIL.exec(text)?.[1]
+      if (at !== undefined) {
+        const parsed = Date.parse(at)
+        if (Number.isFinite(parsed)) sharedUntil = parsed
+        break
+      }
+    }
+  }
+  // The session this file continues, read from the summary the engine wrote at
+  // the boundary (see parentSession). A continuation copies its predecessor's
+  // rows into the new file too, so those rows keep the id they were written
+  // under — which says nothing about a block here, since the history they
+  // belong to is the merge's. A /branch stamp is different: it names the
+  // session whose rows were copied into this file, and those rows are listed
+  // here, so they are blocks (see continueFrom for the one case that repeats
+  // the merge's heading).
+  let continuedTo: string | undefined
+  for (const row of rows) {
+    if (
+      row.isCompactSummary === true && typeof row.session_id === 'string' &&
+      UUID.test(row.session_id) && row.session_id !== row.sessionId
+    ) {
+      continuedTo = row.session_id
+      break
+    }
+  }
+  // The session a row was copied from, when it was copied. A /branch stamps
+  // the rows it copies; that stamp is read as is, so a session compacted and
+  // then branched keeps its blocks. A /fork stamps nothing: its copies keep
+  // the writer's id in `session_id` (snake), and its note names the moment the
+  // two conversations shared history to, so a row written after it is this
+  // session's however it is stamped. The note is only read when no row carries
+  // the /branch stamp, and never in a continued file, whose copies carry the
+  // predecessor's id for a different reason (see continuedTo).
+  const originOf = (row: any): string | undefined => {
+    const fork = row.forkedFrom?.sessionId
+    if (typeof fork === 'string') return fork
+    if (continuedTo !== undefined) return undefined
+    if (sharedUntil === undefined) return undefined
+    const written = row.session_id
+    if (typeof written !== 'string' || !UUID.test(written) || written === row.sessionId) return undefined
+    const at = Date.parse(row.timestamp)
+    return Number.isFinite(at) && at <= sharedUntil ? written : undefined
+  }
   // The session this file continues, from the summary the engine wrote at the
   // boundary. A /compact summary names the same session; only one from another
   // session opens a file whose history lies elsewhere.
@@ -816,11 +876,10 @@ const indexRows = (rows: any[]): TranscriptIndex => {
   // A live /compact boundary: the next prompt on the live branch opens the
   // segment after it.
   let afterBreak = false
-  // The session the last listed prompt was copied from, when the transcript is
-  // a /branch's: each copied row names the session it came from (see
-  // parseRow), so a change heads a new block. A row written in this file has
-  // none, and its prompt ends the copied blocks without a heading of its own.
-  let copiedFrom: string | undefined
+  // The session each listed prompt was copied from, in the prompts' order,
+  // filled in as its reply rows are read (see originOf). Two prompts of the
+  // same session stay in one block; a change heads the next block.
+  const promptOrigins: (string | undefined)[] = []
   for (const row of rows) {
     // The boundary row is not always on the parent chain (a summary that links
     // back skips it), but its place in the file still divides the segments.
@@ -844,6 +903,9 @@ const indexRows = (rows: any[]): TranscriptIndex => {
       if (prompts.length === 0 || !turn) continue
       // A reply places the reader under the latest prompt, delivered or not.
       const owner = prompts.length - 1
+      // A copied prompt's own row carries no stamp; the rows answering it do.
+      const origin = originOf(row)
+      if (origin !== undefined && promptOrigins[owner] === undefined) promptOrigins[owner] = origin
       owners.push([row.uuid, owner])
       if (row.isApiErrorMessage === true) turn.outcome = 'error'
       const at = Date.parse(row.timestamp)
@@ -866,17 +928,14 @@ const indexRows = (rows: any[]): TranscriptIndex => {
       const text = typeof prompt === 'string' ? promptTextOf(prompt) : undefined
       if (text === undefined) continue
       const sentAt = Date.parse(row.timestamp)
-      const origin = row.forkedFrom?.sessionId
       prompts.push({
         id: row.uuid,
         text,
         queued: true,
         ...(Number.isFinite(sentAt) ? { sentAt } : {}),
         ...(afterBreak ? { breakBefore: true } : {}),
-        ...(origin !== undefined ? { forked: true } : {}),
-        ...(origin !== undefined && origin !== copiedFrom ? { from: origin } : {}),
       })
-      copiedFrom = origin
+      promptOrigins.push(originOf(row))
       afterBreak = false
       turns.push({ files: [] })
       times.push({ start: NaN, last: NaN })
@@ -908,21 +967,31 @@ const indexRows = (rows: any[]): TranscriptIndex => {
     const promptText = promptTextOf(text)
     if (promptText === undefined) continue
     const at = Date.parse(row.timestamp)
-    const origin = row.forkedFrom?.sessionId
     prompts.push({
       id: row.uuid,
       text: promptText,
       ...(Number.isFinite(at) ? { sentAt: at } : {}),
       ...(afterBreak ? { breakBefore: true } : {}),
-      ...(origin !== undefined ? { forked: true } : {}),
-      ...(origin !== undefined && origin !== copiedFrom ? { from: origin } : {}),
     })
-    copiedFrom = origin
+    promptOrigins.push(originOf(row))
     afterBreak = false
     turns.push({ files: [] })
     started = prompts.length - 1
     times.push({ start: at, last: at })
   }
+  // Mark each copied prompt, and head the first of each block with the session
+  // it came from. A prompt written here has no origin, and ends the block.
+  let copiedFrom: string | undefined
+  prompts.forEach((prompt, i) => {
+    const origin = promptOrigins[i]
+    if (origin === undefined) {
+      copiedFrom = undefined
+      return
+    }
+    prompt.forked = true
+    if (origin !== copiedFrom) prompt.from = origin
+    copiedFrom = origin
+  })
   turns.forEach((turn, i) => {
     const time = times[i]
     if (time && Number.isFinite(time.start) && time.last > time.start) turn.spanMs = time.last - time.start
@@ -1179,12 +1248,35 @@ const continueFrom = (parent: TranscriptIndex, child: TranscriptIndex, parentId:
     ...keep.map((i, rank) => ({ ...parent.prompts[i]!, beside: true, ...(rank === 0 ? { from: parentId } : {}) })),
     ...child.prompts,
   ]
-  // This session's own rows begin after the parent's, headed "current
-  // session". Only the first merge sets it: a deeper level's child is already
-  // headed, its first row naming the session it in turn came from.
-  if (keep.length < prompts.length && !child.prompts.some(prompt => prompt.from !== undefined)) {
-    prompts[keep.length] = { ...prompts[keep.length]!, currentBlock: true }
+  // A copy the child carries of the very session just merged is part of the
+  // block the merge heads: the parent's own block would otherwise be named
+  // twice, once for the prompts kept from its transcript and again for the
+  // copies beside them. The copies keep their ticks and jumps; only the second
+  // heading goes. Nothing is cleared when the merge kept no prompt, because
+  // then its heading is not drawn and the copies' is the only one.
+  let lastHeaded = -1
+  if (keep.length > 0) {
+    for (let i = keep.length; i < prompts.length; i++) {
+      const prompt = prompts[i]!
+      if (prompt.from !== parentId) continue
+      const copy = { ...prompt }
+      delete copy.from
+      prompts[i] = copy
+      lastHeaded = i
+    }
   }
+  // This session's own rows begin after the parent's, headed "current
+  // session". A deeper level's child may already be headed, its first rows
+  // naming the session it in turn came from, and a child that carries blocks of
+  // its own (a /branch of a continued session heads what it copied) has its own
+  // part further down: it opens after the last of them — or after the copies
+  // that now sit under the merge's heading.
+  let last = keep.length - 1
+  prompts.forEach((prompt, i) => {
+    if (prompt.from !== undefined) last = i
+  })
+  const own = Math.max(last + 1, lastHeaded + 1)
+  if (own < prompts.length) prompts[own] = { ...prompts[own]!, currentBlock: true }
   return {
     prompts,
     turns: [...keep.map(i => parent.turns[i] ?? { files: [] }), ...child.turns],
@@ -1606,7 +1698,7 @@ type ResumeState = {
   at: number
   moments: number[]
   // The moments whose boundary was a /branch, a subset of `moments`: the line
-  // they draw reads `branched at …`, where a resume's reads `resumed at …`.
+  // they draw reads `current session`, where a resume's reads `resumed at …`.
   branches: number[]
   // Whether `total` and `since` describe every prompt sent since `at`. False
   // when the moments came from the store of an earlier process, whose sends
@@ -2048,7 +2140,7 @@ export const register: Register = (on, options) => {
   // draws a line above the first prompt sent after it.
   let resumeMoments: number[] = []
   // The moments among them whose boundary was a /branch, a subset of
-  // `resumeMoments`: their line reads `branched at …`.
+  // `resumeMoments`: their line reads `current session`.
   let branchMoments: number[] = []
   // Whether the counts below describe every prompt sent since the latest
   // moment. True when the session state or a resume in this process gave them;
@@ -2118,7 +2210,7 @@ export const register: Register = (on, options) => {
   // end and the resumed one's start, and with no prompt between them the later
   // moment replaces the earlier rather than drawing a second line, taking the
   // later event's kind: a /branch ends the old session as a resume and starts
-  // the new one as a fork, and the line should say branched.
+  // the new one as a fork, whose line reads `current session`.
   const noteResumeMoment = (at: number, hadSince: boolean, branched: boolean) => {
     resumeMoments = nextResumeMoments(resumeMoments, at, hadSince)
     // A moment the pair rule replaced is no line: its kind goes with it.
@@ -2988,7 +3080,7 @@ export const register: Register = (on, options) => {
     )
     const currentIds = new Set((lastIndex?.prompts ?? []).filter(prompt => prompt.currentBlock === true).map(prompt => rowKey(prompt.id)))
     // The rows a /branch copied, which say the conversation began as a branch:
-    // the line at its start reads `branched at …`.
+    // the line at its start reads `current session`.
     const forkedIds = new Set((lastIndex?.prompts ?? []).filter(prompt => prompt.forked === true).map(prompt => rowKey(prompt.id)))
     const sentTimes = new Map(
       (lastIndex?.prompts ?? []).filter(prompt => prompt.sentAt !== undefined).map(prompt => [rowKey(prompt.id), prompt.sentAt]),
@@ -3161,7 +3253,7 @@ export const register: Register = (on, options) => {
       // This event's own moment, not whatever the shared state holds after the
       // awaits below: another conversation may have taken over meanwhile.
       // A /branch starts the new conversation through the resume path too, and
-      // says so in its source; its line reads `branched at …`.
+      // says so in its source; its line reads `current session`.
       const forked = e.source === 'fork'
       const resumeAt = e.source === 'resume' || forked ? Date.now() : undefined
       // Whether the segment ending here had prompts of its own: a resume after
@@ -3849,11 +3941,11 @@ export const register: Register = (on, options) => {
       const tight = `${left} ${time}`
       return cellWidth(tight) <= room ? `   ${tight}` : `   ${left}`
     }
-    // Whether a boundary was a /branch, whose line reads `branched at …`: the
-    // module was told so when the branch started, and a store written before
-    // it kept the kind leaves the transcript's own tell. A branch starts its
-    // session from another, so the oldest moment this conversation knows, with
-    // a copied row under it, is its own start.
+    // Whether a boundary was a /branch: the module was told so when the branch
+    // started, and a store written before it kept the kind leaves the
+    // transcript's own tell. A branch starts its session from another, so the
+    // oldest moment this conversation knows, with a copied row under it, is
+    // its own start.
     const branchBoundary = (moment: number) => {
       if (branchMoments.includes(moment)) return true
       // A continued session's parent prompts are `beside` and belong to the
@@ -3862,6 +3954,14 @@ export const register: Register = (on, options) => {
       const copied = lastIndex?.prompts.some(prompt => prompt.forked === true && prompt.beside !== true) === true
       return copied && resumeMoments[0] === moment
     }
+    // The line a boundary draws. A /resume names the moment it happened. A
+    // /branch opens the conversation's own part, which is what a continued
+    // session's own block is headed, and it is dated at the pane's right edge
+    // like that heading, so both session shapes read the same way.
+    const dividerLine = (moment: number) =>
+      branchBoundary(moment)
+        ? blockHeading(CURRENT_LABEL, moment)
+        : `   ${oneLine(`resumed at ${stampLabel(moment, timeZone)}`, Math.max(1, e.props.bodyColumns - 3))}`
     const nextColumns = isRail ? e.props.bodyColumns : 0
     if (nextColumns !== railColumns) {
       // The band decides from this whether it carries the cards.
@@ -3886,17 +3986,14 @@ export const register: Register = (on, options) => {
       const emptyRows = e.props.scroll?.bodyRows ?? 20
       const emptyLines = (resumedAt !== undefined ? 2 : 1) + (historyPending === undefined ? 0 : 1)
       if (e.props.bodyColumns < INLINE_REVEAL_MIN_COLUMNS || emptyRows < emptyLines) return <Text dimColor>·</Text>
-      const startLabel = stampLabel(startAt, timeZone)
       return (
         <Box flexDirection="column">
-          <Text color={accent} wrap="truncate-end">{`   ${oneLine(`started at ${startLabel}`, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
-          {resumedAt !== undefined ? (
-            <Text color={accent} wrap="truncate-end">
-              {`   ${oneLine(`${branchBoundary(resumedAt) ? 'branched' : 'resumed'} at ${stampLabel(resumedAt, timeZone)}`, Math.max(1, e.props.bodyColumns - 3))}`}
-            </Text>
-          ) : null}
           {historyPending !== undefined ? (
             <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
+          ) : null}
+          <Text color={accent} wrap="truncate-end">{blockHeading(CURRENT_LABEL, startAt)}</Text>
+          {resumedAt !== undefined ? (
+            <Text color={accent} wrap="truncate-end">{dividerLine(resumedAt)}</Text>
           ) : null}
         </Box>
       )
@@ -3922,8 +4019,9 @@ export const register: Register = (on, options) => {
       // start below it. No head is drawn where there is no room for text, nor
       // on a pane too short to show the head and a row under it.
       const headRows = hasRoom && bodyRows >= 2 && !firstOpens ? 1 : 0
-      // Only the head draws the start, so only it formats the stamp.
-      const startLabel = headRows > 0 ? `started at ${stampLabel(startAt, timeZone)}` : ''
+      // The head names the conversation's own block, dated the way a block
+      // heading is, so a fresh session and a resumed one read the same.
+      const headLine = headRows > 0 ? blockHeading(CURRENT_LABEL, startAt) : ''
       // Where the resume boundary falls: before the first prompt sent at or
       // after the resume, or after the last when none has been sent since. A
       // prompt sent since shares its text in `sinceResume` until the transcript
@@ -3991,7 +4089,6 @@ export const register: Register = (on, options) => {
               latestIndex,
             ).map(divider => [divider.index, divider.moment] as [number, number]),
       )
-      const resumeText = (moment: number) => `${branchBoundary(moment) ? 'branched' : 'resumed'} at ${stampLabel(moment, timeZone)}`
       const contentTops: number[] = []
       {
         // The offer is drawn only where the pane has room for text; a collapsed
@@ -4097,16 +4194,20 @@ export const register: Register = (on, options) => {
       // keeps a clock of its own, and a row with neither draws as a Button.
       return (
         <Box flexDirection="column">
+          {/* The offer sits above the head: what it loads are prompts older
+              than this session's own, so it is drawn where that block will
+              open, the way the band and the below line draw it above every
+              row. */}
+          {hasRoom && historyPending !== undefined ? (
+            <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
+          ) : null}
           {/* The pane's head: the conversation's start to the second, and the
               prompt being read, so the turn in view is named even when its row
               sits below the fold. */}
           {headRows > 0 ? (
             <Box key="rail-head" flexDirection="column">
-              <Text key="rail-head-start" color={accent} wrap="truncate-end">{`   ${oneLine(startLabel, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+              <Text key="rail-head-start" color={accent} wrap="truncate-end">{headLine}</Text>
             </Box>
-          ) : null}
-          {hasRoom && historyPending !== undefined ? (
-            <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
           ) : null}
           {entries.map((entry, i) => {
             // The row holds the whole prompt already: the card repeats only the
@@ -4146,7 +4247,7 @@ export const register: Register = (on, options) => {
             return (
               <Box key={`row-${i}`} flexDirection="column">
                 {dividerAt.has(i) ? (
-                  <Text color={accent} wrap="truncate-end">{`   ${oneLine(resumeText(dividerAt.get(i)!), Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+                  <Text color={accent} wrap="truncate-end">{dividerLine(dividerAt.get(i)!)}</Text>
                 ) : null}
                 {i > 0 && entry.breakBefore ? (
                   <Text color={accent} wrap="truncate-end">{`   ${oneLine('compacted', Math.max(1, e.props.bodyColumns - 3))}`}</Text>
@@ -4157,7 +4258,9 @@ export const register: Register = (on, options) => {
                       <Text color={accent} wrap="truncate-end">{heading}</Text>
                     </Button>
                   ) : (
-                    <Text color={bodyText} dimColor wrap="truncate-end">{heading}</Text>
+                    // The conversation's own block, in the same accent as an
+                    // earlier session's heading: both name where a block starts.
+                    <Text color={accent} wrap="truncate-end">{heading}</Text>
                   )
                 ) : null}
                 {scrolls && Client !== undefined ? (
@@ -4301,7 +4404,7 @@ export const register: Register = (on, options) => {
           {/* A resume whose history is the whole list still marks where the new
               prompts will start. */}
           {dividerAt.has(entries.length) ? (
-            <Text key="resume-tail" color={accent} wrap="truncate-end">{`   ${oneLine(resumeText(dividerAt.get(entries.length)!), Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+            <Text key="resume-tail" color={accent} wrap="truncate-end">{dividerLine(dividerAt.get(entries.length)!)}</Text>
           ) : null}
           {/* The hover card floats over the pane's foot, pinned there, so
               opening one takes no line from the rows: the row under the
@@ -4384,7 +4487,9 @@ export const register: Register = (on, options) => {
                     <Text color={accent}>{heading}</Text>
                   </Button>
                 ) : (
-                  <Text dimColor>{heading}</Text>
+                  // The conversation's own block, in the same accent as an
+                  // earlier session's heading: both name where a block starts.
+                  <Text color={accent}>{heading}</Text>
                 )
               ) : null}
               <Button key={`jump-${i}`} plain dimColor={i !== current} label={line} onPress={() => {}}>

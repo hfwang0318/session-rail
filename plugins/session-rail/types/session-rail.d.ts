@@ -4,7 +4,7 @@ declare module 'claude-code' {
     // drawing, so a bump draws them again, and them alone. `resume` keeps the
     // boundaries a resumed session draws: the session it belongs to, every
     // moment it was resumed at (oldest first, the latest also `at`), which of
-    // those was a `/branch` and reads `branched at …` rather than `resumed
+    // those was a `/branch` and draws `current session` rather than `resumed
     // at …`, how many prompts were sent since the latest in all, and how many
     // of each short text key (never the text itself). The engine holds it
     // across a hot reload of this module; a new process starts without it, and

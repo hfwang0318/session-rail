@@ -57,7 +57,7 @@
 
 ### 纵向：对话记录旁（默认）
 
-<img src="docs/vertical.png" alt="纵向 rail：对话记录旁的面板中每条提示词占一行；面板头部标出对话开始的时间，悬停被截断的行会展开完整提示词、发送时间、时长与改动文件" width="800">
+<img src="docs/vertical.png" alt="纵向 rail：对话记录旁的面板中每条提示词占一行；面板头部标出 current session 及其开始时间，悬停被截断的行会展开完整提示词、发送时间、时长与改动文件" width="800">
 
 `/session-rail vertical`。每条提示词一行，位于对话记录旁边。粗体的那一行就是正在阅读的提示词。
 
@@ -112,7 +112,7 @@
 
 <img src="docs/resume.png" alt="恢复后的会话面板：头部仍标出对话最初的开始时间，第一段运行的提示词结束处出现一条强调色的 resumed at 2026-11-15 09:12:04 线，其上是第二天早上发送的提示词，正在阅读的那条以粗体标出" width="800">
 
-`/resume` 会在新一段运行的第一条提示词上方画一条 `resumed at …`。头部仍是最初的开始时间，而不是恢复的那一刻。
+`/resume` 会在新一段运行的第一条提示词上方画一条 `resumed at …`。头部仍是最初的开始时间，而不是恢复的那一刻，并像所有块标题一样写作 `current session`。
 
 ### fork 或上下文溢出
 
@@ -181,7 +181,7 @@
 <details>
 <summary>/config 各行细节</summary>
 
-“Color scheme” 行选择 rail 的色板：`auto`（默认）跟随 `/config` 主题——内置名会说清它是浅色还是深色，自定义主题则读取其定义中的 `base`——主题一变就切换，无需重启；`dark` 或 `light` 固定一种。“Card theme” 行选择悬停卡片以及指针下的行或横条的颜色家族；每个家族都带深色和浅色面板，“Color scheme” 决定画哪一侧。“Accent follows card theme” 决定 accent——正在阅读的提示词、`compacted` 隔断、`started at …` / `resumed at …` 线、卡片统计行和跑马灯接缝——采用家族自己的 accent，还是保持 Claude 的橙色。“Expand on hover” 开关卡片；“Scroll on hover” 改为一行滚动。“Hover card background” 和 “Hover card text” 接受主题键或原始颜色，留空则跟随当前方案下家族的变体。自定义面板承载不了高亮色时，会退回它能承载的黑或白。
+“Color scheme” 行选择 rail 的色板：`auto`（默认）跟随 `/config` 主题——内置名会说清它是浅色还是深色，自定义主题则读取其定义中的 `base`——主题一变就切换，无需重启；`dark` 或 `light` 固定一种。“Card theme” 行选择悬停卡片以及指针下的行或横条的颜色家族；每个家族都带深色和浅色面板，“Color scheme” 决定画哪一侧。“Accent follows card theme” 决定 accent——正在阅读的提示词、`compacted` 隔断、`current session` 与 `prompts from <id> ⧉` 标题、`resumed at …` 线、卡片统计行和跑马灯接缝——采用家族自己的 accent，还是保持 Claude 的橙色。“Expand on hover” 开关卡片；“Scroll on hover” 改为一行滚动。“Hover card background” 和 “Hover card text” 接受主题键或原始颜色，留空则跟随当前方案下家族的变体。自定义面板承载不了高亮色时，会退回它能承载的黑或白。
 
 </details>
 
@@ -212,7 +212,7 @@
 
 | 颜色 | 含义 |
 | --- | --- |
-| accent | 正在阅读的提示词、`compacted` 隔断，以及 `started at …` / `resumed at …` 线 |
+| accent | 正在阅读的提示词、`compacted` 隔断、`current session` 与 `prompts from <id> ⧉` 标题，以及 `resumed at …` 线 |
 | card highlight | 悬停卡片的提示词和指针下的行或横条：深色主题白色，浅色主题黑色 |
 | body text | rail 的行、标签和卡片的装饰文字 |
 | card panel | 悬停卡片和选中行，来自 “Card theme” 家族 |
@@ -240,7 +240,9 @@ flowchart LR
 
 一个被续接到另一会话的会话——由 `/resume` 产生、用 `claude --resume <id> --fork-session` fork 出来，或因为上下文溢出被 Claude Code 延续——自己最新的文件开头有一行摘要，指明它所续接的会话。rail 会从同一目录读取那份对话记录，把它的提示词放到本会话之前，并去掉续接时复制过来的行。读取按需进行：最上方提示词之上有一个 `[ click to load more prompts from parent session <id> ]` 主按钮，每按一次读取一层会话；若更早的会话仍存在，这一行会再次出现（最多上溯四层）。那些提示词的行在另一份对话记录里，因此以点线刻度绘制，`next`/`prev` 会跳过它们；点击其中一条会说明原因，而不是留下一次失败的滚动。这一块的上方以 `prompts from <id> ⧉` 为标题——按下它会复制完整的 id，也就是 `/resume` 所接受的那个——本会话自己的部分则以 `current session` 为标题；每个标题右侧都带着该会话的开始时间（`11-15 17:10`，与面板右缘对齐），因此各块的时间连成一列，每个会话都按它第一条提示词标出开始时间。横条和下方行没有可放标题的位置，改为在每一块的第一条提示词上画一个 `⇡`。
 
-在会话中执行的 `/branch` 同样被画成一个对话，但依据的是另一个信号：该命令把对话的行复制进分支自己的对话记录，并给每一行标上它来自的会话，因此该会话 id 一变就会起一个新块 `prompts from <id> ⧉`。这些行就在本份对话记录里，而不是另一个文件——它们保留可跳转的刻度，`next`/`prev` 不会跳过，也不会出现加载按钮。分支起点的线写作 `branched at …`，而 `/resume` 的写作 `resumed at …`。
+在会话中执行的 `/branch` 同样被画成一个对话，但依据的是另一个信号：该命令把对话的行复制进分支自己的对话记录，并给每一行标上它来自的会话，因此该会话 id 一变就会起一个新块 `prompts from <id> ⧉`。这些行就在本份对话记录里，而不是另一个文件——它们保留可跳转的刻度，`next`/`prev` 不会跳过，也不会出现加载按钮。分支起点的线写作 `current session`，时间戳对齐面板右缘——和续接会话自己的块用同一个标签——而 `/resume` 的写作 `resumed at …`。
+
+`/fork` 在运行中会话的副本上开始一个新会话。它复制过来的提示词同样以 `prompts from <id> ⧉` 为标题，分叉点写作 `current session`。这些副本没有 `/branch` 的来源标记：行最初写入时的会话 id，加上 fork 通知里“共享历史截至”的时刻，一起把它们与分叉后新写入的行区分开。
 
 跳转使用对话记录为提示词存储的 uuid。在无法读取对话记录的情况下，rail 会记录提示词的行当时所用的请求 id，并通过文本把没有该 id 的恢复提示词与引擎列表匹配，所以点击仍能落地。对话记录由 classic hooks 在其运行时定位，否则通过会话 id 在 `CLAUDE_CONFIG_DIR` 或 `~/.claude` 下查找。
 

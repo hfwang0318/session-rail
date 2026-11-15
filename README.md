@@ -57,7 +57,7 @@ A rail of your prompts for Claude Code. Hover to read one, click to jump back to
 
 ### Vertical, beside the transcript (default)
 
-<img src="docs/vertical.png" alt="The vertical rail: one row per prompt in a pane beside the transcript; the pane's head names when the conversation started, and hovering a cut row expands its whole prompt, sent time, duration and files" width="800">
+<img src="docs/vertical.png" alt="The vertical rail: one row per prompt in a pane beside the transcript; the pane's head names the current session and when it started, and hovering a cut row expands its whole prompt, sent time, duration and files" width="800">
 
 `/session-rail vertical`. One row per prompt, beside the transcript. The bold row is the prompt you are reading.
 
@@ -112,7 +112,7 @@ One conversation can outlive its process. The rail draws the seams.
 
 <img src="docs/resume.png" alt="A resumed session's pane: the head still names the conversation's original start, the first run's prompts end, an accent resumed at 2026-11-15 09:12:04 line sits above the next morning's prompts, and the prompt being read is bold" width="800">
 
-`/resume` draws a `resumed at …` line over the first prompt of the new run. The head keeps the conversation's original start, not the moment it was resumed.
+`/resume` draws a `resumed at …` line over the first prompt of the new run. The head keeps the conversation's original start, not the moment it was resumed, and reads `current session` like every block heading.
 
 ### Forked or continued
 
@@ -181,7 +181,7 @@ The layout is also "Rail mode" in `/config`. The theme rows there are "Color sch
 <details>
 <summary>Config rows in detail</summary>
 
-The "Color scheme" row picks the rail's palette: `auto` (the default) follows the `/config` theme — a built-in name says whether it is light or dark, and a custom theme is read from its definition's `base` — and switches as soon as the theme does, without a restart; `dark` or `light` fixes one. "Card theme" picks the color family of the hover card and the row or bar under the pointer; each family carries a dark and a light panel, and "Color scheme" draws the matching side. "Accent follows card theme" decides whether the accent — the prompt being read, the `compacted` divider, the `started at …` / `resumed at …` lines, the card's stats line and the marquee seam — takes the family's own accent or stays Claude's orange. The "Expand on hover" row turns the cards on or off; "Scroll on hover" scrolls a cut prompt on one line instead. "Hover card background" and "Hover card text" take a theme key or a raw color; empty follows the family's variant for the active scheme. A custom panel the bright highlight cannot sit on falls back to whichever white or black it can carry.
+The "Color scheme" row picks the rail's palette: `auto` (the default) follows the `/config` theme — a built-in name says whether it is light or dark, and a custom theme is read from its definition's `base` — and switches as soon as the theme does, without a restart; `dark` or `light` fixes one. "Card theme" picks the color family of the hover card and the row or bar under the pointer; each family carries a dark and a light panel, and "Color scheme" draws the matching side. "Accent follows card theme" decides whether the accent — the prompt being read, the `compacted` divider, the `current session` and `prompts from <id> ⧉` headings, the `resumed at …` line, the card's stats line and the marquee seam — takes the family's own accent or stays Claude's orange. The "Expand on hover" row turns the cards on or off; "Scroll on hover" scrolls a cut prompt on one line instead. "Hover card background" and "Hover card text" take a theme key or a raw color; empty follows the family's variant for the active scheme. A custom panel the bright highlight cannot sit on falls back to whichever white or black it can carry.
 
 </details>
 
@@ -212,7 +212,7 @@ In the horizontal layout, `ctrl+x tab` moves the focus to the bars: `←` `→` 
 
 | Color | Meaning |
 | --- | --- |
-| accent | The prompt you are reading, the `compacted` divider, and the `started at …` / `resumed at …` lines |
+| accent | The prompt you are reading, the `compacted` divider, the `current session` and `prompts from <id> ⧉` headings, and the `resumed at …` line |
 | card highlight | A hover card's prompt and the row or bar under the pointer: white in dark themes, black in light ones |
 | body text | The rail's rows, labels and a card's chrome |
 | card panel | The hover card and the selected row, from the "Card theme" family |
@@ -240,7 +240,9 @@ A compaction replaces the engine's list with a summary message plus the most rec
 
 A session continued into another — by `/resume`, by a fork such as `claude --resume <id> --fork-session`, or by a context overflow Claude Code carried forward — opens its transcript with a summary row that names the session it continued. The rail reads that transcript from the same folder, puts its prompts before this session's, and drops the rows the continuation copied. Reading is on demand: a `[ click to load more prompts from parent session <id> ]` primary button sits above the oldest prompt and reads one session per press, returning while a further session waits (up to four back). Those prompts' rows live in the other transcript, so they draw with the dotted tick and `next`/`prev` skip them; pressing one says why instead of leaving a failed scroll. The block is headed `prompts from <id> ⧉` — a press copies the full id, the one `/resume` takes — and this session's own part is headed `current session`; each heading carries its session's start time (`11-15 17:10`) flush with the pane's right edge, so the blocks' times line up and every session is dated at its first prompt. The band and the below line have no row to head, so a `⇡` on the first prompt of each block stands in.
 
-A `/branch` started inside a session is drawn as one conversation too, but from a different signal: the command copies the conversation's rows into the branch's own transcript and stamps each with the session it came from, so a change of that session id heads a block `prompts from <id> ⧉`. Those rows are in this transcript, not another file — they keep the jumpable tick, `next`/`prev` do not skip them, and no load button is offered. The line at its start reads `branched at …`, where a `/resume`'s reads `resumed at …`.
+A `/branch` started inside a session is drawn as one conversation too, but from a different signal: the command copies the conversation's rows into the branch's own transcript and stamps each with the session it came from, so a change of that session id heads a block `prompts from <id> ⧉`. Those rows are in this transcript, not another file — they keep the jumpable tick, `next`/`prev` do not skip them, and no load button is offered. The line at its start reads `current session`, dated at the pane's right edge — the same label a continued session's own block gets — where a `/resume`'s reads `resumed at …`.
+
+A `/fork` starts a new session on a copy of the running one. The prompts it copied are headed `prompts from <id> ⧉` too, and the fork point reads `current session`. The copies carry no `/branch` stamp: the session id the rows were originally written under, together with the moment the fork note says the two sessions shared history to, tells them from the rows written since.
 
 A jump addresses the uuid the transcript stores for a prompt. Where no transcript can be read, the rail records the request id the prompt's row was drawn under, and matches a prompt restored without one to the engine's list by its text, so a click still lands. The transcript is found by the classic hooks where they run, and otherwise by session id under `CLAUDE_CONFIG_DIR` or `~/.claude`.
 

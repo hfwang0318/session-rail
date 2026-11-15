@@ -3,8 +3,8 @@
 
 Every PNG and GIF in this folder is generated here, so a UI change can be
 reflected by running this file instead of re-capturing a terminal. The scenes
-are drawn at twice their published size for crisp text, with Menlo as the
-terminal face, and downsampled only for the animated GIFs.
+are drawn at SCALE times the size the README shows, with Menlo as the terminal
+face, and published at that scale so the text stays crisp on a 2x display.
 
     python3 docs/make-assets.py            # all of them
     python3 docs/make-assets.py vertical   # one, while iterating
@@ -30,8 +30,8 @@ HERE = Path(__file__).resolve().parent
 VERSION = json.loads((HERE.parent / "plugins/session-rail/.claude-plugin/plugin.json").read_text())["version"]
 
 # Terminal grid. Coordinates in this file are logical pixels (the size the
-# README shows); everything is drawn at SCALE times that and kept there for
-# stills, downsampled for GIFs.
+# README shows); everything is drawn at SCALE times that and published at that
+# scale, stills and GIFs alike.
 SCALE = 2
 CELL = 8.5
 LINE = 20.0
@@ -1787,11 +1787,18 @@ def make_long_session(path: Path) -> None:
     save_gif(frames, path, duration=140)
 
 
-def save_gif(frames: list[Image.Image], path: Path, duration: int = 80, colors: int = 128) -> None:
-    # Published at half the drawing scale: 800x500 keeps the file small while
-    # the 2x source makes the text edges hold up.
-    small = [frame.convert("RGB").resize((800, 500), Image.Resampling.LANCZOS) for frame in frames]
-    palette = [frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=colors) for frame in small]
+def save_gif(frames: list[Image.Image], path: Path, duration: int = 80, colors: int = 256) -> None:
+    # Published at the drawing scale, with no downsample: the README asks for
+    # 800x500 in its slot, so a 2x frame puts one source pixel on each device
+    # pixel of a Retina display — the same crispness the stills keep. The
+    # halved 800x500 frames this used to write were blurry at that density,
+    # and publishing at 2x costs only about a quarter more file, far less than
+    # the quadrupled pixel count suggests: the pixels a downsample adds are
+    # antialiased glyph edges, which change every frame, while the pixels 2x
+    # adds are flat text interior and background that the GIF's delta
+    # encoding skips. 256 colors, up from 128, leaves those edges far less
+    # quantized, for about five per cent more again.
+    palette = [frame.convert("P", palette=Image.Palette.ADAPTIVE, colors=colors) for frame in frames]
     palette[0].save(
         path,
         save_all=True,

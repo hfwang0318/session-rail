@@ -1,5 +1,7 @@
 import type { ClientModule, ClientSurface } from 'claude-code'
 import { cellWidth, oneLine, padTo, windowRuns } from './text.ts'
+import { ACCENT, TEXT } from './theme.ts'
+import { SPIN, SPIN_MS } from './glyphs.ts'
 
 // How long one step of a marquee takes, and how many steps it rests at the
 // head of the prompt before the first, so the start is read settled. A step
@@ -29,23 +31,33 @@ type Props = {
   summary?: string
   jumpKey?: string
   textWidth?: number
+  // Whether the row's turn is running: its tick spins while it is, and the
+  // row keeps scrolling under the pointer as before.
+  spin?: boolean
   // The hover panel's colors, so a band card scrolls in the same paint as the
   // cards of the other layouts and a docked row lights in it.
   cardBackground?: string
   cardText?: string
   cardStatsText?: string
 }
-type State = { offset: number; rest: number; isHovered: boolean }
+type State = { offset: number; rest: number; isHovered: boolean; frame: number }
 type Surface = ClientSurface<State>
 
 // What a marquee keeps for its instance: the loop's place, the steps left to
-// rest, and what the last draw laid out. The engine keeps the region's state
-// across the plugin's redraws; this is the same for the parts a draw does not
-// send back through setState.
+// rest, what the last draw laid out, and the spinner's frame for a running
+// row. The engine keeps the region's state across the plugin's redraws; this
+// is the same for the parts a draw does not send back through setState.
 type Control = {
   offset: number
   rest: number
   isHovered: boolean
+  spin: boolean
+  frame: number
+  // Whether the spinner's clock was started, and how to stop it when the row's
+  // turn ends: a row that never runs never wakes it, and one that stops leaves
+  // no timer behind.
+  spinStarted: boolean
+  spinStop?: () => void
   // Characters in the loop the window moves through, 0 when the prompt fits
   // and there is nothing to scroll.
   loop: number
@@ -69,7 +81,7 @@ const Marquee: ClientModule<Props, State> = (props, surface) => {
 
   let control = controls.get(surface)
   if (control === undefined) {
-    control = { offset: 0, rest: REST_STEPS, isHovered: false, loop: 0, width: 0 }
+    control = { offset: 0, rest: REST_STEPS, isHovered: false, spin: false, frame: 0, spinStarted: false, loop: 0, width: 0 }
     controls.set(surface, control)
     // Start the clock once; it redraws only on a step, and only while the
     // prompt is drawn and its line has somewhere to scroll.
@@ -84,8 +96,27 @@ const Marquee: ClientModule<Props, State> = (props, surface) => {
         return
       }
       current.offset = (current.offset + 1) % current.loop
-      surface.setState({ offset: current.offset, rest: current.rest, isHovered: current.isHovered })
+      surface.setState({ offset: current.offset, rest: current.rest, isHovered: current.isHovered, frame: current.frame })
     })
+  }
+  control.spin = props.spin === true
+  // The spinner's own clock starts with the first running draw: a running row
+  // turns its tick without the hooks module redrawing the pane, and a row that
+  // stops running stops the turn.
+  if (control.spin && !control.spinStarted) {
+    control.spinStarted = true
+    control.spinStop = surface.every(SPIN_MS, () => {
+      const current = controls.get(surface)
+      if (current === undefined || !current.spin) return
+      current.frame = (current.frame + 1) % SPIN.length
+      surface.setState({ offset: current.offset, rest: current.rest, isHovered: current.isHovered, frame: current.frame })
+    })
+  } else if (!control.spin && control.spinStarted) {
+    // The turn ended: stop the clock rather than waking every 120ms to do
+    // nothing. A later turn starts it again.
+    control.spinStarted = false
+    control.spinStop?.()
+    control.spinStop = undefined
   }
 
   surface.onPointer(event => {
@@ -93,12 +124,12 @@ const Marquee: ClientModule<Props, State> = (props, surface) => {
       control.isHovered = true
       control.offset = 0
       control.rest = REST_STEPS
-      surface.setState({ offset: control.offset, rest: control.rest, isHovered: true })
+      surface.setState({ offset: control.offset, rest: control.rest, isHovered: true, frame: control.frame })
     } else if (event.type === 'leave') {
       control.isHovered = false
       control.offset = 0
       control.rest = REST_STEPS
-      surface.setState({ offset: control.offset, rest: control.rest, isHovered: false })
+      surface.setState({ offset: control.offset, rest: control.rest, isHovered: false, frame: control.frame })
     }
   })
 
@@ -117,10 +148,12 @@ const Marquee: ClientModule<Props, State> = (props, surface) => {
   const runs = isScrolling ? windowRuns(cycle, control.offset, width, [...flat].length) : undefined
   const plain = padTo(oneLine(flat, width), width)
   const drawn = runs?.map((run, i) => (
-    <Text key={`run-${i}`} color={run.isGap ? 'claude' : undefined}>
+    <Text key={`run-${i}`} color={run.isGap ? ACCENT : undefined}>
       {run.text}
     </Text>
   ))
+  // A running row's tick turns in place; every other row keeps its tick.
+  const tick = props.spin === true ? (SPIN[control.frame] ?? SPIN[0]!) : props.tick
 
   if (!isRow)
     return (
@@ -134,19 +167,19 @@ const Marquee: ClientModule<Props, State> = (props, surface) => {
         <Text
           inverse={props.isPulsed || undefined}
           backgroundColor={control.isHovered ? props.cardBackground : undefined}
-          color={control.isHovered ? props.cardText : undefined}
+          color={control.isHovered ? props.cardText : TEXT}
           bold={control.isHovered || undefined}
           dimColor={control.isHovered || props.isPulsed ? undefined : props.isDim ? true : undefined}
         >
           {' '}
-          <Text color={props.color ?? undefined}>{props.tick}</Text>
+          <Text color={props.color ?? TEXT}>{tick}</Text>
           {' '}
           {drawn ?? plain}
         </Text>
       </Button>
       {control.isHovered && props.summary ? (
         <Box paddingLeft={3} backgroundColor={props.cardBackground}>
-          <Text color={props.cardStatsText ?? props.cardText} bold wrap="wrap">
+          <Text color={props.cardStatsText ?? ACCENT} bold wrap="wrap">
             {props.summary}
           </Text>
         </Box>

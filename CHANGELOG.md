@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0
+
+- Changed a pane card to keep a prompt's line breaks and indentation, and to carry such a prompt whole even below its row, so code, lists and blocks read as themselves rather than as one flattened run of words; a wrapped line keeps its indentation, tabs widen to spaces, runs of blank lines fold into one, and blanks at the card's edges are dropped
+- Changed a pane card's stats line to stay pinned at the card's foot while the prompt above it scrolls, so when it was sent, how long its turn took and what it changed are read without scrolling to the end; the prompt's window takes the room the stats leave, and a card that cannot hold both still shows its stats
+- Changed every color the rail chooses for itself to one source, `theme.ts`: Claude's accent `#D77757` — the `claude` theme key's color in the dark themes — for the prompt being read, the `compacted` divider, the `started at …` and `resumed at …` lines and a card's stats; one body text `#D4D0CB` for rows and cards alike; the selected panel's background `#303D50`. A future color change is one edit. The status colors (green running, yellow interrupted, red API error, gray unreachable) stay theme keys, since they say what happened
+- Changed the hover card panel's defaults in `/config` to `#303D50` for the background and `#D4D0CB` for the text — the same as an ordinary row — and the stats line's default to `#D77757`
+- Changed a running turn's spinner to draw in a surface module of its own (`spin.tsx`), so a running turn no longer redraws the pane, the band or the hint line every 120ms; a scrolling hover row turns its spinner inside its own Client too
+- Changed the rail to keep a row's one-line text and a card's wrapped lines per list entry, and a prompt's sent time and turn sentence per turn, so a scroll, a settle or a spinner no longer re-wraps and re-formats every prompt on the page
+- Changed the list's change check to a pair of rolling hashes instead of one page-sized string, so a long session's comparison allocates no whole-list string
+- Changed the README's pictures to the new palette and the pinned stats: the hover panel in `#303D50` with the rows' own `#D4D0CB` text, the stats line in Claude's accent orange, and the pane's times in the same accent
+
 ## 0.13.0
 
 - Added the moments a conversation was resumed to the vertical pane: a `resumed at 2026-11-14 19:52:00` line at the prompt text's column, in olive, above the first prompt sent after each `/resume` the module is told of, so the prompts of each resumed run stay together. A resumed session's head keeps the original conversation's start. The latest line is placed by the prompts sent since that resume and the older ones by the transcript's timestamps; a resume with nothing from before it above draws no line, and an empty list still shows the latest. The moments survive a hot reload in the engine's session state and the next process in the mod's store, for the 20 most recent sessions, and a `/clear` removes them; up to 256 moments and 256 distinct prompt texts are kept

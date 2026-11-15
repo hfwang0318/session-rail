@@ -46,20 +46,25 @@ WINDOW = "#1b1c20"
 PANEL = "#202126"
 BORDER = "#303339"
 TEXT = "#d7d8da"
+# A rail row's ordinary text, as the plugin's theme.ts paints it.
+RAIL_TEXT = "#D4D0CB"
 DIM = "#8b8e94"
 FAINT = "#5f636b"
-ACCENT = "#d97757"
+# Claude's own accent, rgb(215,119,87), the `claude` theme key's dark colour.
+ACCENT = "#d77757"
 # The pane's times: the conversation's start and each resume line.
-TIME = "#b6bd68"
+TIME = ACCENT
 GREEN = "#4eba65"
 YELLOW = "#e5c07b"
 RED = "#f07171"
 GRAY = "#6c7078"
 CODE = "#c7c9cc"
-# The hover panel's colours, as the plugin's defaults paint them.
-CARD_BG = "#264f78"
-CARD_TEXT = "#f2f2f2"
-CARD_STATS = "#9fbad6"
+# The hover panel's colours, as the plugin's defaults paint them: a quiet
+# blue-grey behind the same body text as a row, and the accent for the pinned
+# stats line.
+CARD_BG = "#303D50"
+CARD_TEXT = RAIL_TEXT
+CARD_STATS = ACCENT
 PAGE = "#111216"
 
 
@@ -554,28 +559,43 @@ def draw_rail(
             else:
                 color, heavy, dotted = tick_color(prompt, index, current)
                 draw_tick(d, x + CELL, cy, color, heavy, dotted)
-            label(d, x + 3 * CELL, cy, cut(prompt.text, width_cells - 1), TEXT if index == current else DIM)
+            label(d, x + 3 * CELL, cy, cut(prompt.text, width_cells - 1), RAIL_TEXT if index == current else DIM)
 
     if hover_row is None or hover is None or window <= 0:
         return
     # The card floats beside its row: covered rows are not pushed, and a
     # window shows one screen of lines with a scrollbar on the right edge.
-    total = len(lines)
-    window = min(window, total)
-    first = max(0, min(offset, total - window))
+    # The stats are pinned at the card's foot; only the prompt above them is a
+    # window, as the plugin's cardAllot shares the room.
+    stats = [line for line in lines if line[1]]
+    prompt_lines = lines[: len(lines) - len(stats)] if stats else lines
+    while stats and prompt_lines and prompt_lines[-1][0] == "":
+        prompt_lines = prompt_lines[:-1]
+    total = len(prompt_lines)
+    # As the plugin's cardAllot shares the room: stats first, then the blank
+    # line when a prompt row and the gap both fit, then the prompt's window.
+    gap = 1 if prompt_lines and stats and window - len(stats) >= 2 else 0
+    shown = max(0, window - len(stats) - gap)
+    first = max(0, min(offset, max(0, total - shown)))
     card_x = x + 3 * CELL
     card_w = (width_cells - 1) * CELL + 6
-    card_top = y + hover_row.top + LINE if side == "below" else y + hover_row.top - window * LINE
-    for row_index, (text, is_stats) in enumerate(lines[first:first + window]):
+    drawn: list[tuple[str, bool]] = list(prompt_lines[first:first + shown])
+    if shown and stats:
+        drawn.append(("", False))
+    drawn += stats
+    drawn = drawn[:window]
+    height = len(drawn)
+    card_top = y + hover_row.top + LINE if side == "below" else y + hover_row.top - height * LINE
+    for row_index, (text, is_stats) in enumerate(drawn):
         top = card_top + row_index * LINE
         rect(d, card_x, top, card_w, LINE, fill=CARD_BG)
         label(d, card_x + CELL / 2, top + LINE / 2, text, CARD_STATS if is_stats else CARD_TEXT, bold=True)
-    if total > window:
-        # The terminal's scrollbar: a track line and a block thumb.
+    if shown > 0 and total > shown:
+        # The terminal's scrollbar, over the scrolling prompt alone.
         track_x = card_x + card_w - CELL / 2
-        rect(d, track_x - 0.8, card_top + 1, 1.6, window * LINE - 2, fill=CARD_STATS)
-        thumb_h = max(1, round(window * window / total))
-        thumb_top = round((window - thumb_h) * first / max(1, total - window))
+        rect(d, track_x - 0.8, card_top + 1, 1.6, shown * LINE - 2, fill=FAINT)
+        thumb_h = max(1, round(shown * shown / total))
+        thumb_top = round((shown - thumb_h) * first / max(1, total - shown))
         rect(d, track_x - 2, card_top + thumb_top * LINE + 1, 4, thumb_h * LINE - 2, fill=CARD_TEXT, radius=2)
 
 

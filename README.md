@@ -74,7 +74,7 @@ Hovering a prompt opens its card. A prompt too long for its row or bar is shown 
 
 The "Scroll on hover" row in `/config` (off by default) scrolls a cut prompt in place on one line instead of expanding it: in the pane the hovered row itself scrolls, and only the stats line opens beneath it; in the band the prompt scrolls beside them. The moving row is the terminal's, and the band's moving line is the terminal's and the desktop app's; a surface with no live region keeps the cut card. It reads with "Expand on hover".
 
-In the pane the card opens under the hovered row, and the row and the card share one panel: the same background, the same bold text, the row's cut text running on into the card. A blank panel line sets the rest of a cut prompt apart from its stats; a prompt the row holds whole takes the stats alone. A prompt too long for the card's room opens on the roomier side as a window with a scrollbar on its right edge. A card that opens above its row carries the whole prompt from its first line and blanks its row while hovered, so the prompt reads top-down in one place; the blank row still jumps when pressed. The wheel over the card, or over its row, scrolls the card's lines instead of the rail's rows. The pane's stats line reads as a sentence — `At 12:57, ran 2m 30s and changed 5 files`, `At 12:57, still running` — and the "Hover card stats text" row in `/config` gives it a quieter color than the prompt. The "Hover card background" and "Hover card text" rows in `/config` set the panel in every layout — a theme key such as `inactive`, or a raw color — and default to a deep blue and near-white chosen for dark themes, so a light theme can restyle it. The pointer still reaches the next row: the panel leaves the first three columns clear, and while the panel is open the hovered row hides its trailing `…`, which comes back when the pointer leaves.
+In the pane the card opens under the hovered row, and the row and the card share one panel: the same background, the same bold text, the row's cut text running on into the card. A blank panel line sets the rest of a cut prompt apart from its stats; a prompt the row holds whole takes the stats alone. A prompt too long for the card's room opens on the roomier side as a window with a scrollbar on its right edge, and its stats stay pinned at the card's foot, so they are read without scrolling the prompt above them. A prompt whose text has line breaks keeps them, and its indentation, in the card, and is shown whole even under its row, so code and lists read as themselves rather than as one run of words. A card that opens above its row carries the whole prompt from its first line and blanks its row while hovered, so the prompt reads top-down in one place; the blank row still jumps when pressed. The wheel over the card, or over its row, scrolls the card's lines instead of the rail's rows. The pane's stats line reads as a sentence — `At 12:57, ran 2m 30s and changed 5 files`, `At 12:57, still running` — in the rail's accent color. The "Hover card background" and "Hover card text" rows in `/config` set the panel in every layout — a theme key such as `inactive`, or a raw color — and default to `#303D50` behind `#D4D0CB`, the same body color as the rail's ordinary rows, so the panel and its row read as one surface; a light theme can restyle the panel. The pointer still reaches the next row: the panel leaves the first three columns clear, and while the panel is open the hovered row hides its trailing `…`, which comes back when the pointer leaves.
 
 ### A card too tall for its room
 
@@ -136,14 +136,13 @@ While a prompt's turn is still running, its row sits above the reply being writt
 
 | Color | Meaning |
 | --- | --- |
-| accent | The prompt you are reading, and the `compacted` divider the rail draws itself |
-| olive `#b6bd68` | The `started at …` and `resumed at …` lines |
+| accent `#D77757` | The prompt you are reading, the `compacted` divider, the `started at …` and `resumed at …` lines, and a card's stats — Claude's own orange |
 | green | Its turn is running |
 | yellow | The turn was interrupted |
 | red | The turn ended with an API error |
 | gray | Claude Code refused to scroll to it |
 
-Colors are theme keys, so they follow the person's theme; a hover card still names the turn's outcome in words. A jump briefly inverts the row it landed on, so the eye finds it.
+The accent is Claude's own orange (`#D77757`, the `claude` theme key's color in the dark themes) and holds in every theme, so the rail reads as one hand. The status colors are theme keys, so they follow the person's theme; a hover card still names the turn's outcome in words. A jump briefly inverts the row it landed on, so the eye finds it.
 
 ## How it works
 

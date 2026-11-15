@@ -87,50 +87,63 @@ export const dropFirstRow = (text: string, width: number) => {
   return chars.slice(i).join('').trimStart()
 }
 
-// `text` cut into rows of at most `width` cells, each padded to that width so
-// a card's background covers whatever is drawn beneath it.
-export const cardRows = (text: string, width: number) => {
+// A prompt with a line break is read as lines, not flattened into one run, so
+// code, lists and indentation stay recognizable in a hover card. A trailing
+// newline alone does not make a prompt structured.
+export const isStructured = (text: string) => text.trimEnd().includes('\n')
+
+// One line of a prompt, its tabs widened and its trailing blanks dropped. Its
+// leading spaces are kept for cardRows to read as indentation.
+const cleanLine = (line: string) => line.replace(/\r/g, '').replace(/\t/g, '    ').replace(/[ ]+$/, '')
+
+// `text` on one line cut into rows of at most `width` cells; a word wider than
+// that is cut, so it can still be read in order. Rows carry no padding.
+const wrapLine = (text: string, width: number) => {
+  width = Math.max(1, width)
   const rows: string[] = []
   let row = ''
   const flush = () => {
-    rows.push(padTo(row, width))
+    rows.push(row)
     row = ''
   }
-  for (let word of text.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean)) {
+  const take = (word: string, room: number) => {
+    let piece = ''
+    let used = 0
+    const chars = [...word]
+    let i = 0
+    while (i < chars.length && used + cells(chars[i]!) <= room) {
+      piece += chars[i]
+      used += cells(chars[i]!)
+      i++
+    }
+    // A wide character that cannot fit even a one-cell row would leave the
+    // piece empty and the word unchanged, and the caller's loop would never
+    // end; take it anyway, so the word always shrinks.
+    if (i === 0 && chars.length > 0) {
+      piece = chars[0]!
+      i = 1
+    }
+    return { piece, rest: chars.slice(i).join('') }
+  }
+  for (let word of text.split(' ').filter(Boolean)) {
     // A word wider than the card is cut, so it can still be read in order.
     // A short fragment already on the line (a word the rail's own cut split
     // off) takes the cut's first cells rather than a line of its own.
     while (cellWidth(word) > width) {
       const room = width - cellWidth(row) - (row === '' ? 0 : 1)
       if (row !== '' && room > 0) {
-        let take = ''
-        let used = 0
-        const chars = [...word]
-        let i = 0
-        while (i < chars.length && used + cells(chars[i]!) <= room) {
-          take += chars[i]
-          used += cells(chars[i]!)
-          i++
-        }
-        if (take !== '') {
-          row = `${row} ${take}`
-          word = chars.slice(i).join('')
+        const { piece, rest } = take(word, room)
+        if (piece !== '') {
+          row = `${row} ${piece}`
+          word = rest
           flush()
           continue
         }
       }
       if (row !== '') flush()
-      let piece = ''
-      let used = 0
-      const chars = [...word]
-      let i = 0
-      while (i < chars.length && used + cells(chars[i]!) <= width) {
-        piece += chars[i]
-        used += cells(chars[i]!)
-        i++
-      }
-      rows.push(padTo(piece, width))
-      word = chars.slice(i).join('')
+      const { piece, rest } = take(word, width)
+      rows.push(piece)
+      word = rest
     }
     const candidate = row === '' ? word : `${row} ${word}`
     if (cellWidth(candidate) > width) {
@@ -141,5 +154,36 @@ export const cardRows = (text: string, width: number) => {
     }
   }
   if (row !== '' || rows.length === 0) flush()
+  return rows
+}
+
+// `text` cut into rows of at most `width` cells, each padded to that width so
+// a card's background covers whatever is drawn beneath it. A prompt's line
+// breaks and leading indentation are kept; a wrapped line keeps its own
+// indentation too, so a code block reads as a block. Runs of blank lines fold
+// into one, and blanks at the card's edges are dropped, so the prompt and its
+// stats never start or end with empty lines.
+export const cardRows = (text: string, width: number) => {
+  width = Math.max(1, width)
+  const rows: string[] = []
+  let isBlank = false
+  for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const line = cleanLine(raw)
+    if (line.trim() === '') {
+      isBlank = rows.length > 0
+      continue
+    }
+    if (isBlank) {
+      rows.push(padTo('', width))
+      isBlank = false
+    }
+    const indent = /^ +/.exec(line)?.[0] ?? ''
+    // An indentation that leaves no room for a word is dropped, rather than
+    // drawing a row wider than the card.
+    const shownIndent = cellWidth(indent) <= width - 2 ? indent : ''
+    const body = line.slice(indent.length).replace(/ +/g, ' ').trim()
+    for (const piece of wrapLine(body, width - cellWidth(shownIndent))) rows.push(padTo(shownIndent + piece, width))
+  }
+  if (rows.length === 0) rows.push(padTo('', width))
   return rows
 }

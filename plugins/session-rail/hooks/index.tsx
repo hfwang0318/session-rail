@@ -1,6 +1,12 @@
 import type { ClientProps, ElementConstructor, EngineInterface, Register, RenderElement, TextProps, Timer } from 'claude-code'
 import { matchText, mergePrompts, promptsFromMessages, type EngineMessage, type StoredPrompt } from './history.ts'
-import { cardRows, cellWidth, dropFirstRow, marqueeText, oneLine, padTo } from './text.ts'
+import { cardRows, cellWidth, dropFirstRow, isStructured, marqueeText, oneLine, padTo } from './text.ts'
+import { ACCENT, SELECTED_BACKGROUND, TEXT } from './theme.ts'
+import { SPIN, SPIN_MS } from './glyphs.ts'
+
+// The rail's colors come from one place (theme.ts). The spinner's frames are
+// shared too, so the hooks module and the surface module that draws it agree.
+export { SPIN }
 
 const PANE = 'session-rail'
 // Bring the prompt being read into the pane's own window, so its heavy row is
@@ -197,9 +203,9 @@ const LATELY_MS = 250
 // counted goes: a very long resumed session then writes a small value, not one
 // that grows without bound.
 const SINCE_CAP = 256
-// The pane's times — the conversation's start and each resume line — take this
-// quiet olive, apart from the accent the rest of the rail uses.
-const TIME_COLOR = '#b6bd68'
+// The pane's times — the conversation's start and each resume line — take the
+// rail's accent, so every mark the plugin makes reads as one hand.
+const TIME_COLOR = ACCENT
 // The most resume moments one conversation keeps, and how close two moments
 // may be and still be one resume reported by both the closing conversation's
 // `session.end` and the resumed one's classic `SessionStart`.
@@ -236,9 +242,6 @@ const JUMP_PULSE_MS = 600
 // The leftmost cells of a pane row left uncovered by a hover card: the pointer
 // travels down the list through this channel without crossing the overlay.
 const CHANNEL_COLUMNS = 3
-// The frames a running turn's mark turns through, and how long each holds.
-export const SPIN = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-const SPIN_MS = 120
 const USAGE = '[off|vertical|horizontal|below|next|prev|first|last|<n>|find <words>]'
 // Commands that step through the prompts, each with the way it steps.
 const STEP_COMMANDS = [
@@ -568,28 +571,52 @@ export const statsSentence = (turn: Turn | undefined, time: string | undefined) 
   return join(took === '' ? changed : changed === '' ? took : `${took} and ${changed}`)
 }
 
-// Where a pane card opens and how many of its rows the pane shows. Below its
-// row the card carries only the prompt's rest, so `belowRows` counts that;
-// above it (or covering the pane) it carries the whole prompt, since the row
-// under it is blanked, so `aboveRows` counts the whole. It opens below when
-// that fits, above when the whole fits there, else on the roomier side as a
-// scrolling window; `cover` is the last resort, with no row free on either
-// side.
-export type CardFit = { side: 'below' | 'above' | 'cover'; window: number; scrolls: boolean }
-export const cardFit = (
+// How a card's room is shared between its prompt and its stats. The stats are
+// pinned at the card's foot, so they take their rows first; the prompt takes
+// what is left, with a blank line between when both are drawn. `gap` is false
+// when there is no room for that line, so the card never outgrows its room.
+export type CardAllot = { prompt: number; stats: number; gap: boolean }
+export const cardAllot = (room: number, promptRows: number, statsRows: number): CardAllot => {
+  const stats = Math.max(0, Math.min(statsRows, Math.max(0, room)))
+  const gap = promptRows > 0 && stats > 0 && room - stats >= 2
+  const prompt = Math.max(0, Math.min(promptRows, room - stats - (gap ? 1 : 0)))
+  return { prompt, stats, gap }
+}
+
+// Where a pane card opens and how its room is shared. Below its row the card
+// carries only the prompt's rest, so `belowRows` counts that; above it (or
+// covering the pane) it carries the whole prompt, since the row under it is
+// blanked, so `aboveRows` counts the whole. It opens below when the whole card
+// fits there, above when it fits there, else on the roomier side as a scrolling
+// window; `cover` is the last resort, with no row free on either side. The
+// prompt's window scrolls; the stats stay at the card's foot.
+export type CardPlan = { side: 'below' | 'above' | 'cover'; room: number; promptWindow: number; statsWindow: number; gap: boolean; scrolls: boolean }
+export const cardPlan = (
   belowRows: number,
   aboveRows: number,
+  statsRows: number,
   belowSpace: number,
   aboveSpace: number,
   bodyRows: number,
-): CardFit => {
-  if (belowRows <= belowSpace) return { side: 'below', window: belowRows, scrolls: false }
-  if (aboveRows <= aboveSpace) return { side: 'above', window: aboveRows, scrolls: false }
-  const side = belowSpace <= 0 && aboveSpace <= 0 ? 'cover' : belowSpace >= aboveSpace ? 'below' : 'above'
+): CardPlan => {
+  const gap = belowRows > 0 && statsRows > 0 ? 1 : 0
+  if (belowRows + gap + statsRows <= belowSpace) {
+    const allot = cardAllot(belowSpace, belowRows, statsRows)
+    return { side: 'below', room: belowSpace, promptWindow: allot.prompt, statsWindow: allot.stats, gap: allot.gap, scrolls: allot.prompt < belowRows }
+  }
+  if (aboveRows + gap + statsRows <= aboveSpace) {
+    const allot = cardAllot(aboveSpace, aboveRows, statsRows)
+    return { side: 'above', room: aboveSpace, promptWindow: allot.prompt, statsWindow: allot.stats, gap: allot.gap, scrolls: allot.prompt < aboveRows }
+  }
+  // A card needs room for its stats when it has any, else for one prompt row;
+  // a side with that much space still opens there, dropping the prompt rather
+  // than covering the whole pane.
+  const least = Math.max(1, statsRows)
+  const side = belowSpace < least && aboveSpace < least ? 'cover' : belowSpace >= aboveSpace ? 'below' : 'above'
+  const room = side === 'below' ? belowSpace : side === 'above' ? aboveSpace : Math.max(1, bodyRows)
   const rows = side === 'below' ? belowRows : aboveRows
-  const space = side === 'below' ? belowSpace : side === 'above' ? aboveSpace : Math.max(1, bodyRows)
-  const window = Math.max(1, Math.min(rows, space))
-  return { side, window, scrolls: window < rows }
+  const allot = cardAllot(room, rows, statsRows)
+  return { side, room, promptWindow: allot.prompt, statsWindow: allot.stats, gap: allot.gap, scrolls: allot.prompt < rows }
 }
 
 type IndexedPrompt = Entry & { queued?: boolean }
@@ -1228,7 +1255,9 @@ let pulseFade: Timer | undefined
 // Where each pane card stood on the last draw, and how far it has been
 // scrolled: a wheel over a card taller than the room beside its row scrolls
 // the card, not the rows behind it.
-type CardRect = { id: string; top: number; left: number; width: number; window: number; total: number; rowTop: number }
+// A card's box for the wheel: the whole card, its growing part the prompt's
+// window, and the row it opens from.
+type CardRect = { id: string; top: number; left: number; width: number; height: number; promptRows: number; promptWindow: number; rowTop: number }
 let cardRects: CardRect[] = []
 const cardOffsets = new Map<string, number>()
 function pulseLanded($: EngineInterface, id: string) {
@@ -1273,13 +1302,19 @@ async function redrawRail($: EngineInterface) {
   await $.state.set(MOVED, value + 1)
 }
 
-// The running marks' frame, and the timer that turns it while a turn runs. A
-// draw with a running turn schedules the next one; a draw without any leaves
-// the clock to stop.
+// The same from a render hook, which may not write state: once its dispatch ends.
+function redrawRailLater($: EngineInterface) {
+  $.clock.after(0, () => void redrawRail($))
+}
+
+// A surface with no Client region to draw the spinner in (the mobile and
+// editor tabs) falls back to redrawing the rail's sites, as every layout did
+// before the spinner had a module of its own. Only that fallback pays the
+// redraw; the terminal and desktop spinners turn in a region of their own.
 let spinFrame = 0
 let spinTimer: Timer | undefined
-// A surface whose clock refuses after (a test's, where none is mocked) leaves
-// the mark still rather than failing on every draw.
+// A surface whose clock refuses after leaves the mark still rather than
+// failing on every draw.
 let canSpin = true
 function keepSpinning($: EngineInterface) {
   if (!canSpin || spinTimer !== undefined) return
@@ -1294,11 +1329,6 @@ function keepSpinning($: EngineInterface) {
   } catch {
     canSpin = false
   }
-}
-
-// The same from a render hook, which may not write state: once its dispatch ends.
-function redrawRailLater($: EngineInterface) {
-  $.clock.after(0, () => void redrawRail($))
 }
 
 // The timers of a redraw waiting for onScreen reports to settle.
@@ -2085,13 +2115,13 @@ export const register: Register = (on, options) => {
   // prompt beside them. The cards' setting decides whether hovering opens
   // anything at all.
   const scrollOnHover = expandOnHover && options.scrollOnHover === true
-  // The hover card's panel, as a theme key or a raw color: the deep blue is a
-  // choice for dark themes, and the settings let a light theme overrule it.
-  const cardBackground = typeof options.cardBackground === 'string' && options.cardBackground !== '' ? options.cardBackground : '#264f78'
-  const cardText = typeof options.cardText === 'string' && options.cardText !== '' ? options.cardText : '#f2f2f2'
-  // The stats line reads a step quieter than the prompt above it, so the two
-  // blocks a pane card holds stay apart at a glance.
-  const cardStatsText = typeof options.cardStatsText === 'string' && options.cardStatsText !== '' ? options.cardStatsText : '#9fbad6'
+  // The hover card's panel, as a theme key or a raw color: the defaults come
+  // from theme.ts and the settings let a light theme overrule them.
+  const cardBackground = typeof options.cardBackground === 'string' && options.cardBackground !== '' ? options.cardBackground : SELECTED_BACKGROUND
+  const cardText = typeof options.cardText === 'string' && options.cardText !== '' ? options.cardText : TEXT
+  // The stats line takes the rail's accent, pinned at the card's foot, so the
+  // two blocks a pane card holds read apart at a glance.
+  const cardStatsText = typeof options.cardStatsText === 'string' && options.cardStatsText !== '' ? options.cardStatsText : ACCENT
   // The machine's time zone, read once from `/etc/localtime` when the first
   // card is drawn: the session's environment may set TZ, so the process's
   // clock is not the person's.
@@ -2418,13 +2448,32 @@ export const register: Register = (on, options) => {
   })
 
   // A turn's details count as the list's: a turn that ends changes its card.
-  const listSignature = (list: Entry[]) =>
-    list
-      .map(
-        entry =>
-          `${entry.id}\u0000${entry.text}\u0000${entry.sentAt ?? ''}\u0000${entry.breakBefore ? '1' : '0'}\u0000${turnLine(turnOf(entry.id))}`,
-      )
-      .join('\u0001')
+  // The signature is a pair of rolling hashes over the fields, so a long
+  // session's comparison allocates no page-sized string; two seeds make a
+  // collision between two real lists vanishingly unlikely.
+  const listSignature = (list: Entry[]) => {
+    let a = 0x811c9dc5
+    let b = 0xcbf29ce4
+    const feed = (text: string) => {
+      for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i)
+        a = Math.imul(a ^ code, 0x01000193)
+        b = Math.imul(b ^ code, 0x85ebca6b)
+      }
+      // A field's end is fed too, so `ab` + `c` cannot sign as `a` + `bc`.
+      a = Math.imul(a ^ 0x1f, 0x01000193)
+      b = Math.imul(b ^ 0x1f, 0x85ebca6b)
+    }
+    feed(String(list.length))
+    for (const entry of list) {
+      feed(entry.id)
+      feed(entry.text)
+      feed(entry.sentAt === undefined ? '' : String(entry.sentAt))
+      feed(entry.breakBefore ? '1' : '0')
+      feed(turnLine(turnOf(entry.id)))
+    }
+    return `${list.length}:${a >>> 0}:${b >>> 0}`
+  }
 
   // Take what the transcript read knows of the conversation: the prompt each
   // reply row and tool call answers, and each prompt's turn. Never the list
@@ -3041,46 +3090,138 @@ export const register: Register = (on, options) => {
   // The prompt a jump just landed on, lit while its moment lasts. Drawn in every
   // layout, so a press is answered even where the scroll lands out of sight.
   const isPulsed = (i: number) => pulsed !== undefined && pulsed === rowKey(entries[i]?.id ?? '')
-  // A running turn's mark is a spinner, so the rail says it is still working
-  // between turns' rows arriving. Every other mark keeps its tick.
-  const tickOf = (i: number, current: number) =>
-    isRunningFor(entries[i]?.id ?? '') ? (SPIN[spinFrame] ?? SPIN[0]!) : tick(i === current, isUnreachable(i))
-  const barOf = (i: number, current: number) =>
-    isRunningFor(entries[i]?.id ?? '') ? (SPIN[spinFrame] ?? SPIN[0]!) : bar(i === current, isUnreachable(i))
-  const hasRunning = () => entries.some(entry => isRunningFor(entry.id))
+  // A running turn's mark is a spinner drawn by its own Client (spin.tsx), so
+  // the pane's rows are not redrawn while a turn runs; every other mark keeps
+  // its tick.
+  const tickOf = (i: number, current: number) => tick(i === current, isUnreachable(i))
+  const barOf = (i: number, current: number) => bar(i === current, isUnreachable(i))
 
-  // The tick's theme color: a turn's failure or progress, the prompt being
-  // read, or one nothing can scroll to. Theme keys follow the person's theme.
+  // The tick's color: a turn's failure or progress, the prompt being read, or
+  // one nothing can scroll to. The status colors stay theme keys, since they
+  // say what happened; the prompt being read takes the rail's own accent.
   const colorOf = (i: number) => {
     const outcome = turnOf(entries[i]?.id ?? '')?.outcome
     if (outcome === 'error') return 'error'
     if (outcome === 'interrupted') return 'warning'
     if (outcome === 'running') return 'success'
-    if (i === currentIndex()) return 'claude'
+    if (i === currentIndex()) return ACCENT
     if (isUnreachable(i)) return 'inactive'
     return undefined
   }
   // A prompt that opens the segment after a /compact boundary.
   const breakMark = (i: number) => (i > 0 && entries[i]?.breakBefore ? '⌁ ' : '')
 
+  // The turn fields a card reads, as a key: a turn that ends changes it, and
+  // nothing else does, so a card's line is read once and kept until then.
+  const turnKeyOf = (id: string) => {
+    const turn = turns.get(id)
+    const ms = turn?.durationMs ?? reported.get(rowKey(id))
+    const outcome = isRunningFor(id) ? 'running' : (turn?.outcome ?? ended.get(rowKey(id)))
+    return `${ms ?? ''}|${turn?.spanMs ?? ''}|${outcome ?? ''}|${(turn?.files ?? []).join(',')}`
+  }
+  // Today's date in the person's zone, for a sent time that reads as a clock
+  // while it is today. Read at most every 30 seconds, not on every draw.
+  let dayRead = { at: 0, zone: undefined as string | undefined, key: '' }
+  const dayKey = (zone: string | undefined) => {
+    const now = Date.now()
+    if (now - dayRead.at < 30_000 && dayRead.zone === zone) return dayRead.key
+    const parts = timePartsOf(new Date(now), zone)
+    dayRead = { at: now, zone, key: `${parts.year}-${parts.month}-${parts.day}` }
+    return dayRead.key
+  }
+  // A card's two lines are rebuilt on every draw; each is kept by what it is
+  // made of, so a spinner or a scroll does not format a page of dates again.
+  const statsCache = new Map<string, string>()
+  const summaryCache = new Map<string, string>()
+  // A very long session may list more prompts than any one screen shows; the
+  // caches hold a few thousand lines, and the line read longest ago gives way.
+  const CARD_CACHE_MAX = 4096
+  const remember = (cache: Map<string, string>, key: string, value: string) => {
+    if (cache.size >= CARD_CACHE_MAX) {
+      const oldest = cache.keys().next().value
+      if (oldest !== undefined) cache.delete(oldest)
+    }
+    cache.set(key, value)
+    return value
+  }
+  // The row's one-line text, and a card's wrapped lines, kept by their entry:
+  // a prompt's text does not change without the list making a new entry.
+  const lineCache = new WeakMap<Entry, Map<number, string>>()
+  const cardCache = new WeakMap<Entry, Map<string, { prompt: string[]; stats: string[] }>>()
+  const marqueeCache = new WeakMap<Entry, string>()
+  // The one-line form a marquee scrolls, flattened once per entry rather than
+  // once per draw for every card in the band.
+  const marqueeOf = (entry: Entry) => {
+    const hit = marqueeCache.get(entry)
+    if (hit !== undefined) return hit
+    const value = marqueeText(entry.text)
+    marqueeCache.set(entry, value)
+    return value
+  }
+  const shownLineOf = (entry: Entry, width: number) => {
+    let byWidth = lineCache.get(entry)
+    if (byWidth === undefined) {
+      byWidth = new Map()
+      lineCache.set(entry, byWidth)
+    }
+    const hit = byWidth.get(width)
+    if (hit !== undefined) return hit
+    const line = oneLine(entry.text, width)
+    byWidth.set(width, line)
+    return line
+  }
+  // A card's prompt lines and stats lines at `lineWidth`. `drop` carries only
+  // the prompt's rest below its row; a prompt with line breaks always carries
+  // the whole, so its structure survives.
+  const cardLinesOf = (entry: Entry, rowWidth: number, lineWidth: number, drop: boolean, summary: string) => {
+    let cache = cardCache.get(entry)
+    if (cache === undefined) {
+      cache = new Map()
+      cardCache.set(entry, cache)
+    }
+    const shown = shownLineOf(entry, rowWidth)
+    const fits = shown === entry.text
+    const head = shown.endsWith('…') ? shown.slice(0, -1) : shown
+    const key = `${lineWidth}\u0000${drop ? cellWidth(head) : 'w'}\u0000${fits ? 'f' : 'c'}\u0000${summary}`
+    const hit = cache.get(key)
+    if (hit !== undefined) return hit
+    const prompt =
+      fits && drop
+        ? []
+        : cardRows(drop && !isStructured(entry.text) ? dropFirstRow(entry.text, cellWidth(head)) : entry.text, lineWidth)
+    const value = { prompt, stats: summary ? cardRows(summary, lineWidth) : [] }
+    // A card is drawn at two widths (with and without the bar) and read whole
+    // or as its rest; a handful is all one entry asks for.
+    if (cache.size > 8) cache.clear()
+    cache.set(key, value)
+    return value
+  }
   // When a prompt was sent and how its turn went, on one line `width` cells
   // wide: the time, then the duration, outcome and files.
   const summaryOf = (entry: Entry, width: number) => {
+    const key = `${entry.id}\u0000${entry.sentAt ?? ''}\u0000${timeZone ?? ''}\u0000${dayKey(timeZone)}\u0000${width}\u0000${turnKeyOf(entry.id)}`
+    const hit = summaryCache.get(key)
+    if (hit !== undefined) return hit
     const time = entry.sentAt === undefined ? '' : sentLabel(entry.sentAt, undefined, timeZone)
     const timePart = time ? `${time} · ` : ''
     const details = turnLine(turnOf(entry.id), Math.max(0, width - MIN_CARD_TEXT - cellWidth(timePart) - ' · '.length))
-    return [time, details].filter(Boolean).join(' · ')
+    return remember(summaryCache, key, [time, details].filter(Boolean).join(' · '))
   }
   // A pane card says the same in a sentence of its own, on lines of its own.
-  const statsOf = (entry: Entry) =>
-    statsSentence(turnOf(entry.id), entry.sentAt === undefined ? undefined : sentLabel(entry.sentAt, undefined, timeZone))
+  const statsOf = (entry: Entry) => {
+    const key = `${entry.id}\u0000${entry.sentAt ?? ''}\u0000${timeZone ?? ''}\u0000${dayKey(timeZone)}\u0000${turnKeyOf(entry.id)}`
+    const hit = statsCache.get(key)
+    if (hit !== undefined) return hit
+    const value = statsSentence(turnOf(entry.id), entry.sentAt === undefined ? undefined : sentLabel(entry.sentAt, undefined, timeZone))
+    return remember(statsCache, key, value)
+  }
   // A prompt's text and its summary on one line: the text is cut first, down
   // to a few words, then the summary names fewer files.
   const withTurn = (entry: Entry, width: number) => {
     const summary = summaryOf(entry, width)
-    if (!summary) return oneLine(entry.text, width)
+    if (!summary) return shownLineOf(entry, width)
     const room = Math.max(MIN_CARD_TEXT, width - cellWidth(summary) - ' · '.length)
-    return `${oneLine(entry.text, room)} · ${summary}`
+    return `${shownLineOf(entry, room)} · ${summary}`
   }
   // A band card's line: the mark and number, the prompt and the turn's
   // summary on one padded Text, so the panel's background covers the reading
@@ -3108,7 +3249,7 @@ export const register: Register = (on, options) => {
     return (
       <>
         <Text color={cardText} bold>{prefix}</Text>
-        <Client key={`${keyPrefix}-${i}`} module="./marquee.tsx" props={{ text: marqueeText(entry.text), cardBackground, cardText }} width={room} height={1} />
+        <Client key={`${keyPrefix}-${i}`} module="./marquee.tsx" props={{ text: marqueeOf(entry), cardBackground, cardText }} width={room} height={1} />
         {suffix ? <Text color={cardText} bold>{suffix}</Text> : null}
         {pad > 0 ? <Text>{' '.repeat(pad)}</Text> : null}
       </>
@@ -3137,12 +3278,12 @@ export const register: Register = (on, options) => {
     // transcript does not hold, so pressing one there could not scroll to it.
     if (e.props.view.agentId !== undefined) {
       const hasRoom = !isRail || e.props.bodyColumns >= INLINE_REVEAL_MIN_COLUMNS
-      return <Text dimColor wrap="truncate-end">{hasRoom ? 'Prompts of the main conversation only' : '·'}</Text>
+      return <Text color={TEXT} dimColor wrap="truncate-end">{hasRoom ? 'Prompts of the main conversation only' : '·'}</Text>
     }
     if (entries.length === 0) {
       // A conversation with no prompt yet still says when it opened, so the
       // person knows a fresh session from a resumed one.
-      if (!isRail) return <Text dimColor>No prompts yet</Text>
+      if (!isRail) return <Text color={TEXT} dimColor>No prompts yet</Text>
       // An emptied list has no prompt being read; a settle that still sees the
       // last drawn one must not keep redrawing.
       drawnCurrent = -1
@@ -3165,7 +3306,6 @@ export const register: Register = (on, options) => {
     }
     const current = currentIndex()
     drawnCurrent = current
-    if (hasRunning()) keepSpinning($)
     // Docked on the terminal: one row per prompt, its tick and its text, the
     // whole row pressable. Too narrow for text, ticks alone (the band shows it).
     if (isRail) {
@@ -3273,61 +3413,68 @@ export const register: Register = (on, options) => {
       // Every card's place and lines, worked out before the rows draw: a row
       // whose card opens above blanks itself on hover and lets the card carry
       // the prompt whole, so the reading order never runs bottom-up.
-      type CardLine = { text: string; stats: boolean; kind: 'p' | 'gap' | 's' }
       type CardLayout = {
-        side: CardFit['side']
+        side: CardPlan['side']
         top: number
-        visible: CardLine[]
+        prompt: string[]
+        stats: string[]
+        gap: boolean
         bar: boolean
         offset: number
         thumb: number
         thumbStart: number
+        height: number
       }
       const cardLayouts: (CardLayout | undefined)[] = hasRoom
         ? entries.map((entry, i) => {
-            const shownLine = oneLine(entry.text, width)
+            const shownLine = shownLineOf(entry, width)
             const fits = shownLine === entry.text
             const summary = statsOf(entry)
             // A row that scrolls in place carries its card itself.
             if ((scrollOnHover && Client !== undefined && (!fits || Boolean(summary))) || (fits && !summary)) return undefined
-            const head = shownLine.endsWith('…') ? shownLine.slice(0, -1) : shownLine
             const id = rowKey(entry.id)
-            const linesAt = (lineWidth: number, drop: boolean) => {
-              const promptLines =
-                fits && drop ? [] : cardRows(drop ? dropFirstRow(entry.text, cellWidth(head)) : entry.text, lineWidth)
-              const summaryLines = summary ? cardRows(summary, lineWidth) : []
-              const gapLines = promptLines.length > 0 && summaryLines.length > 0 ? [padTo('', lineWidth)] : []
-              return [
-                ...promptLines.map(text => ({ text, stats: false, kind: 'p' as const })),
-                ...gapLines.map(text => ({ text, stats: false, kind: 'gap' as const })),
-                ...summaryLines.map(text => ({ text, stats: true, kind: 's' as const })),
-              ]
-            }
             const rowTop = (contentTops[i] ?? headRows + i) - scrollOffset
             const belowSpace = Math.max(0, bodyRows - (rowTop + 1))
             const aboveSpace = Math.max(0, rowTop)
-            const continuation = linesAt(cardWidth, true)
-            const whole = linesAt(cardWidth, false)
-            const fit = cardFit(continuation.length, whole.length, belowSpace, aboveSpace, bodyRows)
-            const carryWhole = fit.side !== 'below'
-            let lines = carryWhole ? whole : continuation
-            let windowRows = Math.max(1, fit.window)
-            if (fit.scrolls) {
+            const whole = cardLinesOf(entry, width, cardWidth, false, summary)
+            // A prompt with lines keeps them even below its row: repeating the
+            // row's one line is worth a card whose code and lists still read as
+            // themselves.
+            const structured = isStructured(entry.text)
+            const continuation = structured ? whole : cardLinesOf(entry, width, cardWidth, true, summary)
+            const plan = cardPlan(continuation.prompt.length, whole.prompt.length, continuation.stats.length, belowSpace, aboveSpace, bodyRows)
+            const carryWhole = plan.side !== 'below' || structured
+            let picked = carryWhole ? whole : continuation
+            let allot = { prompt: plan.promptWindow, stats: plan.statsWindow, gap: plan.gap }
+            if (plan.scrolls) {
               // The bar takes the card's right column, so its lines wrap a
-              // cell sooner.
-              lines = linesAt(cardWidth - 1, !carryWhole)
-              windowRows = Math.max(1, Math.min(fit.window, lines.length))
+              // cell sooner; the stats take their rows first and the prompt
+              // takes the rest, so the stats never scroll away.
+              picked = cardLinesOf(entry, width, Math.max(1, cardWidth - 1), !carryWhole, summary)
+              allot = cardAllot(plan.room, picked.prompt.length, picked.stats.length)
             }
-            const bar = lines.length > windowRows
-            const maxOffset = Math.max(0, lines.length - windowRows)
+            const bar = allot.prompt > 0 && picked.prompt.length > allot.prompt
+            const maxOffset = Math.max(0, picked.prompt.length - allot.prompt)
             const offset = Math.min(cardOffsets.get(id) ?? 0, maxOffset)
             cardOffsets.set(id, offset)
-            const top = fit.side === 'cover' ? 0 : fit.side === 'below' ? rowTop + 1 : rowTop - windowRows
-            if (bar) cardRects.push({ id, top, left: cardLeft, width: cardWidth, window: windowRows, total: lines.length, rowTop })
-            const thumb = Math.max(1, Math.round((windowRows * windowRows) / lines.length))
-            const travel = Math.max(0, windowRows - thumb)
+            const height = allot.prompt + (allot.gap ? 1 : 0) + allot.stats
+            const top = plan.side === 'cover' ? 0 : plan.side === 'below' ? rowTop + 1 : rowTop - height
+            if (bar) cardRects.push({ id, top, left: cardLeft, width: cardWidth, height, promptRows: picked.prompt.length, promptWindow: allot.prompt, rowTop })
+            const thumb = Math.max(1, Math.round((allot.prompt * allot.prompt) / Math.max(1, picked.prompt.length)))
+            const travel = Math.max(0, allot.prompt - thumb)
             const thumbStart = maxOffset === 0 ? 0 : Math.round((offset / maxOffset) * travel)
-            return { side: fit.side, top, visible: lines.slice(offset, offset + windowRows), bar, offset, thumb, thumbStart }
+            return {
+              side: plan.side,
+              top,
+              prompt: picked.prompt.slice(offset, offset + allot.prompt),
+              stats: picked.stats.slice(0, allot.stats),
+              gap: allot.gap,
+              bar,
+              offset,
+              thumb,
+              thumbStart,
+              height,
+            }
           })
         : []
       // Scrolling, the row itself is a Client: under the pointer it scrolls
@@ -3350,7 +3497,7 @@ export const register: Register = (on, options) => {
             // The row holds the whole prompt already: the card repeats only the
             // stats. A prompt the row cuts, or one whose line breaks it flattens,
             // is shown whole.
-            const shownLine = oneLine(entry.text, width)
+            const shownLine = shownLineOf(entry, width)
             const fits = shownLine === entry.text
             // The row's ellipsis is drawn apart from its text, so a hover can
             // paint it out while the card continues the sentence (its
@@ -3360,18 +3507,24 @@ export const register: Register = (on, options) => {
             const headText = isCut ? shownLine.slice(0, -1) : shownLine
             const summary = statsOf(entry)
             const scrolls = scrollOnHover && Client !== undefined && hasRoom && (!fits || Boolean(summary))
+            // A running turn's tick is a Client of its own, so the pane is not
+            // redrawn while it spins; a narrow pane keeps it too, the tick
+            // alone. A row jumped to keeps the plain row for its flash, which
+            // lasts a moment.
+            const running = isRunningFor(entry.id)
+            const spinRow = running && !isPulsed(i) && Client !== undefined
             // A card that opens above (or covers the pane) carries the whole
             // prompt, so the row under it says nothing while the pointer is on
             // it: an overlay of the panel's background covers the row, and its
             // Button keeps the row pressable.
-            const blankOnHover = cardLayouts[i] !== undefined && cardLayouts[i]!.side !== 'below' && !scrolls
+            const blankOnHover = expandOnHover && cardLayouts[i] !== undefined && cardLayouts[i]!.side !== 'below' && !scrolls
             return (
               <Box key={`row-${i}`} flexDirection="column">
                 {dividerAt.has(i) ? (
                   <Text color={TIME_COLOR} wrap="truncate-end">{`   ${oneLine(resumeText(dividerAt.get(i)!), Math.max(1, e.props.bodyColumns - 3))}`}</Text>
                 ) : null}
                 {i > 0 && entry.breakBefore ? (
-                  <Text color="claude" wrap="truncate-end">{`   ${oneLine('compacted', Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+                  <Text color={ACCENT} wrap="truncate-end">{`   ${oneLine('compacted', Math.max(1, e.props.bodyColumns - 3))}`}</Text>
                 ) : null}
                 {scrolls && Client !== undefined ? (
                   <Client
@@ -3379,11 +3532,12 @@ export const register: Register = (on, options) => {
                     module="./marquee.tsx"
                     width={Math.max(4, e.props.bodyColumns)}
                     props={{
-                      text: marqueeText(entry.text),
+                      text: marqueeOf(entry),
                       tick: tickOf(i, current),
                       ...(colorOf(i) === undefined ? {} : { color: colorOf(i) }),
                       isDim: i !== current,
                       isPulsed: isPulsed(i),
+                      spin: running,
                       summary,
                       jumpKey: `jump-${i}`,
                       textWidth: width,
@@ -3400,37 +3554,64 @@ export const register: Register = (on, options) => {
                         then paints its label: a Text beneath a Button follows
                         a hover group but the terminal drops its hover, so the
                         row's bold and color come from the Button. */}
+                    {spinRow ? (
+                      <Client
+                        key={`spin-${i}`}
+                        module="./spin.tsx"
+                        width={2}
+                        height={1}
+                        props={{
+                          tickWidth: 2,
+                          jumpKey: `jump-${i}-tick`,
+                          scope: `session-rail-${i}`,
+                          ...(colorOf(i) === undefined ? {} : { color: colorOf(i) }),
+                          isDim: i !== current,
+                          cardBackground,
+                          cardText,
+                        }}
+                      />
+                    ) : null}
                     <Button
                       key={`jump-${i}`}
                       plain
                       dimColor={i !== current}
                       label={
                         hasRoom
-                          ? ` ${tickOf(i, current)} ${shownLine}`
-                          : ` ${tickOf(i, current)} `
+                          ? ` ${spinRow ? SPIN[0] : tickOf(i, current)} ${shownLine}`
+                          : ` ${spinRow ? SPIN[0] : tickOf(i, current)} `
                       }
                       hover={{ scope: `session-rail-${i}`, dimColor: false, bold: true, inverse: false, backgroundColor: cardBackground, color: cardText }}
                       onPress={() => {}}
                     >
-                      {/* The row jumped to is drawn reversed whole, a wider mark
-                          than a tick's color: its text joins the tick's Text
-                          while the moment lasts. */}
-                      <Text
-                        key={isPulsed(i) ? `pulse-${i}` : `tick-${i}`}
-                        color={colorOf(i)}
-                        inverse={isPulsed(i) || undefined}
-                        dimColor={!isPulsed(i) && colorOf(i) === undefined && i !== current}
-                      >
-                        {` ${tickOf(i, current)}${isPulsed(i) && hasRoom ? ` ${shownLine}` : ''}`}
-                      </Text>
-                      {hasRoom && !isPulsed(i) ? (
-                        <Text key={`text-${i}`} bold={i === current || undefined}>
+                      {spinRow ? (
+                        hasRoom ? (
+                          <Text key={`text-${i}`} color={TEXT} bold={i === current || undefined}>
+                            {` ${headText}`}
+                          </Text>
+                        ) : (
+                          <Text color={TEXT}> </Text>
+                        )
+                      ) : (
+                        /* The row jumped to is drawn reversed whole, a wider
+                           mark than a tick's color: its text joins the
+                           tick's Text while the moment lasts. */
+                        <Text
+                          key={isPulsed(i) ? `pulse-${i}` : `tick-${i}`}
+                          color={colorOf(i) ?? TEXT}
+                          inverse={isPulsed(i) || undefined}
+                          dimColor={!isPulsed(i) && colorOf(i) === undefined && i !== current}
+                        >
+                          {` ${tickOf(i, current)}${isPulsed(i) && hasRoom ? ` ${shownLine}` : ''}`}
+                        </Text>
+                      )}
+                      {!spinRow && hasRoom && !isPulsed(i) ? (
+                        <Text key={`text-${i}`} color={TEXT} bold={i === current || undefined}>
                           {` ${headText}`}
                         </Text>
                       ) : null}
                     </Button>
                     {hasRoom && !isPulsed(i) && isCut ? (
-                      <Text dimColor={i !== current}>
+                      <Text color={TEXT} dimColor={i !== current}>
                         …
                       </Text>
                     ) : null}
@@ -3493,16 +3674,38 @@ export const register: Register = (on, options) => {
                 if (layout === undefined) return null
                 return (
                   <Box key={`card-${i}`} position="absolute" top={layout.top} left={cardLeft} width={cardWidth} display="none" hover={{ scope: `session-rail-${i}`, display: 'flex' }} flexDirection="column">
-                    {layout.visible.map((line, n) =>
+                    {layout.prompt.map((line, n) =>
                       layout.bar ? (
                         <Box key={`card-${i}-line-${layout.offset + n}`} flexDirection="row" width={cardWidth} backgroundColor={cardBackground}>
-                          <Text key={`card-${i}-${line.kind}-${layout.offset + n}`} backgroundColor={cardBackground} color={line.stats ? cardStatsText : cardText} bold>{line.text}</Text>
-                          <Text key={`card-${i}-bar-${layout.offset + n}`} backgroundColor={cardBackground} color={n >= layout.thumbStart && n < layout.thumbStart + layout.thumb ? cardText : cardStatsText} bold>
+                          <Text key={`card-${i}-p-${layout.offset + n}`} backgroundColor={cardBackground} color={cardText} bold>{line}</Text>
+                          <Text key={`card-${i}-bar-${layout.offset + n}`} backgroundColor={cardBackground} color={n >= layout.thumbStart && n < layout.thumbStart + layout.thumb ? cardText : 'inactive'} bold>
                             {n >= layout.thumbStart && n < layout.thumbStart + layout.thumb ? '█' : '│'}
                           </Text>
                         </Box>
                       ) : (
-                        <Text key={`card-${i}-${line.kind}-${layout.offset + n}`} backgroundColor={cardBackground} color={line.stats ? cardStatsText : cardText} bold>{line.text}</Text>
+                        <Text key={`card-${i}-p-${layout.offset + n}`} backgroundColor={cardBackground} color={cardText} bold>{line}</Text>
+                      ),
+                    )}
+                    {layout.gap ? (
+                      layout.bar ? (
+                        <Box key={`card-${i}-gap`} flexDirection="row" width={cardWidth} backgroundColor={cardBackground}>
+                          <Text backgroundColor={cardBackground} color={cardText} bold>{' '.repeat(Math.max(1, cardWidth - 1))}</Text>
+                          <Text backgroundColor={cardBackground} color={'inactive'} bold>{'│'}</Text>
+                        </Box>
+                      ) : (
+                        <Text key={`card-${i}-gap`} backgroundColor={cardBackground} color={cardText} bold>{' '.repeat(cardWidth)}</Text>
+                      )
+                    ) : null}
+                    {/* The stats are pinned at the card's foot in the accent,
+                        so when the prompt's window scrolls they stay in view. */}
+                    {layout.stats.map((line, n) =>
+                      layout.bar ? (
+                        <Box key={`card-${i}-stats-${n}`} flexDirection="row" width={cardWidth} backgroundColor={cardBackground}>
+                          <Text backgroundColor={cardBackground} color={cardStatsText} bold>{line}</Text>
+                          <Text backgroundColor={cardBackground}>{' '}</Text>
+                        </Box>
+                      ) : (
+                        <Text key={`card-${i}-stats-${n}`} backgroundColor={cardBackground} color={cardStatsText} bold>{line}</Text>
                       ),
                     )}
                   </Box>
@@ -3514,18 +3717,21 @@ export const register: Register = (on, options) => {
       )
     }
     // Elsewhere (inline, or a surface with no band for the card): list the text.
+    // No Client is drawn here, so a running turn's mark turns through the
+    // rail's own redraw.
+    if (entries.some(entry => isRunningFor(entry.id))) keepSpinning($)
     const width = Math.max(8, e.props.bodyColumns - 3)
     return (
       <Box flexDirection="column">
-        {entries.map((entry, i) => (
-          <Button
-            key={`jump-${i}`}
-            plain
-            dimColor={i !== current}
-            label={`${tickOf(i, current)} ${oneLine(entry.text, width)}`}
-            onPress={() => {}}
-          />
-        ))}
+        {entries.map((entry, i) => {
+          const mark = isRunningFor(entry.id) ? (SPIN[spinFrame] ?? SPIN[0]!) : tickOf(i, current)
+          const line = `${mark} ${shownLineOf(entry, width)}`
+          return (
+            <Button key={`jump-${i}`} plain dimColor={i !== current} label={line} onPress={() => {}}>
+              <Text color={TEXT}>{line}</Text>
+            </Button>
+          )
+        })}
       </Box>
     )
   })
@@ -3583,7 +3789,6 @@ export const register: Register = (on, options) => {
       const width = Math.max(8, e.props.bodyColumns - 2 - RAIL_INSET)
       const current = currentIndex()
       drawnCurrent = current
-      if (hasRunning()) keepSpinning($)
       const shownRing = isCellGrid && ringed !== undefined && ringed < entries.length ? ringed : undefined
       // Cells for the bars and their marks: the whole line, or beside the
       // label of the prompt being read, a gap and a few words of it.
@@ -3599,8 +3804,10 @@ export const register: Register = (on, options) => {
       const shown = entries.slice(first, first + capacity)
       const hidesAfter = first + capacity < entries.length
       const label = (i: number, room = width) => {
+        const entry = entries[i]
         const mark = breakMark(i)
-        return `${mark}#${i + 1} ${oneLine(entries[i]?.text ?? '', room - cellWidth(mark) - `#${i + 1} `.length)}`
+        const text = entry === undefined ? '' : shownLineOf(entry, room - cellWidth(mark) - `#${i + 1} `.length)
+        return `${mark}#${i + 1} ${text}`
       }
       // The hovered prompt's card also sums up its turn and latest reply.
       const card = (i: number) => {
@@ -3608,27 +3815,54 @@ export const register: Register = (on, options) => {
         const mark = breakMark(i)
         return entry ? `${mark}#${i + 1} ${withTurn(entry, width - cellWidth(mark) - `#${i + 1} `.length)}` : ''
       }
+      // A surface with no Client region draws a running bar through the rail's
+      // own redraw instead of leaving the band blank.
+      if (Client === undefined && shown.some(entry => isRunningFor(entry.id))) keepSpinning($)
       const bars = [
-        isOverflowing ? <Text dimColor>{first > 0 ? '‹' : ' '}</Text> : null,
+        isOverflowing ? <Text color={TEXT} dimColor>{first > 0 ? '‹' : ' '}</Text> : null,
         ...shown.map((entry, offset) => {
           const i = first + offset
+          const running = isRunningFor(entry.id) && !isPulsed(i)
+          // A running turn's bar spins in its own region, so the band is not
+          // redrawn while it runs.
+          if (running && Client !== undefined) {
+            return (
+              <Client
+                key={`spin-${i}`}
+                module="./spin.tsx"
+                width={1}
+                height={1}
+                props={{
+                  tickWidth: 1,
+                  jumpKey: `jump-${i}`,
+                  scope: `session-rail-${i}`,
+                  ...(colorOf(i) === undefined ? {} : { color: colorOf(i) }),
+                  isDim: i !== current,
+                  autoFocus: isCellGrid && i === center,
+                  cardBackground,
+                  cardText,
+                }}
+              />
+            )
+          }
+          const mark = running ? (SPIN[spinFrame] ?? SPIN[0]!) : barOf(i, current)
           return (
             <Button
               key={`jump-${i}`}
               plain
               dimColor={i !== current}
-              label={barOf(i, current)}
+              label={mark}
               hover={{ scope: `session-rail-${i}`, backgroundColor: cardBackground, color: cardText, dimColor: false, bold: true, inverse: false }}
               autoFocus={(isCellGrid && i === center) || undefined}
               onPress={() => {}}
             >
-              <Text color={colorOf(i)} inverse={isPulsed(i) || undefined}>
-                {barOf(i, current)}
+              <Text color={colorOf(i) ?? TEXT} inverse={isPulsed(i) || undefined}>
+                {mark}
               </Text>
             </Button>
           )
         }),
-        hidesAfter ? <Text dimColor>›</Text> : null,
+        hidesAfter ? <Text color={TEXT} dimColor>›</Text> : null,
       ]
       if (!isCellGrid) {
         // Each bar and mark a cell wide, then a gap.
@@ -3648,7 +3882,7 @@ export const register: Register = (on, options) => {
               {bars}
               {/* With no prompt known on screen, the newest: bars alone read as a broken rail. */}
               <Box marginLeft={1}>
-                <Text dimColor wrap="truncate-end">{label(center, room)}</Text>
+                <Text color={TEXT} dimColor wrap="truncate-end">{label(center, room)}</Text>
               </Box>
             </Box>
           </Box>,
@@ -3659,7 +3893,7 @@ export const register: Register = (on, options) => {
           <Box height={1} width={width}>
             {/* With no prompt known on screen, the newest: an empty line reads as a broken rail. */}
             {shownRing === undefined ? (
-              <Text dimColor wrap="truncate-end">{label(center)}</Text>
+              <Text color={TEXT} dimColor wrap="truncate-end">{label(center)}</Text>
             ) : scrollOnHover && Client !== undefined && entries[shownRing] ? (
               marqueeLine(Text, Client, entries[shownRing], shownRing, width, 'shown-marquee')
             ) : (
@@ -3702,7 +3936,6 @@ export const register: Register = (on, options) => {
     const width = Math.max(MIN_CARD_TEXT, (e.viewport?.columns ?? 80) - 3)
     const current = currentIndex()
     drawnCurrent = current
-    if (hasRunning()) keepSpinning($)
     const center = current >= 0 ? current : entries.length - 1
     // Up to half the row for the bars, the two steps beside them; a window
     // centered on the prompt being read when they do not all fit.
@@ -3721,17 +3954,38 @@ export const register: Register = (on, options) => {
           {step('step-prev', '‹', stepFrom(current, entries.length, -1, isUnreachable))}
           {shown.map((entry, offset) => {
             const i = first + offset
+            const running = isRunningFor(entry.id) && !isPulsed(i)
+            if (running && Client !== undefined) {
+              return (
+                <Client
+                  key={`spin-${i}`}
+                  module="./spin.tsx"
+                  width={1}
+                  height={1}
+                  props={{
+                    tickWidth: 1,
+                    jumpKey: `jump-${i}`,
+                    scope: `session-rail-${i}`,
+                    ...(colorOf(i) === undefined ? {} : { color: colorOf(i) }),
+                    isDim: i !== current,
+                    cardBackground,
+                    cardText,
+                  }}
+                />
+              )
+            }
+            const mark = running ? (SPIN[spinFrame] ?? SPIN[0]!) : barOf(i, current)
             return (
               <Button
                 key={`jump-${i}`}
                 plain
                 dimColor={i !== current}
-                label={barOf(i, current)}
+                label={mark}
                 hover={{ scope: `session-rail-${i}`, backgroundColor: cardBackground, color: cardText, dimColor: false, bold: true, inverse: false }}
                 onPress={() => {}}
               >
-                <Text color={colorOf(i)} inverse={isPulsed(i) || undefined}>
-                  {barOf(i, current)}
+                <Text color={colorOf(i) ?? TEXT} inverse={isPulsed(i) || undefined}>
+                  {mark}
                 </Text>
               </Button>
             )
@@ -3739,7 +3993,7 @@ export const register: Register = (on, options) => {
           {step('step-next', '›', stepFrom(current, entries.length, 1, isUnreachable))}
           <Box marginLeft={1} width={room} height={1}>
             {/* With no prompt known on screen, the newest: bars alone read as a broken rail. */}
-            <Text dimColor wrap="truncate-end">{`${reading}${oneLine(entries[center]?.text ?? '', room - reading.length)}`}</Text>
+            <Text color={TEXT} dimColor wrap="truncate-end">{`${reading}${entries[center] === undefined ? '' : shownLineOf(entries[center], room - reading.length)}`}</Text>
             {expandOnHover
               ? shown.map((entry, offset) => {
                   const i = first + offset
@@ -3796,7 +4050,7 @@ export const register: Register = (on, options) => {
     const hits = cardRects.filter(
       rect =>
         pointer.row >= rect.top &&
-        pointer.row < rect.top + rect.window &&
+        pointer.row < rect.top + rect.height &&
         pointer.column >= rect.left &&
         pointer.column < rect.left + rect.width,
     )
@@ -3812,7 +4066,8 @@ export const register: Register = (on, options) => {
     // their place unseen.
     let moved = false
     for (const rect of hits) {
-      const max = Math.max(0, rect.total - rect.window)
+      // Only the prompt scrolls; the stats stay at the card's foot.
+      const max = Math.max(0, rect.promptRows - rect.promptWindow)
       const before = cardOffsets.get(rect.id) ?? 0
       const after = Math.max(0, Math.min(max, before + e.by))
       if (after !== before) {

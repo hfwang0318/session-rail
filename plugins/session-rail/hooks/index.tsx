@@ -4080,6 +4080,12 @@ export const register: Register = (on, options) => {
             const offset = Math.min(cardOffsets.get(id) ?? 0, maxOffset)
             cardOffsets.set(id, offset)
             const height = allot.prompt + (allot.gap ? 1 : 0) + allot.stats
+            // The card's rows count from the window's first row, which is
+            // where its slot is pinned in the tree (see card-slot): the engine
+            // scrolls the tree itself, absolute boxes with it, so a slot at the
+            // tree's top would be carried off the window as soon as the list
+            // scrolls past its first row. The wheel's boxes are in window rows
+            // too, as its pointer reports them.
             const top = plan.side === 'cover' ? 0 : plan.side === 'below' ? rowTop + 1 : rowTop - height
             if (bar) cardRects.push({ id, top, left: cardLeft, width: cardWidth, height, promptRows: picked.prompt.length, promptWindow: allot.prompt, rowTop })
             const thumb = Math.max(1, Math.round((allot.prompt * allot.prompt) / Math.max(1, picked.prompt.length)))
@@ -4319,9 +4325,13 @@ export const register: Register = (on, options) => {
           {/* The hover card floats over the pane's foot, pinned there, so
               opening one takes no line from the rows: the row under the
               pointer never moves away from it. It keeps the prompt whole,
-              wrapped, as the overlay has room of its own. */}
+              wrapped, as the overlay has room of its own. The slot is pinned
+              to the window's first row (the tree's `scrollOffset`), so the
+              cards' rows are window rows even when the list has scrolled past
+              the tree's top: an absolute box at row 0 would be carried away
+              with the rows. */}
           {expandOnHover && hasRoom ? (
-            <Box key="card-slot" position="absolute" top={0} left={0} width={Math.max(4, e.props.bodyColumns)} flexDirection="column">
+            <Box key="card-slot" position="absolute" top={scrollOffset} left={0} width={Math.max(4, e.props.bodyColumns)} flexDirection="column">
               {entries.map((entry, i) => {
                 const layout = cardLayouts[i]
                 if (layout === undefined) return null

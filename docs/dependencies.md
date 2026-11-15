@@ -36,6 +36,7 @@ mods API 的类型文件由 `/plugin-types` 生成，插件不提交它；CI 每
 | `command.run` | 本插件命令 | 命令无响应 | 无 |
 | `config.list()` 的 `theme` 行、`config.set`（`theme`）、`config.describe` | 亮/暗与卡片主题的说明 | 调色板不跟随主题（颜色错，布局不受影响） | 读不到时用插件自己的 `colorScheme` 设置；`config.set` 失败只影响重新着色 |
 | `ui.render` 组件名与 props：`e.component`、`e.requestId`（`placeholder` / `placeholder-N` 回显）、`e.props.text`、`e.props.origin.kind`、`e.props.onScreen`、`e.props.bodyColumns`、`e.props.scroll.bodyRows/offset`、`e.props.view.agentId` | 全部三个座位与悬挂卡 | 回显 id 变了 → 会把临时行当跳转目标；`onScreen` 语义变了 → 在读提示词判断错；`view.agentId` 缺失 → 子代理的行污染主对话 | `isProvisionalId` 是模式匹配；`onScreen` 缺失时退回滚动位置；子代理检测还依赖 `turn.start` 的 `agentId` |
+| 站点窗口的滚动方式：引擎按 `-offset` 把整棵树整体上移（负的上边距），`position: "absolute"` 的盒子随树一起移动，其 `top` 以树的行计 | 悬停卡的 `card-slot`（钉在窗口首行，卡片行以窗口行计） | 若引擎改为只平移流式内容、或改用窗口坐标放置绝对盒子 → 卡片整体错位，或在列表滚动后不再出现 | 无代码兜底；靠 `claude --plugin-dir` 手工验收（在已滚动的长列表上悬停一行，看卡片是否就在该行下方），测试只断言树的 props，不锁引擎布局 |
 | `ui.focus` / `ui.scroll` / `ui.press`：`e.element`、`e.pointer`、`e.by`、`$.ui.scroll` 的 `{ to: { requestId }, block }` / `deny` | 悬停环、卡片滚动、父会话 id 复制 | 悬停/点击无效或跳转失败 | 跳转失败标记为不可达并给一次说明 |
 | `$.ui.toast` / `open` / `close` / `invalidate` / `copy`、`$.command.register`、`$.clock.after` | 提示、预览页、重绘节流 | 提示丢失；预览 pane 不立即重绘（切换主题后仍显示旧色）；定时器不触发（重绘变慢或不发生） | 每个事件仍会触发重绘；定时器只影响节流、闪烁与动画 |
 | `$.fs.read` / `stat` / `list` / `exists`、`$.env.get`、`$.plugin.root`、`$.session.id` / `cwd` / `root` | 读转录、找配置目录 | 读不到 → 列表退回引擎消息列表；路径错误 → `UNFOUND` 提示 | 每个读取都有 try/catch 与降级 |

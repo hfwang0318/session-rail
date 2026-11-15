@@ -3833,8 +3833,11 @@ test('the vertical pane opens its hover card under the row, without moving any r
   // and 1 follow, each card on the line right below its row.
   expect(await topOf(0)).toBe(2)
   expect(await topOf(1)).toBe(3)
-  // Scrolled, the card follows the row: one row up puts it on the row's own line.
+  // Scrolled, the card follows the row: one row up puts it on the row's own
+  // line. The slot the cards hang in is pinned to the window's first row, so
+  // their tops stay window rows however far the tree is scrolled.
   await rail.redraw({ ...pane('dock', 20), scroll: { offset: 1, bodyRows: 20 } })
+  expect((await rail.find({ key: 'card-slot' }))?.props.top).toBe(1)
   expect(await topOf(0)).toBe(1)
   expect(await topOf(1)).toBe(2)
   await rail.redraw(pane('dock', 20))

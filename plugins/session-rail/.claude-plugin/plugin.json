@@ -1,6 +1,6 @@
 {
   "name": "session-rail",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "A rail of your session's prompts in a pane beside the transcript: hover to read one in full, with when it was sent, and click to jump to it. The engine's own message list is the primary history source, with the transcript adding ids, turn details and older prompts.",
   "author": {
     "name": "hfwang"

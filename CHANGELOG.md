@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
 
 - Fixed the hover cards of a scrolled pane: the slot the cards hang in stood at the tree's first row, and the engine scrolls the tree itself, so once the list had scrolled past its top the cards were carried away with it and a hover opened one rows above the row that asked for it, or nowhere at all. The slot is now pinned to the window's first row, so a card opens under its row wherever the list has scrolled to
 - Added a loading state to the `click to load more prompts from parent session` row: indexing an earlier session's transcript takes a moment, and the row used to sit unchanged until the level landed, so the press read as one that missed. The press is now answered at once: the row's label becomes `loading parent session…` (or the next wording down on a narrow pane) behind a turning mark, drawn in a `Client` region of its own so the pane is not redrawn for every frame, while a surface with no `Client` turns the mark through the rail's own redraw as a running turn's mark does there. The read runs beside the press rather than inside it, so the rail keeps drawing while it waits, a second press meanwhile is ignored, and a failed read still says why

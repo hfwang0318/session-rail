@@ -1130,6 +1130,9 @@ let historyPending: string | undefined
 let historyBase: TranscriptIndex | undefined
 let historyPath: string | undefined
 let historyFailed = false
+// Whether a press has been answered and its transcript is still being read:
+// the offer row says so while it waits (see load.tsx and offerRow).
+let historyLoading = false
 // The index of a session's transcript read on its own, kept by its size and
 // mtime: a parent that has not changed is not read again each time the file
 // it precedes grows.
@@ -2564,6 +2567,7 @@ export const register: Register = (on, options) => {
     historyBase = undefined
     historyPath = undefined
     historyFailed = false
+    historyLoading = false
     generation++
   }
 
@@ -3810,14 +3814,32 @@ export const register: Register = (on, options) => {
     // steps down where the pane is narrow, always keeping the session's id:
     // truncating the full sentence would cut the id first, and the id is what
     // tells two earlier sessions apart.
-    const offerLine = (columns: number) => {
-      const room = Math.max(1, columns - 4)
+    const offerLine = (columns: number, isLoading = false) => {
+      // While the level is being read the row carries a spinning mark, so two
+      // more cells are kept for it and the wording steps down the same way.
+      const room = Math.max(1, columns - 4 - (isLoading ? 2 : 0))
       const id = historyPending?.slice(0, 8) ?? ''
-      for (const label of [LOAD_LABEL, 'click to load parent session', 'load parent']) {
+      const labels = isLoading
+        ? ['loading parent session…', 'loading parent session', 'loading…', 'load parent']
+        : [LOAD_LABEL, 'click to load parent session', 'load parent']
+      for (const label of labels) {
         const text = `${label} ${id}`.trim()
         if (cellWidth(text) <= room) return text
       }
       return oneLine(`load parent ${id}`.trim(), room)
+    }
+    // The offer row as each seat draws it: a primary Button, and while one
+    // level is being read, the turning mark of load.tsx, which redraws its own
+    // region instead of the pane. A surface with no Client (the mobile and
+    // editor tabs) turns the frame in this module and has the rail redrawn for
+    // it, as a running turn's mark does there (see keepSpinning). `client` is
+    // the Client element that surface's table carries, when it has one.
+    const offerRow = (columns: number, client: ElementConstructor<ClientProps> | undefined): RenderElement => {
+      if (!historyLoading) return <Button key="load-parent" variant="primary" label={offerLine(columns)} onPress={() => {}} />
+      if (client !== undefined)
+        return <Client key="load-parent" module="./load.tsx" width={Math.max(4, columns)} height={1} props={{ label: offerLine(columns, true) }} />
+      keepSpinning($)
+      return <Button key="load-parent" variant="primary" label={`${SPIN[spinFrame] ?? SPIN[0]!} ${offerLine(columns, true)}`} onPress={() => {}} />
     }
     // A block's heading and the moment its session opened, on one row: the
     // heading at the prompt text's column, the short stamp flush with the
@@ -3880,9 +3902,7 @@ export const register: Register = (on, options) => {
       if (e.props.bodyColumns < INLINE_REVEAL_MIN_COLUMNS || emptyRows < emptyLines) return <Text dimColor>·</Text>
       return (
         <Box flexDirection="column">
-          {historyPending !== undefined ? (
-            <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
-          ) : null}
+          {historyPending !== undefined ? offerRow(e.props.bodyColumns, Client) : null}
           <Text color={accent} wrap="truncate-end">{blockHeading(CURRENT_LABEL, startAt)}</Text>
           {resumedAt !== undefined ? (
             <Text color={accent} wrap="truncate-end">{dividerLine(resumedAt)}</Text>
@@ -4090,9 +4110,7 @@ export const register: Register = (on, options) => {
           {/* The offer sits above the head: what it loads are prompts older
               than this session's own, so it is drawn where that block will
               open, above every row. */}
-          {hasRoom && historyPending !== undefined ? (
-            <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
-          ) : null}
+          {hasRoom && historyPending !== undefined ? offerRow(e.props.bodyColumns, Client) : null}
           {/* The pane's head: the conversation's start to the second, and the
               prompt being read, so the turn in view is named even when its row
               sits below the fold. */}
@@ -4358,9 +4376,7 @@ export const register: Register = (on, options) => {
     const width = Math.max(8, e.props.bodyColumns - 3)
     return (
       <Box flexDirection="column">
-        {historyPending !== undefined ? (
-          <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
-        ) : null}
+        {historyPending !== undefined ? offerRow(e.props.bodyColumns, Client) : null}
         {entries.map((entry, i) => {
           const mark = isRunningFor(entry.id) ? (SPIN[spinFrame] ?? SPIN[0]!) : tickOf(i, current)
           const line = `${mark} ${shownLineOf(entry, width)}`
@@ -4488,16 +4504,40 @@ export const register: Register = (on, options) => {
     // base index rather than the file: the levels already loaded are cached
     // with their transcripts indexed, so a press reads only the level it adds.
     if (e.element === 'load-parent') {
-      if (historyBase !== undefined && historyPath !== undefined) {
+      // A press while the level is already being read answered nothing new:
+      // the row is saying so until the read lands (see offerRow).
+      const base = historyBase
+      const path = historyPath
+      if (!historyLoading && base !== undefined && path !== undefined) {
         historyLevels++
-        const index = await withHistory($, historyPath, historyBase)
-        merge(index)
-        // In engine mode the file only enriched the list; the parent's prompts
-        // are history the engine does not hold, so list them again from them.
-        if (engineMode && lastMessages !== undefined) refreshEngine(lastMessages)
-        // The offer row changes with the level read, whether or not the list grew.
-        await redrawRail($)
-        if (historyFailed) $.ui.toast("the parent session's transcript could not be read")
+        // The read runs beside the press rather than inside it: a press chain
+        // that awaited it would keep the rail from drawing until it ended, so
+        // the row could not say it was loading while the transcript was
+        // indexed. The press answers at once and the chain settles; the row
+        // turns its mark until the read lands (see offerRow).
+        historyLoading = true
+        // The conversation can be replaced while the read is out (/clear, a
+        // resume): the merge belongs to the one it was asked for, not the one
+        // that replaced it.
+        const at = generation
+        void (async () => {
+          try {
+            await redrawRail($)
+            const index = await withHistory($, path, base)
+            if (at !== generation) return
+            merge(index)
+            // In engine mode the file only enriched the list; the parent's
+            // prompts are history the engine does not hold, so list them again
+            // from them.
+            if (engineMode && lastMessages !== undefined) refreshEngine(lastMessages)
+          } finally {
+            // The offer row changes with the level read, whether or not the
+            // list grew, and it stops saying it is loading either way.
+            historyLoading = false
+            await redrawRail($).catch(() => {})
+          }
+          if (historyFailed) $.ui.toast("the parent session's transcript could not be read")
+        })()
       }
       return next(e)
     }

@@ -1156,6 +1156,9 @@ type Beneath = {
   themes?: Record<string, string>
   // The sessions this transcript continues, filed beside it, by session id.
   extra?: Record<string, string>
+  // Held open, it keeps a continued session's transcript from being read until
+  // the test lets go, so the rail can be drawn while that read is under way.
+  parentReadGate?: Promise<void>
   // Each reader the plugin spawned, as its argv and its env, and whether
   // spawning fails (the desktop app and SDK hosts run no processes) or only
   // `tail` cannot start (a Windows PATH without Git's tools).
@@ -1237,7 +1240,7 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
     const name = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
     return name.endsWith('.jsonl') ? disk.extra?.[name.slice(0, -'.jsonl'.length)] : undefined
   }
-  on('fs.read', ($: any, e: any) => {
+  on('fs.read', async ($: any, e: any) => {
     // A custom theme's definition is the one non-transcript file the rail
     // reads; a missing one fails as the host would.
     const theme = /[\\/]themes[\\/]([^\\/]+)\.json$/.exec(e.path)
@@ -1247,7 +1250,10 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
       return { value: text }
     }
     const beside = sibling(e.path)
-    if (beside !== undefined) return { value: beside }
+    if (beside !== undefined) {
+      await disk.parentReadGate
+      return { value: beside }
+    }
     disk.reads++
     if (disk.readError !== undefined && isTranscript(e.path)) throw new Error(disk.readError)
     if (bytes(disk.transcript).length > READ_CAP) return { deny: 'over 4 MiB' }
@@ -4799,6 +4805,65 @@ test('an earlier session is read one level at a time, on a press', async ($, on)
     isOffered: false,
     headings: ['   prompts from bbbbbbbb ⧉', '   prompts from aaaaaaaa ⧉', '   current session'],
   })
+})
+
+test('the offer says it is loading while an earlier session is read', async ($, on) => {
+  // The rail's own clock, for the redraw it schedules from a render hook.
+  mock.clock(on)
+  const p1 = 'dddddddd-4444-4444-8444-444444444444'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  let release!: () => void
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'c1', parentUuid: 'c0', origin: { kind: 'human' }, message: { role: 'user', content: 'current prompt' } },
+  ]))
+  disk.extra = {
+    [p1]: jsonl([{ type: 'user', uuid: 'p1', origin: { kind: 'human' }, message: { role: 'user', content: 'a prompt from the session before' } }]),
+  }
+  disk.parentReadGate = gate
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  // A surface with no Client region, mounted before the press: it says the
+  // same through the rail's own redraw, as a running turn's mark does there.
+  const mobile = await $.ui.mount({ plugin: 'session-rail', surface: 'mobile', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const pressing = press.press({ key: 'load-parent' })
+  // Let the press draw its answer before the read lands.
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const mark = async () =>
+    (await press.findAll({ in: 'load-parent' }))
+      .map((node: any) => String(node.props.label ?? node.text ?? ''))
+      .join(' ')
+  // The row answers at once, with the mark it spins while it waits.
+  const first = await mark()
+  expect(first).toContain('loading parent session')
+  expect(SPIN.some(glyph => first.includes(glyph))).toBe(true)
+  // The mark turns in the row's own region: the frame moves on its clock while
+  // the rail's sites are not drawn again for it.
+  const redraws = disk.railRedraws
+  await press.advance(120)
+  expect(await mark()).not.toBe(first)
+  expect(disk.railRedraws).toBe(redraws)
+  // A surface with no Client region says the same; its mark turns through the
+  // rail's own redraw (the running bar's test covers that turn).
+  expect(String((await mobile.find({ type: 'Button', key: 'load-parent' }))?.props.label)).toContain('loading parent session')
+  release()
+  await pressing
+  await mobile.unmount()
+  await press.unmount()
+  // The read landed: the parent's prompt is listed and the offer is gone, its
+  // level being the deepest one.
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  expect(
+    (await rail.findAll({ type: 'Button' }))
+      .filter((b: any) => String(b.props.key).startsWith('jump-'))
+      .map((b: any) => String(b.props.label)),
+  ).toEqual([' ┄ a prompt from the session before', ' ─ current prompt'])
+  expect(await rail.find({ type: 'Button', key: 'load-parent' })).toBeUndefined()
+  await rail.unmount()
 })
 
 test('the parent session divider copies the full id on a press', async ($, on) => {

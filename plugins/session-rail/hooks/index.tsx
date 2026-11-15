@@ -335,8 +335,14 @@ type Entry = {
   beside?: boolean
   // The session whose prompts begin at this entry: the heading above it names
   // that session (see fromLabel). One is set per earlier block, so a chain read
-  // two levels back shows both headings.
+  // two levels back shows both headings. A /branch copies the parent's rows
+  // into this file and keeps their `forkedFrom`; those blocks get the same
+  // heading, but no `beside`, since a jump can reach rows held here.
   from?: string
+  // The prompt's row was copied by a /branch (see indexRows): the conversation
+  // began as a branch of another, and the line at the boundary reads
+  // `branched at …` rather than `resumed at …`.
+  forked?: boolean
   // The prompt opens this session's own part of a continued conversation: the
   // heading above it reads "current session".
   currentBlock?: boolean
@@ -757,6 +763,11 @@ const parseRow = (line: string): any => {
     // came from, where `sessionId` names the session that wrote this file.
     sessionId: row.sessionId,
     session_id: row.session_id,
+    // A /branch copies the parent conversation's rows into its own file and
+    // stamps each with the session it was copied from (`sessionId` names the
+    // branch that owns the file now); a row written here has none. The rail
+    // heads each copied block with that session (see indexRows).
+    forkedFrom: typeof row.forkedFrom?.sessionId === 'string' ? { sessionId: row.forkedFrom.sessionId } : undefined,
     parentUuid: row.parentUuid,
     logicalParentUuid: row.logicalParentUuid,
     isSidechain: row.isSidechain,
@@ -805,6 +816,11 @@ const indexRows = (rows: any[]): TranscriptIndex => {
   // A live /compact boundary: the next prompt on the live branch opens the
   // segment after it.
   let afterBreak = false
+  // The session the last listed prompt was copied from, when the transcript is
+  // a /branch's: each copied row names the session it came from (see
+  // parseRow), so a change heads a new block. A row written in this file has
+  // none, and its prompt ends the copied blocks without a heading of its own.
+  let copiedFrom: string | undefined
   for (const row of rows) {
     // The boundary row is not always on the parent chain (a summary that links
     // back skips it), but its place in the file still divides the segments.
@@ -850,13 +866,17 @@ const indexRows = (rows: any[]): TranscriptIndex => {
       const text = typeof prompt === 'string' ? promptTextOf(prompt) : undefined
       if (text === undefined) continue
       const sentAt = Date.parse(row.timestamp)
+      const origin = row.forkedFrom?.sessionId
       prompts.push({
         id: row.uuid,
         text,
         queued: true,
         ...(Number.isFinite(sentAt) ? { sentAt } : {}),
         ...(afterBreak ? { breakBefore: true } : {}),
+        ...(origin !== undefined ? { forked: true } : {}),
+        ...(origin !== undefined && origin !== copiedFrom ? { from: origin } : {}),
       })
+      copiedFrom = origin
       afterBreak = false
       turns.push({ files: [] })
       times.push({ start: NaN, last: NaN })
@@ -888,12 +908,16 @@ const indexRows = (rows: any[]): TranscriptIndex => {
     const promptText = promptTextOf(text)
     if (promptText === undefined) continue
     const at = Date.parse(row.timestamp)
+    const origin = row.forkedFrom?.sessionId
     prompts.push({
       id: row.uuid,
       text: promptText,
       ...(Number.isFinite(at) ? { sentAt: at } : {}),
       ...(afterBreak ? { breakBefore: true } : {}),
+      ...(origin !== undefined ? { forked: true } : {}),
+      ...(origin !== undefined && origin !== copiedFrom ? { from: origin } : {}),
     })
+    copiedFrom = origin
     afterBreak = false
     turns.push({ files: [] })
     started = prompts.length - 1
@@ -1299,11 +1323,15 @@ export const mergeMoments = (lists: readonly (readonly unknown[])[]): number[] =
 
 async function rememberedMoments($: EngineInterface, sessionId: string) {
   try {
-    const value = (await $.store.get(`${RESUME_STORE_PREFIX}${sessionId}`)) as { moments?: unknown } | undefined
-    return Array.isArray(value?.moments) ? mergeMoments([value.moments]) : []
+    const value = (await $.store.get(`${RESUME_STORE_PREFIX}${sessionId}`)) as { moments?: unknown; branches?: unknown } | undefined
+    const moments = Array.isArray(value?.moments) ? mergeMoments([value.moments]) : []
+    // A store written before the kind was kept has no branches; the transcript
+    // still tells a branch's line apart (see branchBoundary).
+    const branches = Array.isArray(value?.branches) ? mergeMoments([value.branches]).filter(moment => moments.includes(moment)) : []
+    return { moments, branches }
   } catch {
     // A refused read only loses the older lines; the rail draws the rest.
-    return []
+    return { moments: [], branches: [] }
   }
 }
 
@@ -1319,9 +1347,9 @@ async function forgetMoments($: EngineInterface, sessionId: string) {
 
 // Keep this conversation's moments for the next process, and let go of the
 // oldest sessions' lists past the cap.
-async function rememberMoments($: EngineInterface, sessionId: string, moments: number[]) {
+async function rememberMoments($: EngineInterface, sessionId: string, moments: number[], branches: number[]) {
   try {
-    await $.store.set(`${RESUME_STORE_PREFIX}${sessionId}`, { moments, at: Date.now() })
+    await $.store.set(`${RESUME_STORE_PREFIX}${sessionId}`, { moments, branches, at: Date.now() })
     const keys = (await $.store.keys()).filter(key => key.startsWith(RESUME_STORE_PREFIX))
     if (keys.length <= KEPT_RESUME_SESSIONS) return
     const dated = await Promise.all(
@@ -1577,6 +1605,9 @@ type ResumeState = {
   sessionId: string | null
   at: number
   moments: number[]
+  // The moments whose boundary was a /branch, a subset of `moments`: the line
+  // they draw reads `branched at …`, where a resume's reads `resumed at …`.
+  branches: number[]
   // Whether `total` and `since` describe every prompt sent since `at`. False
   // when the moments came from the store of an earlier process, whose sends
   // this one never counted.
@@ -1594,7 +1625,7 @@ async function rememberedResume($: EngineInterface) {
     return undefined
   }
   if (value === null || typeof value !== 'object') return undefined
-  const kept = value as { sessionId?: unknown; at?: unknown; moments?: unknown; counts?: unknown; total?: unknown; since?: unknown }
+  const kept = value as { sessionId?: unknown; at?: unknown; moments?: unknown; branches?: unknown; counts?: unknown; total?: unknown; since?: unknown }
   // A null id is a resume the closing session marked pending for whichever
   // conversation comes next.
   if (kept.sessionId !== null && typeof kept.sessionId !== 'string') return undefined
@@ -1603,6 +1634,9 @@ async function rememberedResume($: EngineInterface) {
   // The moments a resume was told of, oldest first, with the latest one the
   // `at` above. A state written before this list existed has only the latest.
   const moments = mergeMoments([Array.isArray(kept.moments) ? kept.moments : [], [kept.at]])
+  // The branch boundaries are a subset of the moments: one the cap dropped is
+  // no line, and a value this module never wrote cannot claim one.
+  const branches = mergeMoments([Array.isArray(kept.branches) ? kept.branches : []]).filter(moment => moments.includes(moment))
   // Another plugin can write this key, so the read holds the same bounds the
   // writer keeps: at most SINCE_CAP pairs, each a short key and a positive
   // count. A value this module never wrote is left mostly out.
@@ -1624,7 +1658,7 @@ async function rememberedResume($: EngineInterface) {
     typeof kept.total === 'number' && Number.isSafeInteger(kept.total) && kept.total >= 0 ? kept.total : fallback
   // A state written before this flag existed had its counts from this process.
   const counts = kept.counts !== false
-  return { sessionId: kept.sessionId, at: kept.at, moments, counts, total, since }
+  return { sessionId: kept.sessionId, at: kept.at, moments, branches, counts, total, since }
 }
 
 // Keep the boundary for a hot reload; null clears it. A refused write must not
@@ -2013,6 +2047,9 @@ export const register: Register = (on, options) => {
   // Every resume moment this conversation was told of, oldest first: each
   // draws a line above the first prompt sent after it.
   let resumeMoments: number[] = []
+  // The moments among them whose boundary was a /branch, a subset of
+  // `resumeMoments`: their line reads `branched at …`.
+  let branchMoments: number[] = []
   // Whether the counts below describe every prompt sent since the latest
   // moment. True when the session state or a resume in this process gave them;
   // false when the moments came only from the store, where the transcript's
@@ -2075,13 +2112,18 @@ export const register: Register = (on, options) => {
     return others.size > 0
   }
 
-  // Record a resume the module was told of; `hadSince` says whether prompts
-  // were sent since the moment before it. One resume can raise both the
-  // closing conversation's end and the resumed one's start, and with no prompt
-  // between them the later moment replaces the earlier rather than drawing a
-  // second line.
-  const noteResumeMoment = (at: number, hadSince: boolean) => {
+  // Record a boundary the module was told of, and whether it was a /branch
+  // rather than a /resume; `hadSince` says whether prompts were sent since the
+  // moment before it. One boundary can raise both the closing conversation's
+  // end and the resumed one's start, and with no prompt between them the later
+  // moment replaces the earlier rather than drawing a second line, taking the
+  // later event's kind: a /branch ends the old session as a resume and starts
+  // the new one as a fork, and the line should say branched.
+  const noteResumeMoment = (at: number, hadSince: boolean, branched: boolean) => {
     resumeMoments = nextResumeMoments(resumeMoments, at, hadSince)
+    // A moment the pair rule replaced is no line: its kind goes with it.
+    branchMoments = branchMoments.filter(moment => resumeMoments.includes(moment))
+    if (branched) branchMoments = [...new Set([...branchMoments, at])].sort((a, b) => a - b)
   }
 
   // List a prompt row as it is drawn; true when the list changed.
@@ -2484,6 +2526,7 @@ export const register: Register = (on, options) => {
     startAt = Date.now()
     resumedAt = undefined
     resumeMoments = []
+    branchMoments = []
     sinceKnown = false
     momentsLoaded = false
     sinceResume = new Map()
@@ -2599,6 +2642,7 @@ export const register: Register = (on, options) => {
       ) {
         resumedAt = boundary.at
         resumeMoments = boundary.moments
+        branchMoments = boundary.branches
         sinceResume = new Map(boundary.since)
         sinceTotal = boundary.total
         sinceKnown = boundary.counts
@@ -2619,8 +2663,8 @@ export const register: Register = (on, options) => {
     at = generation
     const transcriptPath = session?.path
     if (resumedAt !== undefined) {
-      await saveResume($, { sessionId: id, at: resumedAt, moments: resumeMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
-      await rememberMoments($, id, resumeMoments)
+      await saveResume($, { sessionId: id, at: resumedAt, moments: resumeMoments, branches: branchMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+      await rememberMoments($, id, resumeMoments, branchMoments)
     }
     const isCurrent = () => session?.id === id && session?.path === transcriptPath
     const index = transcriptPath === undefined ? undefined : await readTranscript($, transcriptPath, seen, index => {
@@ -2635,18 +2679,19 @@ export const register: Register = (on, options) => {
     if (generation === at && (session === undefined || session.id === id)) {
       const remembered = await momentsRead
       momentsLoaded = true
-      if (generation === at && (session === undefined || session.id === id) && remembered.length > 0) {
+      if (generation === at && (session === undefined || session.id === id) && remembered.moments.length > 0) {
         const beforeCount = resumeMoments.length
-        const merged = mergeMoments([resumeMoments, remembered])
+        const merged = mergeMoments([resumeMoments, remembered.moments])
         const placed = resumedAt
         if (placed === undefined) {
           resumedAt = merged[merged.length - 1]
           sinceKnown = false
         }
         resumeMoments = merged
+        branchMoments = mergeMoments([branchMoments, remembered.branches]).filter(moment => resumeMoments.includes(moment))
         if (placed === undefined || merged.length !== beforeCount) {
-          await saveResume($, { sessionId: id, at: resumedAt!, moments: merged, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
-          await rememberMoments($, id, merged)
+          await saveResume($, { sessionId: id, at: resumedAt!, moments: merged, branches: branchMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+          await rememberMoments($, id, merged, branchMoments)
         }
         if (merged.length !== beforeCount) await redrawRail($)
       }
@@ -2893,6 +2938,7 @@ export const register: Register = (on, options) => {
       feed(entry.sentAt === undefined ? '' : String(entry.sentAt))
       feed(entry.breakBefore ? '1' : '0')
       feed(entry.beside ? '1' : '0')
+      feed(entry.forked ? '1' : '0')
       feed(entry.from ?? '')
       feed(entry.currentBlock ? '1' : '0')
       feed(turnLine(turnOf(entry.id)))
@@ -2941,6 +2987,9 @@ export const register: Register = (on, options) => {
       (lastIndex?.prompts ?? []).filter(prompt => prompt.from !== undefined).map(prompt => [rowKey(prompt.id), prompt.from!]),
     )
     const currentIds = new Set((lastIndex?.prompts ?? []).filter(prompt => prompt.currentBlock === true).map(prompt => rowKey(prompt.id)))
+    // The rows a /branch copied, which say the conversation began as a branch:
+    // the line at its start reads `branched at …`.
+    const forkedIds = new Set((lastIndex?.prompts ?? []).filter(prompt => prompt.forked === true).map(prompt => rowKey(prompt.id)))
     const sentTimes = new Map(
       (lastIndex?.prompts ?? []).filter(prompt => prompt.sentAt !== undefined).map(prompt => [rowKey(prompt.id), prompt.sentAt]),
     )
@@ -3012,7 +3061,8 @@ export const register: Register = (on, options) => {
       const marked = besideIds.has(rowKey(entry.id)) ? { ...flagged, beside: true } : { ...flagged, beside: undefined }
       const headed = from === undefined ? { ...marked, from: undefined } : { ...marked, from }
       const split = currentIds.has(rowKey(entry.id)) ? { ...headed, currentBlock: true } : { ...headed, currentBlock: undefined }
-      return prior?.rowId === undefined ? split : { ...split, rowId: prior.rowId }
+      const copied = forkedIds.has(rowKey(entry.id)) ? { ...split, forked: true } : { ...split, forked: undefined }
+      return prior?.rowId === undefined ? copied : { ...copied, rowId: prior.rowId }
     })
     engineMode = true
     // A row is kept when neither this list nor the last one named it: it was
@@ -3110,7 +3160,10 @@ export const register: Register = (on, options) => {
       const isCurrent = () => generation === at && session?.id === e.session_id && session?.path === e.transcript_path
       // This event's own moment, not whatever the shared state holds after the
       // awaits below: another conversation may have taken over meanwhile.
-      const resumeAt = e.source === 'resume' ? Date.now() : undefined
+      // A /branch starts the new conversation through the resume path too, and
+      // says so in its source; its line reads `branched at …`.
+      const forked = e.source === 'fork'
+      const resumeAt = e.source === 'resume' || forked ? Date.now() : undefined
       // Whether the segment ending here had prompts of its own: a resume after
       // them is a new line, one right after another resume is the same line.
       const hadSince = sinceTotal > 0 || sinceResume.size > 0
@@ -3130,7 +3183,7 @@ export const register: Register = (on, options) => {
           sinceTotal = 0
           sinceKnown = true
           resumeEpoch++
-          noteResumeMoment(resumeAt, hadSince)
+          noteResumeMoment(resumeAt, hadSince, forked)
         }
         // The path named here outranks one found on disk.
         session = { id: e.session_id, path: e.transcript_path }
@@ -3155,9 +3208,10 @@ export const register: Register = (on, options) => {
         if (generation === at && session?.id === e.session_id) {
           momentsLoaded = true
           const beforeCount = resumeMoments.length
-          resumeMoments = mergeMoments([resumeMoments, remembered])
-          await saveResume($, { sessionId: e.session_id, at: resumeAt, moments: resumeMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
-          await rememberMoments($, e.session_id, resumeMoments)
+          resumeMoments = mergeMoments([resumeMoments, remembered.moments])
+          branchMoments = mergeMoments([branchMoments, remembered.branches]).filter(moment => resumeMoments.includes(moment))
+          await saveResume($, { sessionId: e.session_id, at: resumeAt, moments: resumeMoments, branches: branchMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+          await rememberMoments($, e.session_id, resumeMoments, branchMoments)
           // The lines of the earlier processes were not part of the draws
           // above, so the pane is drawn again now that they are in the list.
           if (resumeMoments.length !== beforeCount) await redrawRail($)
@@ -3243,13 +3297,14 @@ export const register: Register = (on, options) => {
       if (generation === at && session?.id === id) {
         momentsLoaded = true
         const beforeCount = resumeMoments.length
-        resumeMoments = mergeMoments([resumeMoments, remembered])
+        resumeMoments = mergeMoments([resumeMoments, remembered.moments])
+        branchMoments = mergeMoments([branchMoments, remembered.branches]).filter(moment => resumeMoments.includes(moment))
         if (resumeMoments.length !== beforeCount) await redrawRail($)
       }
     }
     if (resumedAt !== undefined && generation === at && session?.id === id) {
-      await saveResume($, { sessionId: id, at: resumedAt, moments: resumeMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
-      await rememberMoments($, id, resumeMoments)
+      await saveResume($, { sessionId: id, at: resumedAt, moments: resumeMoments, branches: branchMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+      await rememberMoments($, id, resumeMoments, branchMoments)
     }
     const path = session?.path
     if (path === undefined && unfoundFor !== id) {
@@ -3417,10 +3472,12 @@ export const register: Register = (on, options) => {
         resumeEpoch++
         // forget started the list over, so this moment is its first; the
         // classic start that may follow replaces it rather than adding a line.
-        noteResumeMoment(at, false)
+        // A /branch closes its session as a resume, and the fork start that
+        // follows marks the same line as a branch instead.
+        noteResumeMoment(at, false, false)
         // The engine still names the closing session here; the next
         // conversation adopts this pending moment under its own id.
-        await saveResume($, { sessionId: null, at, moments: resumeMoments, counts: sinceKnown, total: 0, since: [] })
+        await saveResume($, { sessionId: null, at, moments: resumeMoments, branches: branchMoments, counts: sinceKnown, total: 0, since: [] })
       } else {
         await saveResume($, null)
         if (typeof ended === 'string') await forgetMoments($, ended)
@@ -3454,7 +3511,7 @@ export const register: Register = (on, options) => {
         id !== undefined && at !== undefined && sinceVersion !== counted &&
         sameBoundary(token, { id: session?.id, at: resumedAt, generation, epoch: resumeEpoch })
       ) {
-        await saveResume($, { sessionId: id, at, moments: resumeMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
+        await saveResume($, { sessionId: id, at, moments: resumeMoments, branches: branchMoments, counts: sinceKnown, total: sinceTotal, since: [...sinceResume] })
       }
     }
     return next(e)
@@ -3792,6 +3849,19 @@ export const register: Register = (on, options) => {
       const tight = `${left} ${time}`
       return cellWidth(tight) <= room ? `   ${tight}` : `   ${left}`
     }
+    // Whether a boundary was a /branch, whose line reads `branched at …`: the
+    // module was told so when the branch started, and a store written before
+    // it kept the kind leaves the transcript's own tell. A branch starts its
+    // session from another, so the oldest moment this conversation knows, with
+    // a copied row under it, is its own start.
+    const branchBoundary = (moment: number) => {
+      if (branchMoments.includes(moment)) return true
+      // A continued session's parent prompts are `beside` and belong to the
+      // other transcript: their copies say that file was a branch, not this
+      // conversation's start.
+      const copied = lastIndex?.prompts.some(prompt => prompt.forked === true && prompt.beside !== true) === true
+      return copied && resumeMoments[0] === moment
+    }
     const nextColumns = isRail ? e.props.bodyColumns : 0
     if (nextColumns !== railColumns) {
       // The band decides from this whether it carries the cards.
@@ -3822,7 +3892,7 @@ export const register: Register = (on, options) => {
           <Text color={accent} wrap="truncate-end">{`   ${oneLine(`started at ${startLabel}`, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
           {resumedAt !== undefined ? (
             <Text color={accent} wrap="truncate-end">
-              {`   ${oneLine(`resumed at ${stampLabel(resumedAt, timeZone)}`, Math.max(1, e.props.bodyColumns - 3))}`}
+              {`   ${oneLine(`${branchBoundary(resumedAt) ? 'branched' : 'resumed'} at ${stampLabel(resumedAt, timeZone)}`, Math.max(1, e.props.bodyColumns - 3))}`}
             </Text>
           ) : null}
           {historyPending !== undefined ? (
@@ -3921,7 +3991,7 @@ export const register: Register = (on, options) => {
               latestIndex,
             ).map(divider => [divider.index, divider.moment] as [number, number]),
       )
-      const resumeText = (moment: number) => `resumed at ${stampLabel(moment, timeZone)}`
+      const resumeText = (moment: number) => `${branchBoundary(moment) ? 'branched' : 'resumed'} at ${stampLabel(moment, timeZone)}`
       const contentTops: number[] = []
       {
         // The offer is drawn only where the pane has room for text; a collapsed

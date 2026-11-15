@@ -5377,3 +5377,124 @@ test('each session the rail lists is dated at its first prompt', async ($, on) =
   expect(cellWidth(parentHeader)).toBe(cellWidth(currentHeader))
   expect(texts.some((text: string) => text.includes('started at'))).toBe(false)
 })
+
+test("a branch heads its copied prompts with the session they came from, and keeps them jumpable", async ($, on) => {
+  const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const copied = (uuid: string, text: string) => ({
+    type: 'user',
+    uuid,
+    forkedFrom: { sessionId: parentId, messageUuid: `x-${uuid}` },
+    origin: { kind: 'human' },
+    message: { role: 'user', content: text },
+  })
+  const disk = beneath(jsonl([
+    copied('u1', 'first prompt'),
+    copied('u2', 'second prompt'),
+    { type: 'user', uuid: 'u3', origin: { kind: 'human' }, message: { role: 'user', content: 'after the branch' } },
+  ]))
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  // The copied rows are this file's own: every row keeps the jumpable tick,
+  // where a resumed session's parent rows draw with the dotted one.
+  expect(
+    (await rail.findAll({ type: 'Button' }))
+      .filter((b: any) => String(b.props.key).startsWith('jump-'))
+      .map((b: any) => String(b.props.label)),
+  ).toEqual([' ─ first prompt', ' ─ second prompt', ' ─ after the branch'])
+  // The block is headed with the session it came from. Its prompts are here,
+  // so no "load parent" offer waits above them.
+  expect(await rail.find({ type: 'Text', text: /prompts from aaaaaaaa/ })).toBeDefined()
+  expect(await rail.find({ type: 'Button', key: 'load-parent' })).toBeUndefined()
+  expect(await rail.find({ type: 'Text', text: /current session/ })).toBeUndefined()
+})
+
+test('a branch keeps its heading when the engine lists the prompts too', async ($, on) => {
+  const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'u1', forkedFrom: { sessionId: parentId }, origin: { kind: 'human' }, message: { role: 'user', content: 'first prompt' } },
+    { type: 'user', uuid: 'u2', origin: { kind: 'human' }, message: { role: 'user', content: 'after the branch' } },
+  ]))
+  const store = world(on, {}, disk.transcript, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [
+    { role: 'user', text: 'first prompt' },
+    { role: 'user', text: 'after the branch' },
+  ])
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  // The engine's list holds the prompts, not the block marks: the transcript
+  // supplies the heading for the prompt it stored under a uuid.
+  expect(await rail.find({ type: 'Text', text: /prompts from aaaaaaaa/ })).toBeDefined()
+  expect(
+    (await rail.findAll({ type: 'Button' }))
+      .filter((b: any) => String(b.props.key).startsWith('jump-'))
+      .map((b: any) => String(b.props.label)),
+  ).toEqual([' ─ first prompt', ' ─ after the branch'])
+})
+
+test('a /branch start draws a branched line rather than a resumed one', async ($, on) => {
+  mock.clock(on)
+  const disk = { ...beneath(TRANSCRIPT), isMissing: true }
+  const store = world(on, {}, TRANSCRIPT, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'history prompt' }])
+  on('prompt.submit', ($: any, e: any) => ({ text: e.text }))
+  await $.classic.SessionStart({ source: 'fork', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await submit($, 'after the branch')
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'n1', props: prompt('after the branch', null) })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  // A branch starts through the resume path, but naming it a resume would
+  // read as the wrong command.
+  expect(texts.some((text: string) => /^ {3}branched at /.test(text))).toBe(true)
+  expect(texts.some((text: string) => text.includes('resumed at'))).toBe(false)
+  // The kind is kept with the boundary, so the next process draws it too.
+  expect((store.state.get('resume') as any)?.branches).toHaveLength(1)
+})
+
+test('a branch transcript names a stored boundary as a branch', async ($, on) => {
+  mock.clock(on)
+  const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'u1', forkedFrom: { sessionId: parentId }, origin: { kind: 'human' }, timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'copied prompt' } },
+    { type: 'user', uuid: 'u2', origin: { kind: 'human' }, timestamp: '2026-09-24T00:05:00.000Z', message: { role: 'user', content: 'after the branch' } },
+  ]))
+  const store = world(on, { 'transcript:s1': { path: '/t/s1.jsonl', at: 1 } }, disk.transcript, disk)
+  // A store written before the kind was kept: the moment alone survives, and
+  // the transcript's copied row says what it was.
+  const at = Date.parse('2026-09-24T00:02:00.000Z')
+  store.state.set('resume', { sessionId: 's1', at, moments: [at], total: 1, since: [[promptKey('after the branch'), 1]] })
+  on('state.get', ($: any, e: any, next: any) =>
+    e.key === 'resume' ? { value: { value: store.state.get('resume'), version: 1 } } : next(e),
+  )
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  expect(texts.some((text: string) => /^ {3}branched at /.test(text))).toBe(true)
+  expect(texts.some((text: string) => text.includes('resumed at'))).toBe(false)
+})
+
+test('a resumed session whose parent file was a branch keeps its resumed line', async ($, on) => {
+  const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: parentId, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'c1', parentUuid: 'c0', origin: { kind: 'human' }, timestamp: '2026-09-24T00:05:00.000Z', message: { role: 'user', content: 'after resume' } },
+  ]))
+  // The parent was itself started by a /branch, so its rows carry copies.
+  disk.extra = {
+    [parentId]: jsonl([
+      { type: 'user', uuid: 'p1', forkedFrom: { sessionId: 'ffffffff-9999-4999-8999-999999999999' }, origin: { kind: 'human' }, timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'copied prompt' } },
+    ]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  await press.press({ key: 'load-parent' })
+  await press.unmount()
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  // The parent block's copied rows say that file was a branch; this
+  // conversation still began with a resume.
+  expect(texts.some((text: string) => text.includes('resumed at'))).toBe(true)
+  expect(texts.some((text: string) => text.includes('branched at'))).toBe(false)
+})

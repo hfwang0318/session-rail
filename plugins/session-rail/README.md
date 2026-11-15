@@ -85,6 +85,7 @@ Its hooks watch and do not change what passes through them:
 
 - The Claude desktop app draws the horizontal rail, but a click cannot jump there, since the app gives a plugin no way to scroll its transcript.
 - A `/compact` command's own row cannot be jumped to.
+- A session continued into another (`/resume`, a context overflow) shows the earlier prompts under a `prompts from <id> ⧉` heading, and this session's own part under `current session`; each heading carries its session's start time at the pane's right edge. The `[ click to load more prompts from parent session ]` button reads one session per press, and it is drawn by the pane, so the vertical layout is where an earlier session can be asked for. Its prompts' rows are in the other transcript: they draw with the dotted tick, `next`/`prev` skip them, and pressing the heading copies the parent's full id for `/resume`.
 - Near the end of the transcript, `next` cannot scroll further.
 - After a compaction, prompts before the boundary come from the transcript; with no transcript to read, they cannot be listed in that session.
 - With no transcript, a prompt can be jumped to only after its row has been drawn once.

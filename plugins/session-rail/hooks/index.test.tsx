@@ -1419,6 +1419,8 @@ type Beneath = {
   path: string
   // Custom theme definitions under `<config>/themes`, by slug, as JSON text.
   themes?: Record<string, string>
+  // The sessions this transcript continues, filed beside it, by session id.
+  extra?: Record<string, string>
   // Each reader the plugin spawned, as its argv and its env, and whether
   // spawning fails (the desktop app and SDK hosts run no processes) or only
   // `tail` cannot start (a Windows PATH without Git's tools).
@@ -1495,6 +1497,11 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
   // the working directory, as a Windows path is on Linux: the end still names
   // the transcript.
   const isTranscript = (path: string) => path === disk.path || path.endsWith(disk.path)
+  // A session this transcript continues, filed beside it, by its id.
+  const sibling = (path: string) => {
+    const name = path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+    return name.endsWith('.jsonl') ? disk.extra?.[name.slice(0, -'.jsonl'.length)] : undefined
+  }
   on('fs.read', ($: any, e: any) => {
     // A custom theme's definition is the one non-transcript file the rail
     // reads; a missing one fails as the host would.
@@ -1504,6 +1511,8 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
       if (text === undefined) throw new Error(`ENOENT: no such file or directory, open '${e.path}'`)
       return { value: text }
     }
+    const beside = sibling(e.path)
+    if (beside !== undefined) return { value: beside }
     disk.reads++
     if (disk.readError !== undefined && isTranscript(e.path)) throw new Error(disk.readError)
     if (bytes(disk.transcript).length > READ_CAP) return { deny: 'over 4 MiB' }
@@ -1513,11 +1522,16 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
     if (e.path === '/etc/localtime') {
       return { value: { kind: 'file', size: 0, mtimeMs: 0, isLink: disk.zonePath !== undefined, ...(disk.zonePath === undefined ? {} : { realPath: disk.zonePath }) } }
     }
+    const beside = sibling(e.path)
+    if (beside !== undefined) {
+      return { value: { kind: 'file', size: bytes(beside).length, mtimeMs: disk.mtimeMs, isLink: false } }
+    }
     disk.stats++
     if (disk.statError !== undefined && isTranscript(e.path)) throw new Error(disk.statError)
-    return disk.isMissing && isTranscript(e.path)
+    if (!isTranscript(e.path)) throw new Error(`ENOENT: no such file or directory, lstat '${e.path}'`)
+    return disk.isMissing
       ? { deny: `ENOENT: no such file or directory, lstat '${e.path}'` }
-      : { value: { kind: 'file', size: isTranscript(e.path) ? bytes(disk.transcript).length : 0, mtimeMs: disk.mtimeMs, isLink: false } }
+      : { value: { kind: 'file', size: bytes(disk.transcript).length, mtimeMs: disk.mtimeMs, isLink: false } }
   })
   // `tail -c +N path`, or PowerShell reading from $env:PROMPT_RAIL_AT: the
   // file's bytes from there on, in pieces of a megabyte or so, as a child's
@@ -1529,7 +1543,8 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
     if (disk.noTail && e.argv[0] === 'tail') throw new Error("tail failed to start: ENOENT: Command 'tail' not found")
     const from = e.argv[0] === 'tail' ? Number(String(e.argv[2]).slice(1)) - 1 : Number(e.env?.PROMPT_RAIL_AT)
     if (!Number.isInteger(from)) throw new Error(`a reader this stub does not know: ${e.argv.join(' ')}`)
-    const text = new TextDecoder().decode(bytes(disk.transcript).slice(from))
+    const source = e.argv[0] === 'tail' ? sibling(String(e.argv[4] ?? '')) ?? disk.transcript : disk.transcript
+    const text = new TextDecoder().decode(bytes(source).slice(from))
     for (let i = 0; i < text.length; i += 1 << 20) yield { stream: 'stdout', text: text.slice(i, i + (1 << 20)) }
     return { value: { code: 0, signal: null } }
   })
@@ -1580,7 +1595,11 @@ const world = (on: any, initial: Record<string, unknown> = {}, transcript = TRAN
 
 const railLabels = async ($: any) => {
   const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
-  const labels = (await rail.findAll({ type: 'Button' })).map((b: any) => String(b.props.label).slice(3))
+  // The prompt rows alone: the rail's own controls (the offer to load an
+  // earlier session, a parent id to copy) are buttons of their own.
+  const labels = (await rail.findAll({ type: 'Button' }))
+    .filter((b: any) => String(b.props.key).startsWith('jump-'))
+    .map((b: any) => String(b.props.label).slice(3))
   await rail.unmount()
   return labels
 }
@@ -5144,4 +5163,217 @@ test('the hover card reads a sent time in the machine zone, not the session TZ',
   // The card's stats line, not the head's start stamp, carries the zone.
   expect(await rail.find({ type: 'Text', text: /At 09-24 08:00/ })).toBeDefined()
   expect(await rail.find({ type: 'Text', text: /09-24 00:00/ })).toBeUndefined()
+})
+
+test("a subagent's prompt rows are not listed in the main conversation", async ($, on) => {
+  world(on, {}, jsonl([]))
+  mock.clock(on)
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', null) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: prompt('second prompt', null) })
+  // The agent's transcript is in view: the rail's site draws for that view.
+  const sub = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: { ...pane('dock', 37), view: { agentId: 'ag1' } } })
+  // A prompt row of the agent's own transcript, drawn while it is in view.
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'sub1', props: prompt('the agent is asked', null) })
+  await sub.unmount()
+  // Back to the main conversation: its own prompts alone.
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 37) })
+  expect((await rail.findAll({ type: 'Button' })).map((b: any) => String(b.props.label))).toEqual([' ─ first prompt', ' ─ second prompt'])
+})
+
+test("a subagent's turn does not run the main conversation's rail", async ($, on) => {
+  world(on, {}, jsonl([]))
+  on('turn.start', ($: any, e: any) => ({ turnId: e.turnId }))
+  mock.clock(on)
+  await startSession($)
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm1', props: prompt('first prompt', null) })
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'm2', props: prompt('second prompt', null) })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  await $.turn.start({ text: 'the agent is asked', turnId: 'sub', agentId: 'ag1' })
+  // The main conversation is at rest: the agent's turn spins no row of the rail.
+  expect((await rail.findAll({ type: 'Button' })).map((b: any) => String(b.props.label))).toEqual([' ─ first prompt', ' ─ second prompt'])
+})
+
+
+test("a prompt delivered with a side agent's note lists what the person typed", () => {
+  const note = [
+    'Here is a note offered by a side agent:',
+    '',
+    '> Heads up · the /config row draws text only, no swatch.',
+    '>',
+    '> - a second line of the note',
+    '',
+    'add a preview theme command',
+  ].join('\n')
+  expect(promptTextOf(note)).toBe('add a preview theme command')
+  // A note with nothing of the person's own after it is no prompt.
+  expect(promptTextOf('Here is a note offered by a side agent:\n\n> only the note\n')).toBeUndefined()
+  // Any other text is the person's own, unaffected.
+  expect(promptTextOf('add a preview theme command')).toBe('add a preview theme command')
+})
+
+test('a session continued from another lists the prompts before the boundary', async ($, on) => {
+  const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'p1', isCompactSummary: true, sessionId: 's1', session_id: parentId, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'u3', parentUuid: 'p1', origin: { kind: 'human' }, message: { role: 'user', content: 'after the boundary' } },
+  ]))
+  disk.extra = {
+    [parentId]: jsonl([
+      { type: 'user', uuid: 'u1', origin: { kind: 'human' }, timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'first prompt' } },
+      { type: 'user', uuid: 'u2', parentUuid: 'u1', origin: { kind: 'human' }, timestamp: '2026-09-24T00:30:00.000Z', message: { role: 'user', content: 'second prompt' } },
+      // A row the continuation copied: listed once, the child's.
+      { type: 'user', uuid: 'u3', parentUuid: 'u2', origin: { kind: 'human' }, message: { role: 'user', content: 'after the boundary' } },
+    ]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  // The earlier session is read one level at a time, on a press.
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  await press.press({ key: 'load-parent' })
+  await press.unmount()
+  expect(await railLabels($)).toEqual(['first prompt', 'second prompt', 'after the boundary'])
+})
+
+test("a continued conversation divides its earlier session's prompts and marks them unreachable", async ($, on) => {
+  const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'p1', isCompactSummary: true, sessionId: 's1', session_id: parentId, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'u3', parentUuid: 'p1', origin: { kind: 'human' }, message: { role: 'user', content: 'after the boundary' } },
+  ]))
+  disk.extra = {
+    [parentId]: jsonl([
+      { type: 'user', uuid: 'u1', origin: { kind: 'human' }, message: { role: 'user', content: 'first prompt' } },
+      { type: 'user', uuid: 'u2', parentUuid: 'u1', origin: { kind: 'human' }, message: { role: 'user', content: 'second prompt' } },
+    ]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  await press.press({ key: 'load-parent' })
+  await press.unmount()
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  // The earlier session's rows carry the dotted tick before any press: this
+  // view has no row of theirs to scroll to.
+  expect(
+    (await rail.findAll({ type: 'Button' }))
+      .filter((b: any) => String(b.props.key).startsWith('jump-'))
+      .map((b: any) => String(b.props.label)),
+  ).toEqual([' ┄ first prompt', ' ┄ second prompt', ' ─ after the boundary'])
+  // The earlier block is headed with the session it came from, and this
+  // session's own part with "current session".
+  expect(await rail.find({ type: 'Text', text: /prompts from aaaaaaaa/ })).toBeDefined()
+  expect(await rail.find({ type: 'Text', text: /current session/ })).toBeDefined()
+})
+
+test('an earlier session is read one level at a time, on a press', async ($, on) => {
+  const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const p2 = 'bbbbbbbb-2222-4222-8222-222222222222'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const row = (uuid: string, parentUuid: string | undefined, text: string) => ({
+    type: 'user',
+    uuid,
+    ...(parentUuid === undefined ? {} : { parentUuid }),
+    origin: { kind: 'human' },
+    message: { role: 'user', content: text },
+  })
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+    row('c1', 'c0', 'current prompt'),
+  ]))
+  disk.extra = {
+    [p1]: jsonl([
+      { type: 'user', uuid: 'p0', isCompactSummary: true, sessionId: p1, session_id: p2, message: { role: 'user', content: summary } },
+      row('p1', 'p0', 'parent prompt'),
+    ]),
+    [p2]: jsonl([row('g1', undefined, 'grandparent prompt')]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const view = async () => {
+    const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+    const out = (await rail.findAll({ type: 'Button' }))
+      .filter((b: any) => String(b.props.key).startsWith('jump-'))
+      .map((b: any) => String(b.props.label))
+    const load = await rail.find({ type: 'Button', key: 'load-parent' })
+    const headings = (await rail.findAll({ type: 'Text' }))
+      .map((node: any) => String(node.text))
+      .filter((text: string) => /^ {3}(prompts from|current session)/.test(text))
+    await rail.unmount()
+    return { out, isOffered: load !== undefined, headings }
+  }
+  // Only this session's own prompt is listed; the earlier ones wait for a press.
+  expect(await view()).toEqual({ out: [' ─ current prompt'], isOffered: true, headings: [] })
+  const first = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  await first.press({ key: 'load-parent' })
+  await first.unmount()
+  // One press reads one level; the level above it is offered again. The block
+  // read is headed with its session, this session's own part with its own.
+  expect(await view()).toEqual({
+    out: [' ┄ parent prompt', ' ─ current prompt'],
+    isOffered: true,
+    headings: ['   prompts from aaaaaaaa ⧉', '   current session'],
+  })
+  const second = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  await second.press({ key: 'load-parent' })
+  await second.unmount()
+  expect(await view()).toEqual({
+    out: [' ┄ grandparent prompt', ' ┄ parent prompt', ' ─ current prompt'],
+    isOffered: false,
+    headings: ['   prompts from bbbbbbbb ⧉', '   prompts from aaaaaaaa ⧉', '   current session'],
+  })
+})
+
+test('the parent session divider copies the full id on a press', async ($, on) => {
+  const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const copied: string[] = []
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'c1', parentUuid: 'c0', origin: { kind: 'human' }, message: { role: 'user', content: 'current prompt' } },
+  ]))
+  disk.extra = { [p1]: jsonl([{ type: 'user', uuid: 'p1', origin: { kind: 'human' }, message: { role: 'user', content: 'parent prompt' } }]) }
+  world(on, {}, disk.transcript, disk)
+  on('ui.copy', ($: any, e: any) => {
+    copied.push(e.text)
+    return { value: { isCopied: true } }
+  })
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  await rail.press({ key: 'load-parent' })
+  await rail.press({ key: `copy-parent-${p1}` })
+  expect(copied).toEqual([p1])
+  expect(disk.toasts.some(text => text.includes(p1))).toBe(true)
+})
+
+test('each session the rail lists is dated at its first prompt', async ($, on) => {
+  const p1 = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const summary = 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.'
+  const parentSent = '2026-09-24T00:05:00.000Z'
+  const currentSent = '2026-09-24T09:30:00.000Z'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'c0', isCompactSummary: true, sessionId: 's1', session_id: p1, message: { role: 'user', content: summary } },
+    { type: 'user', uuid: 'c1', parentUuid: 'c0', origin: { kind: 'human' }, timestamp: currentSent, message: { role: 'user', content: 'current prompt' } },
+  ]))
+  disk.extra = {
+    [p1]: jsonl([
+      { type: 'user', uuid: 'p1', origin: { kind: 'human' }, timestamp: parentSent, message: { role: 'user', content: 'parent prompt' } },
+    ]),
+  }
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const press = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  await press.press({ key: 'load-parent' })
+  await press.unmount()
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 60) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  // Each block's heading carries the moment its session opened, flush with the
+  // pane's right edge, and the head above them draws no second start.
+  const parentHeader = texts.find((text: string) => text.startsWith('   prompts from aaaaaaaa ⧉'))!
+  const currentHeader = texts.find((text: string) => text.startsWith('   current session'))!
+  expect(parentHeader.endsWith(stampShort(Date.parse(parentSent)))).toBe(true)
+  expect(currentHeader.endsWith(stampShort(Date.parse(currentSent)))).toBe(true)
+  expect(cellWidth(parentHeader)).toBe(cellWidth(currentHeader))
+  expect(texts.some((text: string) => text.includes('started at'))).toBe(false)
 })

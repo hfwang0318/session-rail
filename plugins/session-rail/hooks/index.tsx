@@ -65,6 +65,18 @@ const PROJECT_FOLDER_MAX = 200
 // The id a prompt row is drawn under before its message is stored; the stored
 // row follows under its uuid.
 const PROVISIONAL_ID = 'placeholder'
+// The heading above an earlier session's prompts in a continued conversation:
+// the rows below it belong to that session, whose rows this view does not draw.
+// The short id names the session in the pane, and a press on the heading copies
+// the whole id, which is what /resume takes.
+const fromLabel = (parent: string) => `prompts from ${parent.slice(0, 8)}`
+// The heading above this session's own prompts once an earlier session's are
+// listed: one line rather than a bare boundary, so both parts of the rail say
+// which session they belong to.
+const CURRENT_LABEL = 'current session'
+// What a press on one of those rows says: the marker already told the person
+// it cannot be reached, and this says why rather than leaving a failed scroll.
+const BESIDE_TOAST = 'this prompt is from the earlier conversation; its row is not in this transcript'
 // User rows the engine writes around its own output (slash commands, bash
 // mode, reminders) or around another agent's message (a peer session, a
 // subagent's hand-back, a teammate, a coordinator's relay), which are not
@@ -87,6 +99,12 @@ const isOthers = (marked: { isMeta?: unknown; origin?: { kind?: unknown } } | un
 // so only the engine's layout matches: the artifact id, a JSON line starting
 // with "context", and the closing tag on a line of its own.
 const VIEW_CONTEXT = /^\s*<artifact-view-context artifact="[^"]*">\n\{"context":[\s\S]*?\n<\/artifact-view-context>/
+// Another agent's note the engine puts ahead of a prompt it delivers into a
+// running turn: the note is that agent's words, quoted, and the person's own
+// follow the block. The row is the person's prompt, so the note is dropped
+// from its text; left in, it takes the row and the card, and the prompt the
+// person typed is never seen.
+const SIDE_NOTE = /^Here is a note offered by a side agent:[^\n]*\n(?:[ \t]*\n)?(?:>[^\n]*\n?)*\s*/
 // The notice the engine stores as a user row when the person interrupts a turn.
 const INTERRUPTED = /^\[Request interrupted by user/
 // A compaction summary the engine lists as a user message. `$.session.messages`
@@ -131,7 +149,7 @@ const promptFromCommand = (text: string): string | undefined | null => {
 // A command with arguments is listed as what the person typed; a bare command,
 // an interruption notice and a compaction summary are not prompts.
 export const promptTextOf = (raw: string): string | undefined => {
-  const text = raw.replace(VIEW_CONTEXT, '').trim()
+  const text = raw.replace(VIEW_CONTEXT, '').replace(SIDE_NOTE, '').trim()
   if (!text) return undefined
   const command = promptFromCommand(text)
   if (command !== null) return command
@@ -311,6 +329,17 @@ type Entry = {
   sentAt?: number
   // The prompt begins the segment after a /compact boundary in the transcript.
   breakBefore?: boolean
+  // The prompt comes from a session this conversation continues (see
+  // withHistory): its row is not in the transcript in view, so a jump cannot
+  // reach it, and the rail says so before a press rather than after one.
+  beside?: boolean
+  // The session whose prompts begin at this entry: the heading above it names
+  // that session (see fromLabel). One is set per earlier block, so a chain read
+  // two levels back shows both headings.
+  from?: string
+  // The prompt opens this session's own part of a continued conversation: the
+  // heading above it reads "current session".
+  currentBlock?: boolean
 }
 
 // The key rows are matched by. A message the engine splits into several rows
@@ -642,6 +671,10 @@ type TranscriptIndex = {
   owners: [string, number][]
   // Every row uuid the file holds, live branch or not.
   known: Set<string>
+  // The session this transcript continues, when its first row is that
+  // session's summary (a /resume, a context overflow): the prompts before the
+  // boundary live in that session's file (see withHistory).
+  parentSession?: string
 }
 
 // The uuids on the live branch: the chain of parents from the last row. A
@@ -704,6 +737,11 @@ const parseRow = (line: string): any => {
   const content = row.message?.content
   const blocks = Array.isArray(content)
     ? content.flatMap((block: any) => {
+        // A reply's text is the bulk of a long transcript and no index row
+        // reads it: the rail shows prompts, not answers. Kept, it would hold
+        // a file's whole prose in memory while its prompts are indexed — a
+        // continuation's parent included.
+        if (row.type === 'assistant' && block?.type === 'text') return []
         if (block?.type === 'text' && typeof block.text === 'string') return [{ type: 'text', text: block.text }]
         if (block?.type === 'tool_result') return [{ type: 'tool_result' }]
         if (block?.type === 'tool_use' && typeof block.id === 'string') {
@@ -712,9 +750,13 @@ const parseRow = (line: string): any => {
         }
         return []
       })
-    : content
+    : row.type === 'assistant' ? undefined : content
   return {
     uuid: row.uuid,
+    // A continuation's summary names in `session_id` (snake) the session it
+    // came from, where `sessionId` names the session that wrote this file.
+    sessionId: row.sessionId,
+    session_id: row.session_id,
     parentUuid: row.parentUuid,
     logicalParentUuid: row.logicalParentUuid,
     isSidechain: row.isSidechain,
@@ -726,7 +768,7 @@ const parseRow = (line: string): any => {
     isCompactSummary: row.isCompactSummary,
     origin: row.origin && { kind: row.origin.kind },
     timestamp: row.timestamp,
-    message: row.message && { role: row.message.role, content: typeof content === 'string' ? content : blocks },
+    message: row.message && { role: row.message.role, content: row.type === 'assistant' ? blocks : typeof content === 'string' ? content : blocks },
     attachment:
       row.attachment?.type === 'queued_command'
         ? {
@@ -749,6 +791,10 @@ const parseRows = (jsonl: string) => jsonl.split('\n').flatMap(line => (line.tri
 const indexRows = (rows: any[]): TranscriptIndex => {
   const live = liveBranch(rows)
   const prompts: IndexedPrompt[] = []
+  // The session this file continues, from the summary the engine wrote at the
+  // boundary. A /compact summary names the same session; only one from another
+  // session opens a file whose history lies elsewhere.
+  let parentSession: string | undefined
   const owners: [string, number][] = []
   const turns: Turn[] = []
   // When each turn started and when its latest reply was written.
@@ -767,6 +813,12 @@ const indexRows = (rows: any[]): TranscriptIndex => {
       continue
     }
     if (row.isSidechain || !live.has(row.uuid)) continue
+    if (
+      parentSession === undefined && row.isCompactSummary === true &&
+      typeof row.session_id === 'string' && UUID.test(row.session_id) && row.session_id !== row.sessionId
+    ) {
+      parentSession = row.session_id
+    }
     const turn = turns[started]
     if (row.type === 'system' && row.subtype === 'turn_duration' && typeof row.durationMs === 'number') {
       if (turn) turn.durationMs = (turn.durationMs ?? 0) + row.durationMs
@@ -851,7 +903,7 @@ const indexRows = (rows: any[]): TranscriptIndex => {
     const time = times[i]
     if (time && Number.isFinite(time.start) && time.last > time.start) turn.spanMs = time.last - time.start
   })
-  return { prompts, turns, owners, known: new Set(rows.map(row => row.uuid)) }
+  return { prompts, turns, owners, known: new Set(rows.map(row => row.uuid)), ...(parentSession === undefined ? {} : { parentSession }) }
 }
 
 // The engine's cap on one $.fs.read; a larger transcript is streamed.
@@ -1007,7 +1059,7 @@ async function readLarge($: EngineInterface, path: string, seen: Seen, size: num
       if (rest === false) return undefined
     }
     Object.assign(seen, { path, size, mtimeMs })
-    return indexSeen(seen, rest)
+    return withHistory($, path, indexSeen(seen, rest))
   } catch (err) {
     if (seen.warned !== path) {
       seen.warned = path
@@ -1016,6 +1068,141 @@ async function readLarge($: EngineInterface, path: string, seen: Seen, size: num
     }
     return undefined
   }
+}
+
+// The transcript path of a session this file names, in the same folder: the
+// engine files a continuation beside the session it continues.
+const transcriptSibling = (path: string, id: string) => {
+  const cut = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return cut < 0 ? `${id}.jsonl` : `${path.slice(0, cut + 1)}${id}.jsonl`
+}
+
+// How many sessions back a continuation chain is followed, so a file that
+// somehow names itself or an ancestor ends rather than loops.
+const PARENT_DEPTH = 4
+// What the rail asks the person before reading an earlier session's
+// transcript: it holds a whole conversation's prompts, and most opens do not
+// want them, so one level is read per press.
+const LOAD_LABEL = 'click to load more prompts from parent session'
+// How many levels back the person has asked the rail to load, the session
+// offering the next level, and the file the levels are merged onto. Module
+// state, reset with the conversation (see forget).
+let historyLevels = 0
+let historyPending: string | undefined
+let historyBase: TranscriptIndex | undefined
+let historyPath: string | undefined
+let historyFailed = false
+// The index of a session's transcript read on its own, kept by its size and
+// mtime: a parent that has not changed is not read again each time the file
+// it precedes grows.
+const parents = new Map<string, { size: number; mtimeMs: number; index: TranscriptIndex }>()
+const PARENT_CACHE = 4
+
+async function readAsIndex($: EngineInterface, path: string): Promise<TranscriptIndex | undefined> {
+  let stat: { size: number; mtimeMs: number }
+  try {
+    stat = await $.fs.stat(path)
+  } catch {
+    // A parent that is gone or unreadable leaves the history it held out; the
+    // rest of the rail still draws.
+    return undefined
+  }
+  const kept = parents.get(path)
+  if (kept !== undefined && kept.size === stat.size && kept.mtimeMs === stat.mtimeMs) return kept.index
+  try {
+    const own = unseen()
+    let index: TranscriptIndex | undefined
+    if (stat.size <= READ_CAP) {
+      const text = await $.fs.read(path)
+      index = indexSeen(own, takeLines(own, text, 0))
+    } else {
+      const rest = await streamRows($, path, own)
+      index = rest === false ? undefined : indexSeen(own, rest)
+    }
+    if (index === undefined) return undefined
+    if (parents.size >= PARENT_CACHE) {
+      const oldest = parents.keys().next().value
+      if (oldest !== undefined) parents.delete(oldest)
+    }
+    parents.set(path, { size: stat.size, mtimeMs: stat.mtimeMs, index })
+    return index
+  } catch {
+    return undefined
+  }
+}
+
+// The parent's prompts before the child's, as one conversation. The rows a
+// continuation copies (the overlap at the boundary) are the child's: listed
+// twice they would read as two prompts of the same text.
+const continueFrom = (parent: TranscriptIndex, child: TranscriptIndex, parentId: string): TranscriptIndex => {
+  const keep: number[] = []
+  parent.prompts.forEach((prompt, i) => {
+    if (!child.known.has(prompt.id)) keep.push(i)
+  })
+  const at = new Map(keep.map((i, rank) => [i, rank]))
+  const owners: [string, number][] = []
+  for (const [id, i] of parent.owners) {
+    const rank = at.get(i)
+    if (rank !== undefined) owners.push([id, rank])
+  }
+  for (const [id, i] of child.owners) owners.push([id, i + keep.length])
+  // The parent's rows are another transcript's: the rail lists them, but a
+  // press could not scroll to one, so each is marked reachable-never rather
+  // than told apart only by a failed press (see applyIndex).
+  const prompts: IndexedPrompt[] = [
+    // The first row of the block carries the heading naming the session it
+    // came from; the rest are plainly beside it.
+    ...keep.map((i, rank) => ({ ...parent.prompts[i]!, beside: true, ...(rank === 0 ? { from: parentId } : {}) })),
+    ...child.prompts,
+  ]
+  // This session's own rows begin after the parent's, headed "current
+  // session". Only the first merge sets it: a deeper level's child is already
+  // headed, its first row naming the session it in turn came from.
+  if (keep.length < prompts.length && !child.prompts.some(prompt => prompt.from !== undefined)) {
+    prompts[keep.length] = { ...prompts[keep.length]!, currentBlock: true }
+  }
+  return {
+    prompts,
+    turns: [...keep.map(i => parent.turns[i] ?? { files: [] }), ...child.turns],
+    owners,
+    known: new Set([...parent.known, ...child.known]),
+  }
+}
+
+// The history a transcript continues from: a session continued into another
+// (a /resume, a context overflow) writes its predecessor's summary as the new
+// file's first row, and that summary's `session_id` names the session whose
+// transcript holds every prompt before the boundary — prompts the engine's own
+// list no longer carries. Followed back, oldest session first, so the rail
+// draws one conversation rather than its newest file.
+async function withHistory($: EngineInterface, path: string, index: TranscriptIndex): Promise<TranscriptIndex> {
+  // What the merge starts from and where it is done again when the person
+  // asks for one more level (see the load-parent press).
+  historyBase = index
+  historyPath = path
+  historyFailed = false
+  let merged = index
+  let at = path
+  let parent = index.parentSession
+  let levels = 0
+  while (parent !== undefined && levels < historyLevels && levels < PARENT_DEPTH) {
+    const beside = transcriptSibling(at, parent)
+    const read = await readAsIndex($, beside)
+    if (read === undefined) {
+      // The level asked for is gone: say so once rather than offer it again.
+      historyFailed = true
+      historyLevels = levels
+      historyPending = undefined
+      return merged
+    }
+    merged = continueFrom(read, merged, parent)
+    at = beside
+    parent = read.parentSession
+    levels++
+  }
+  // The level after the deepest one loaded is offered, never read unasked.
+  historyPending = levels >= PARENT_DEPTH ? undefined : parent
+  return merged
 }
 
 // Say what a failed read left in `seen.notice`, once the session is bound:
@@ -1067,7 +1254,7 @@ async function readTranscript($: EngineInterface, path: string, seen: Seen, when
       Object.assign(seen, { rows: [], lastStart: 0, lastUuid: undefined })
       const rest = takeLines(seen, text, 0)
       Object.assign(seen, { path, size, mtimeMs })
-      return indexSeen(seen, rest)
+      return withHistory($, path, indexSeen(seen, rest))
     }
     isStreaming = true
     const reading = readLarge($, path, seen, size, mtimeMs).finally(() => {
@@ -2320,6 +2507,13 @@ export const register: Register = (on, options) => {
     listedAtRest = 0
     session = undefined
     activeTurn = undefined
+    // The levels an earlier conversation asked for are not this one's, and its
+    // base index is another file's.
+    historyLevels = 0
+    historyPending = undefined
+    historyBase = undefined
+    historyPath = undefined
+    historyFailed = false
     generation++
   }
 
@@ -2612,7 +2806,8 @@ export const register: Register = (on, options) => {
       }
       const entry = entries[index]
       const plan = jumpPlan(entry)
-      if (entry && plan) await jumpToEntry($, entry, plan, index, jumpContext)
+      if (entry?.beside) $.ui.toast(BESIDE_TOAST)
+      else if (entry && plan) await jumpToEntry($, entry, plan, index, jumpContext)
       else if (entry) $.ui.toast('the prompt has not reached the transcript yet')
       if (!entry) $.ui.toast(missingFor(e.command, asked))
       return {}
@@ -2697,6 +2892,9 @@ export const register: Register = (on, options) => {
       feed(entry.text)
       feed(entry.sentAt === undefined ? '' : String(entry.sentAt))
       feed(entry.breakBefore ? '1' : '0')
+      feed(entry.beside ? '1' : '0')
+      feed(entry.from ?? '')
+      feed(entry.currentBlock ? '1' : '0')
       feed(turnLine(turnOf(entry.id)))
     }
     return `${list.length}:${a >>> 0}:${b >>> 0}`
@@ -2709,6 +2907,10 @@ export const register: Register = (on, options) => {
     lastIndex = index
     owners = new Map(index.owners.map(([id, i]) => [rowKey(id), rowKey(index.prompts[i]?.id ?? '')]))
     turns = new Map(index.prompts.map((entry, i) => [entry.id, index.turns[i] ?? { files: [] }]))
+    // The rows of a session this one continues are in that session's
+    // transcript, not this view: no jump reaches them, and the tick says so
+    // from the first draw rather than after a press that finds nothing.
+    for (const prompt of index.prompts) if (prompt.beside) unreachable.add(prompt.id)
     // The conversation opened no later than its first stored prompt: a resumed
     // session's history keeps its original start, not the moment of the resume.
     const first = index.prompts.find(prompt => prompt.sentAt !== undefined)?.sentAt
@@ -2731,6 +2933,14 @@ export const register: Register = (on, options) => {
     // The transcript says which listed prompt opens a segment after a
     // compaction, and when each was sent; the engine's list holds neither.
     const breakIds = new Set((lastIndex?.prompts ?? []).filter(prompt => prompt.breakBefore).map(prompt => rowKey(prompt.id)))
+    // A prompt of a session this one continues, the session a block of them
+    // came from, and the prompt opening this session's own part: the engine's
+    // list holds none of those marks.
+    const besideIds = new Set((lastIndex?.prompts ?? []).filter(prompt => prompt.beside).map(prompt => rowKey(prompt.id)))
+    const fromAt = new Map(
+      (lastIndex?.prompts ?? []).filter(prompt => prompt.from !== undefined).map(prompt => [rowKey(prompt.id), prompt.from!]),
+    )
+    const currentIds = new Set((lastIndex?.prompts ?? []).filter(prompt => prompt.currentBlock === true).map(prompt => rowKey(prompt.id)))
     const sentTimes = new Map(
       (lastIndex?.prompts ?? []).filter(prompt => prompt.sentAt !== undefined).map(prompt => [rowKey(prompt.id), prompt.sentAt]),
     )
@@ -2798,7 +3008,11 @@ export const register: Register = (on, options) => {
       const sentAt = sentTimes.get(rowKey(entry.id))
       const timed = sentAt === undefined ? { ...named, sentAt: undefined } : { ...named, sentAt }
       const flagged = breakIds.has(rowKey(entry.id)) ? { ...timed, breakBefore: true } : { ...timed, breakBefore: undefined }
-      return prior?.rowId === undefined ? flagged : { ...flagged, rowId: prior.rowId }
+      const from = fromAt.get(rowKey(entry.id))
+      const marked = besideIds.has(rowKey(entry.id)) ? { ...flagged, beside: true } : { ...flagged, beside: undefined }
+      const headed = from === undefined ? { ...marked, from: undefined } : { ...marked, from }
+      const split = currentIds.has(rowKey(entry.id)) ? { ...headed, currentBlock: true } : { ...headed, currentBlock: undefined }
+      return prior?.rowId === undefined ? split : { ...split, rowId: prior.rowId }
     })
     engineMode = true
     // A row is kept when neither this list nor the last one named it: it was
@@ -2993,9 +3207,17 @@ export const register: Register = (on, options) => {
     return next({ ...e, description: `${base}${base === '' ? '' : ' '}${now} Run /session-rail-preview to see every family.` })
   })
 
-  // A main-loop turn starts (a subagent's run raises none): the newest
-  // prompt's turn is running.
+  // A main-loop turn starts: the newest prompt's turn is running. A
+  // subagent's own run raises one too, carrying its `agentId`; it is passed
+  // over below.
   on('turn.start', async ($, e, next) => {
+    // A subagent's turn is that agent's own run, not the main conversation's:
+    // its prompt and rows belong to the agent's transcript, which the rail
+    // neither lists nor jumps in. Its completion carries the same `agentId`
+    // and is passed over below, so taking the start would leave the rail
+    // running with no end to come, and every press would aim at the agent's
+    // live row instead of the prompt's own.
+    if (e.agentId !== undefined) return next(e)
     let at = generation
     // First, as it may start the list over: the conversation this turn is in.
     const id = await $.session.id()
@@ -3043,7 +3265,7 @@ export const register: Register = (on, options) => {
     // The last turn's reply is no live end for this one.
     resetLive()
     isContinuation = e.text.trim() === ''
-    turnText = e.text.replace(VIEW_CONTEXT, '').trim()
+    turnText = e.text.replace(VIEW_CONTEXT, '').replace(SIDE_NOTE, '').trim()
     starter = undefined
     lately = []
     // Every row of the turns before is stored by now: read them, so a row the
@@ -3238,6 +3460,10 @@ export const register: Register = (on, options) => {
     return next(e)
   })
   on('session.receive', async ($, e, next) => {
+    // A delivery addressed to a subagent is that agent's prompt, not the main
+    // conversation's (see turn.start): listing it as waiting would pair a
+    // later main-conversation row of the same text with it.
+    if (e.agentId !== undefined) return next(e)
     if (PROMPT_KINDS.has(e.origin.kind)) {
       const text = promptTextOf(e.text)
       // Its row is listed, but the submit that follows owns the count and the
@@ -3249,6 +3475,13 @@ export const register: Register = (on, options) => {
 
   // Record every prompt row as it is drawn, and which rows the viewport shows.
   on('ui.render', { component: 'UserMessage' }, ($, e, next) => {
+    // A row of a subagent's transcript is not the main conversation's: the
+    // rail lists the main conversation alone, and a jump goes to its rows
+    // (see see). Without this, an agent's prompt would be listed as a new
+    // prompt of the main conversation, and a text it shares with one would
+    // take that prompt's jump target over, pointing every later press at a
+    // row the main transcript does not draw.
+    if (viewAgent !== undefined) return next(e)
     // A slash command's row is drawn as a user row too; with arguments it is a
     // prompt, read as the command line the person typed.
     const raw = e.props.text.replace(VIEW_CONTEXT, '').trim()
@@ -3360,8 +3593,15 @@ export const register: Register = (on, options) => {
     if (isUnreachable(i)) return 'inactive'
     return undefined
   }
-  // A prompt that opens the segment after a /compact boundary.
-  const breakMark = (i: number) => (i > 0 && entries[i]?.breakBefore ? '⌁ ' : '')
+  // A prompt that opens the segment after a /compact boundary, or a block of
+  // prompts from an earlier session (the band and the below line have no row to
+  // head, so the arrow stands in for the pane's heading).
+  const breakMark = (i: number) =>
+    i > 0 && (entries[i]?.from !== undefined || entries[i]?.currentBlock)
+      ? '⇡ '
+      : i > 0 && entries[i]?.breakBefore
+        ? '⌁ '
+        : ''
 
   // The turn fields a card reads, as a key: a turn that ends changes it, and
   // nothing else does, so a card's line is read once and kept until then.
@@ -3520,6 +3760,38 @@ export const register: Register = (on, options) => {
     const Client = e.surface === 'terminal' ? $.ui.resolve(e).Client : undefined
     const isRail = e.props.placement === 'dock' && e.surface === 'terminal'
     if (noteView(e.props.view.agentId) && mode === 'below') redrawRailLater($)
+    // The offer to read one more level of the earlier sessions: one level per
+    // press, above the oldest prompt shown, never read unasked (see withHistory
+    // and loadParent). No offer where a subagent's transcript holds the pane.
+    // Drawn as a primary Button, so the terminal gives it brackets and the
+    // accent color: a line that looks like chrome would not read as pressable.
+    // The chrome takes four cells of the row, hence `columns - 4`. The wording
+    // steps down where the pane is narrow, always keeping the session's id:
+    // truncating the full sentence would cut the id first, and the id is what
+    // tells two earlier sessions apart.
+    const offerLine = (columns: number) => {
+      const room = Math.max(1, columns - 4)
+      const id = historyPending?.slice(0, 8) ?? ''
+      for (const label of [LOAD_LABEL, 'click to load parent session', 'load parent']) {
+        const text = `${label} ${id}`.trim()
+        if (cellWidth(text) <= room) return text
+      }
+      return oneLine(`load parent ${id}`.trim(), room)
+    }
+    // A block's heading and the moment its session opened, on one row: the
+    // heading at the prompt text's column, the short stamp flush with the
+    // pane's right edge, so the blocks' times line up down the rail. A pane too
+    // narrow for both puts the stamp beside the heading and, failing that,
+    // keeps the heading: the id names the session, the time only says when.
+    const blockHeading = (label: string, sent: number | undefined) => {
+      const room = Math.max(1, e.props.bodyColumns - 3)
+      const left = oneLine(label, room)
+      if (sent === undefined) return `   ${left}`
+      const time = stampShort(sent, timeZone)
+      if (cellWidth(left) + cellWidth(time) < room) return `   ${padTo(left, room - cellWidth(time))}${time}`
+      const tight = `${left} ${time}`
+      return cellWidth(tight) <= room ? `   ${tight}` : `   ${left}`
+    }
     const nextColumns = isRail ? e.props.bodyColumns : 0
     if (nextColumns !== railColumns) {
       // The band decides from this whether it carries the cards.
@@ -3542,7 +3814,7 @@ export const register: Register = (on, options) => {
       // No head where there is no room for text, as in the list below, nor on
       // a pane shorter than the lines it would draw.
       const emptyRows = e.props.scroll?.bodyRows ?? 20
-      const emptyLines = resumedAt !== undefined ? 2 : 1
+      const emptyLines = (resumedAt !== undefined ? 2 : 1) + (historyPending === undefined ? 0 : 1)
       if (e.props.bodyColumns < INLINE_REVEAL_MIN_COLUMNS || emptyRows < emptyLines) return <Text dimColor>·</Text>
       const startLabel = stampLabel(startAt, timeZone)
       return (
@@ -3552,6 +3824,9 @@ export const register: Register = (on, options) => {
             <Text color={accent} wrap="truncate-end">
               {`   ${oneLine(`resumed at ${stampLabel(resumedAt, timeZone)}`, Math.max(1, e.props.bodyColumns - 3))}`}
             </Text>
+          ) : null}
+          {historyPending !== undefined ? (
+            <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
           ) : null}
         </Box>
       )
@@ -3567,10 +3842,16 @@ export const register: Register = (on, options) => {
       // hover card opens under its own row, and follows it as the list scrolls.
       const bodyRows = e.props.scroll?.bodyRows ?? 20
       const scrollOffset = e.props.scroll?.offset ?? 0
+      // The prompt that opens a session's block of the rail: an earlier
+      // session's block (see fromLabel) or this session's own (CURRENT_LABEL).
+      // Each block draws its own start line, so the pane's head is left out
+      // when the first block already says when the conversation opened.
+      const opensBlock = (entry: Entry, i: number) => entry.from !== undefined || (i > 0 && entry.currentBlock === true)
+      const firstOpens = opensBlock(entries[0]!, 0) && entries[0]?.sentAt !== undefined
       // The pane opens with when the conversation started; the list's rows
       // start below it. No head is drawn where there is no room for text, nor
       // on a pane too short to show the head and a row under it.
-      const headRows = hasRoom && bodyRows >= 2 ? 1 : 0
+      const headRows = hasRoom && bodyRows >= 2 && !firstOpens ? 1 : 0
       // Only the head draws the start, so only it formats the stamp.
       const startLabel = headRows > 0 ? `started at ${stampLabel(startAt, timeZone)}` : ''
       // Where the resume boundary falls: before the first prompt sent at or
@@ -3643,10 +3924,19 @@ export const register: Register = (on, options) => {
       const resumeText = (moment: number) => `resumed at ${stampLabel(moment, timeZone)}`
       const contentTops: number[] = []
       {
-        let y = headRows
+        // The offer is drawn only where the pane has room for text; a collapsed
+        // pane shows ticks alone and would overflow on its bracketed row.
+        let y = headRows + (hasRoom && historyPending !== undefined ? 1 : 0)
         entries.forEach((entry, i) => {
           if (dividerAt.has(i)) y++
           if (i > 0 && entry.breakBefore) y++
+          // A block's heading: the session it came from, or this session's
+          // own, with that session's start time on the same row (see fromLabel,
+          // CURRENT_LABEL and blockHeading). Rows the pane cannot label carry
+          // none.
+          const labelled = hasRoom
+          if (labelled && entry.from !== undefined) y++
+          if (labelled && i > 0 && entry.currentBlock) y++
           contentTops.push(y)
           y++
         })
@@ -3745,6 +4035,9 @@ export const register: Register = (on, options) => {
               <Text key="rail-head-start" color={accent} wrap="truncate-end">{`   ${oneLine(startLabel, Math.max(1, e.props.bodyColumns - 3))}`}</Text>
             </Box>
           ) : null}
+          {hasRoom && historyPending !== undefined ? (
+            <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
+          ) : null}
           {entries.map((entry, i) => {
             // The row holds the whole prompt already: the card repeats only the
             // stats. A prompt the row cuts, or one whose line breaks it flattens,
@@ -3770,6 +4063,16 @@ export const register: Register = (on, options) => {
             // it: an overlay of the panel's background covers the row, and its
             // Button keeps the row pressable.
             const blankOnHover = expandOnHover && cardLayouts[i] !== undefined && cardLayouts[i]!.side !== 'below' && !scrolls
+            // A heading above an earlier session's block, and above this
+            // session's own (see fromLabel and CURRENT_LABEL), each with the
+            // moment its session opened at the pane's right edge. The earlier
+            // session's is a Button beside its ⧉: the short id names it, and a
+            // press copies the whole id /resume takes.
+            const heading = entry.from !== undefined
+              ? blockHeading(`${fromLabel(entry.from)} ⧉`, entry.sentAt)
+              : i > 0 && entry.currentBlock
+                ? blockHeading(CURRENT_LABEL, entry.sentAt)
+                : ''
             return (
               <Box key={`row-${i}`} flexDirection="column">
                 {dividerAt.has(i) ? (
@@ -3777,6 +4080,15 @@ export const register: Register = (on, options) => {
                 ) : null}
                 {i > 0 && entry.breakBefore ? (
                   <Text color={accent} wrap="truncate-end">{`   ${oneLine('compacted', Math.max(1, e.props.bodyColumns - 3))}`}</Text>
+                ) : null}
+                {heading !== '' && hasRoom ? (
+                  entry.from !== undefined ? (
+                    <Button key={`copy-parent-${entry.from}`} plain label={heading} onPress={() => {}}>
+                      <Text color={accent} wrap="truncate-end">{heading}</Text>
+                    </Button>
+                  ) : (
+                    <Text color={bodyText} dimColor wrap="truncate-end">{heading}</Text>
+                  )
                 ) : null}
                 {scrolls && Client !== undefined ? (
                   <Client
@@ -3981,13 +4293,34 @@ export const register: Register = (on, options) => {
     const width = Math.max(8, e.props.bodyColumns - 3)
     return (
       <Box flexDirection="column">
+        {historyPending !== undefined ? (
+          <Button key="load-parent" variant="primary" label={offerLine(e.props.bodyColumns)} onPress={() => {}} />
+        ) : null}
         {entries.map((entry, i) => {
           const mark = isRunningFor(entry.id) ? (SPIN[spinFrame] ?? SPIN[0]!) : tickOf(i, current)
           const line = `${mark} ${shownLineOf(entry, width)}`
+          // The same headings the dock draws, so an earlier session's block is
+          // named in every pane (see fromLabel, CURRENT_LABEL and blockHeading).
+          const heading = entry.from !== undefined
+            ? blockHeading(`${fromLabel(entry.from)} ⧉`, entry.sentAt)
+            : i > 0 && entry.currentBlock
+              ? blockHeading(CURRENT_LABEL, entry.sentAt)
+              : ''
           return (
-            <Button key={`jump-${i}`} plain dimColor={i !== current} label={line} onPress={() => {}}>
-              <Text color={bodyText}>{line}</Text>
-            </Button>
+            <Box key={`row-${i}`} flexDirection="column">
+              {heading !== '' ? (
+                entry.from !== undefined ? (
+                  <Button key={`copy-parent-${entry.from}`} plain label={heading} onPress={() => {}}>
+                    <Text color={accent}>{heading}</Text>
+                  </Button>
+                ) : (
+                  <Text dimColor>{heading}</Text>
+                )
+              ) : null}
+              <Button key={`jump-${i}`} plain dimColor={i !== current} label={line} onPress={() => {}}>
+                <Text color={bodyText}>{line}</Text>
+              </Button>
+            </Box>
           )
         })}
       </Box>
@@ -4343,13 +4676,42 @@ export const register: Register = (on, options) => {
 
   // Scroll from the press dispatch itself (a click).
   on('ui.press', { plugin: 'session-rail' }, async ($, e, next) => {
+    // The rail's own controls: one more level of the earlier sessions, and a
+    // parent session id to carry to /resume. The level is merged from the
+    // base index rather than the file: the levels already loaded are cached
+    // with their transcripts indexed, so a press reads only the level it adds.
+    if (e.element === 'load-parent') {
+      if (historyBase !== undefined && historyPath !== undefined) {
+        historyLevels++
+        const index = await withHistory($, historyPath, historyBase)
+        merge(index)
+        // In engine mode the file only enriched the list; the parent's prompts
+        // are history the engine does not hold, so list them again from them.
+        if (engineMode && lastMessages !== undefined) refreshEngine(lastMessages)
+        // The offer row changes with the level read, whether or not the list grew.
+        await redrawRail($)
+        if (historyFailed) $.ui.toast("the parent session's transcript could not be read")
+      }
+      return next(e)
+    }
+    const copied = /^copy-parent-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(e.element)
+    if (copied !== null) {
+      try {
+        const result = await $.ui.copy({ text: copied[1]! })
+        $.ui.toast(result.isCopied ? `copied session id ${copied[1]!}` : `the id could not be copied: ${result.reason}`)
+      } catch (err) {
+        $.ui.toast((err as Error).message)
+      }
+      return next(e)
+    }
     // The steps beside the bars under the prompt name no prompt of their own.
     const dir = e.element === 'step-next' ? 1 : e.element === 'step-prev' ? -1 : 0
     const index = dir === 0 ? Number(/^(?:row-)?jump-(\d+)/.exec(e.element)?.[1]) : stepFrom(currentIndex(), entries.length, dir, isUnreachable)
     unring()
     const entry = entries[index]
     const plan = jumpPlan(entry)
-    if (entry && plan) await jumpToEntry($, entry, plan, index, jumpContext)
+    if (entry?.beside) $.ui.toast(BESIDE_TOAST)
+    else if (entry && plan) await jumpToEntry($, entry, plan, index, jumpContext)
     else if (entry) $.ui.toast('the prompt has not reached the transcript yet')
     return next(e)
   })

@@ -118,7 +118,7 @@
 
 深色和浅色两套色板，由 “Color scheme” 选择（`auto` 跟随 `/config` 主题）。十一种卡片家族，每个都有深色和浅色两侧。`/session-rail-preview` 会按当前方案展示它们。
 
-卡片面板与统计行是 24 位颜色，终端需要声明 truecolor。未设 `COLORTERM=truecolor` 时（部分 Windows 终端默认不设置），引擎会量化颜色：十一种面板会塌缩成同一种灰，只有 `ochre` 保留色相；16 色终端则退回终端默认背景。终端支持时，请在环境里设置 `COLORTERM=truecolor`，`/session-rail-preview` 就能把各家族区分开。
+卡片面板与统计行是 24 位颜色，终端需要声明 truecolor。未设 `COLORTERM=truecolor` 时（SSH 登录服务器时常见，部分 Windows 终端也如此），引擎会量化颜色：十一种面板会塌缩成同一种灰，只有 `ochre` 保留色相；16 色终端则退回终端默认背景。请在 Claude Code 实际运行的环境里设置 `COLORTERM=truecolor`（SSH 会话就设在服务器上），`/session-rail-preview` 就能把各家族区分开。
 
 <img src="docs/themes.gif" alt="session-rail：一条被悬停的提示词的卡片，在深色方案下依次以 warm-taupe、warm-charcoal、sienna、mauve、teal、indigo、burgundy、olive、plum、ochre 和 slate 重绘，面板、提示词 highlight 和统计 accent 一起变化" width="800">
 

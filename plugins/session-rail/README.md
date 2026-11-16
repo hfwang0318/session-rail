@@ -34,7 +34,7 @@ One row per prompt in a pane beside the transcript. The prompt you are reading i
 
 Dark and light palettes follow the `/config` theme. Eleven card families, each with a dark and a light side; `mauve`, `teal`, `indigo`, `plum` and `slate` can tint the accent too. `/session-rail-preview` samples them all; name one, as in `/session-rail-preview sienna`, to see it alone.
 
-The panels and the stats tint are 24-bit colors. Without `COLORTERM=truecolor` (some Windows terminals leave it unset) the engine quantizes them: the eleven panels collapse into one gray, with only `ochre` keeping its hue, and a 16-color terminal falls back to its default background. Set `COLORTERM=truecolor` where the terminal supports it.
+The panels and the stats tint are 24-bit colors. Without `COLORTERM=truecolor` — an SSH session into a server often is, as are some Windows terminals — the engine quantizes them: the eleven panels collapse into one gray, with only `ochre` keeping its hue, and a 16-color terminal falls back to its default background. Set `COLORTERM=truecolor` in the environment where Claude Code runs (on the server, for an SSH session).
 
 ## Install
 

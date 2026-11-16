@@ -97,7 +97,7 @@ mods API 的类型文件由 `/plugin-types` 生成，插件不提交它；CI 每
 | `config.list()` 中 `theme` 行的字符串值，以及内建主题名的明/暗归类 | 调色板选错侧（浅色终端上画深色文本） | 插件自己的 `colorScheme` 设置；读不到就保持当前调色板 |
 | 自定义主题 `<config>/themes/<slug>.json` 的 `base`（`light` / `dark`） | 自定义主题按默认侧绘制 | 名字不在内建表才读；读不到返回 `undefined`，保持当前 |
 | `/etc/localtime` 的 `realPath` 推导时区 | 卡片上的发送时间用错时区（Windows 无此文件） | 读不到就不展示时区换算 |
-| 引擎对 raw color 的映射：`#hex` / `rgb()` / `ansi256()` / `ansi:<name>` 各自生成 SGR，未知字符串不产生 SGR；颜色深度不足时 24 位量化到 256 色 | 卡片面板、accent tint 与行高亮落到终端默认或近似色（外观级）；未声明 truecolor 时近中性面板会塌缩成同一种灰（只有 `ochre` 保留色相），16 色终端退回默认背景（实测：Tabby 1.0.238，`COLORTERM` 未设） | 无；`/session-rail-preview` 在同一终端逐族对照，可区分主题/侧别与终端绘制；README 已写明 `COLORTERM=truecolor` |
+| 引擎对 raw color 的映射：`#hex` / `rgb()` / `ansi256()` / `ansi:<name>` 各自生成 SGR，未知字符串不产生 SGR；颜色深度不足时 24 位量化到 256 色 | 卡片面板、accent tint 与行高亮落到终端默认或近似色（外观级）；未声明 truecolor 时近中性面板会塌缩成同一种灰（只有 `ochre` 保留色相），16 色终端退回默认背景（SSH 到服务器时远端 shell 常无 `COLORTERM`；实测：Tabby 1.0.238，`COLORTERM` 未设） | 无；`/session-rail-preview` 在同一终端逐族对照，可区分主题/侧别与终端绘制；README 已写明在 Claude Code 运行处设 `COLORTERM=truecolor` |
 
 ## G. 测试接口（`claude-code/testing`）
 

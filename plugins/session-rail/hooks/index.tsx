@@ -3876,6 +3876,26 @@ export const register: Register = (on, options) => {
       branchBoundary(moment)
         ? blockHeading(CURRENT_LABEL, moment)
         : `   ${oneLine(`resumed at ${stampLabel(moment, timeZone)}`, Math.max(1, e.props.bodyColumns - 3))}`
+    // Whether a `current session` line would only repeat the pane head. That
+    // line speaks for this session's own block opening; the head already names
+    // that block and dates its start, so the two say the same thing in the
+    // same words. Without an earlier block headed with another session's id
+    // above it, a boundary at the end of the list has nothing to separate: the
+    // prompts above it are drawn as this session's own, and no prompt below it
+    // was sent since. A /branch or /fork whose copied rows the rail cannot see
+    // yet draws exactly that — a conversation the engine reports as a fork of
+    // another, listed by the engine's own prompts alone — and so does a view
+    // switch that re-announces the conversation at a moment of its own (the
+    // agents view returning to it), which records a boundary no prompt ever
+    // crossed. The line goes; the moment stays in the list, so prompts sent
+    // after it still open this session's own part, and the line comes back
+    // as soon as a copied block is read and headed above it. A /resume keeps
+    // its line: `resumed at …` is not what the head says, and it tells a
+    // conversation resumed with nothing sent since from a fresh one.
+    const repeatsHead = (moment: number, index: number) =>
+      branchBoundary(moment) &&
+      index === entries.length &&
+      !entries.slice(0, index).some(entry => entry.from !== undefined)
     const nextColumns = isRail ? e.props.bodyColumns : 0
     if (nextColumns !== railColumns) {
       // The band decides from this whether it carries the cards.
@@ -3898,14 +3918,18 @@ export const register: Register = (on, options) => {
       // No head where there is no room for text, as in the list below, nor on
       // a pane shorter than the lines it would draw.
       const emptyRows = e.props.scroll?.bodyRows ?? 20
-      const emptyLines = (resumedAt !== undefined ? 2 : 1) + (historyPending === undefined ? 0 : 1)
+      // A branch's line would be the head's own sentence over no prompt at all;
+      // only a resume's line says something the head does not (see
+      // repeatsHead). The room is counted for the lines actually drawn.
+      const ownPartAt = resumedAt !== undefined && !repeatsHead(resumedAt, entries.length) ? resumedAt : undefined
+      const emptyLines = (ownPartAt !== undefined ? 2 : 1) + (historyPending === undefined ? 0 : 1)
       if (e.props.bodyColumns < INLINE_REVEAL_MIN_COLUMNS || emptyRows < emptyLines) return <Text dimColor>·</Text>
       return (
         <Box flexDirection="column">
           {historyPending !== undefined ? offerRow(e.props.bodyColumns, Client) : null}
           <Text color={accent} wrap="truncate-end">{blockHeading(CURRENT_LABEL, startAt)}</Text>
-          {resumedAt !== undefined ? (
-            <Text color={accent} wrap="truncate-end">{dividerLine(resumedAt)}</Text>
+          {ownPartAt !== undefined ? (
+            <Text color={accent} wrap="truncate-end">{dividerLine(ownPartAt)}</Text>
           ) : null}
         </Box>
       )
@@ -4000,7 +4024,11 @@ export const register: Register = (on, options) => {
               entries.map(entry => entry.sentAt),
               resumeMoments.length > 0 ? resumeMoments : [resumed],
               latestIndex,
-            ).map(divider => [divider.index, divider.moment] as [number, number]),
+            )
+              // A line at the end of the list that repeats the head is left
+              // out, and with it its row (see repeatsHead).
+              .filter(divider => !repeatsHead(divider.moment, divider.index))
+              .map(divider => [divider.index, divider.moment] as [number, number]),
       )
       const contentTops: number[] = []
       {

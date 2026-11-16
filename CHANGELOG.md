@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed the rail drawing two `current session` lines for one session after returning from the agents view: the engine re-announces the conversation it reopens with a `fork` source, and the rail recorded that moment as a boundary and drew it as a `current session` line under the only prompt, while the pane head drew the same line above it. A `current session` boundary that would only repeat the head — at the end of the list, with no earlier block headed with another session's id — is now left out, while the recorded moment stays: prompts sent after it still open this session's own part, and the line returns once a copied block is read and headed above it. A resume's `resumed at …` line and a branch's own block heading are unchanged, and an empty branched conversation names itself once
+- Changed the READMEs' mouse tip from "works best" to what the engine does: hover and clicks are dispatched only on the alternate screen, so they need `"tui": "fullscreen"`, and the hover cards need the rail's docked pane, which fullscreen seats from 110 columns — a narrower terminal keeps the rail above the prompt, where clicking still jumps and `/session-rail-preview` samples the card themes. The hover dispatch and raw-color dependencies are registered in `docs/dependencies.md`
+
 ## 0.16.1
 
 - Fixed the marketplace entry's description still offering the rail "beside the transcript or above the prompt", a layout 0.16.0 removed: it now reads "in a pane beside the transcript", as the plugin's own description does. The version moves only so the directory picks the new text up

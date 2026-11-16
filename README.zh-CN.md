@@ -51,7 +51,7 @@
 2. 开始一个新会话。rail 会自行打开。
 
 > [!TIP]
-> 鼠标操作在 `"tui": "fullscreen"` 下效果最佳。
+> 鼠标操作只在 fullscreen 下可用：Claude Code 只在备用屏（alternate screen）上派发悬停与点击，请设置 `"tui": "fullscreen"`。悬停卡片需要 dock 在对话记录旁的 rail 面板，fullscreen 布局从 110 列起才会 dock；终端更窄时 rail 显示在提示词上方，那里点击仍可跳转，卡片主题可用 `/session-rail-preview` 预览。
 
 ## rail
 

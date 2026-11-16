@@ -48,7 +48,7 @@ claude plugin install session-rail@hfwang
 Start a new session and the rail opens on its own.
 
 > [!TIP]
-> Mouse works best with `"tui": "fullscreen"`.
+> Mouse works only in fullscreen: Claude Code dispatches hover and clicks on its alternate screen, so set `"tui": "fullscreen"`. The hover cards need the rail's docked pane, which fullscreen seats beside the transcript from 110 columns; a narrower terminal keeps the rail above the prompt, where clicking still jumps and `/session-rail-preview` samples the card themes.
 
 ## Commands
 

@@ -38,6 +38,7 @@ mods API 的类型文件由 `/plugin-types` 生成，插件不提交它；CI 每
 | `ui.render` 组件名与 props：`e.component`、`e.requestId`（`placeholder` / `placeholder-N` 回显）、`e.props.text`、`e.props.origin.kind`、`e.props.onScreen`、`e.props.bodyColumns`、`e.props.scroll.bodyRows/offset`、`e.props.view.agentId` | 全部三个座位与悬挂卡 | 回显 id 变了 → 会把临时行当跳转目标；`onScreen` 语义变了 → 在读提示词判断错；`view.agentId` 缺失 → 子代理的行污染主对话 | `isProvisionalId` 是模式匹配；`onScreen` 缺失时退回滚动位置；子代理检测还依赖 `turn.start` 的 `agentId` |
 | 站点窗口的滚动方式：引擎按 `-offset` 把整棵树整体上移（负的上边距），`position: "absolute"` 的盒子随树一起移动，其 `top` 以树的行计 | 悬停卡的 `card-slot`（钉在窗口首行，卡片行以窗口行计） | 若引擎改为只平移流式内容、或改用窗口坐标放置绝对盒子 → 卡片整体错位，或在列表滚动后不再出现 | 无代码兜底；靠 `claude --plugin-dir` 手工验收（在已滚动的长列表上悬停一行，看卡片是否就在该行下方），测试只断言树的 props，不锁引擎布局 |
 | `ui.focus` / `ui.scroll` / `ui.press`：`e.element`、`e.pointer`、`e.by`、`$.ui.scroll` 的 `{ to: { requestId }, block }` / `deny` | 悬停环、卡片滚动、父会话 id 复制 | 悬停/点击无效或跳转失败 | 跳转失败标记为不可达并给一次说明 |
+| 悬停与点击的派发条件：引擎只在备用屏（`altScreenActive`，即 `"tui": "fullscreen"`）派发 `dispatchHover` / `dispatchMouseClick`，且鼠标跟踪模式为 `full`（请求 `?1003h` 移动事件）时才收到悬停；fullscreen 布局从 110 列起把 `Pane` dock 在对话记录旁，更窄则座位为 `inline` | 全部 `hover.scope` 组、`ui.press`、`ui.focus` | 收不到移动事件 → 卡片不开、行不亮（rail 变小，不画错）；`inline` 座位按设计没有悬停卡；`CLAUDE_CODE_DISABLE_MOUSE` / `CLAUDE_CODE_DISABLE_MOUSE_CLICKS` 会关闭或降级鼠标 | 无（事件到不了插件）；`/session-rail-preview` 可看卡片主题；README 的鼠标提示已写明 fullscreen 与 110 列的条件 |
 | `$.ui.toast` / `open` / `close` / `invalidate` / `copy`、`$.command.register`、`$.clock.after` | 提示、预览页、重绘节流 | 提示丢失；预览 pane 不立即重绘（切换主题后仍显示旧色）；定时器不触发（重绘变慢或不发生） | 每个事件仍会触发重绘；定时器只影响节流、闪烁与动画 |
 | `$.fs.read` / `stat` / `list` / `exists`、`$.env.get`、`$.plugin.root`、`$.session.id` / `cwd` / `root` | 读转录、找配置目录 | 读不到 → 列表退回引擎消息列表；路径错误 → `UNFOUND` 提示 | 每个读取都有 try/catch 与降级 |
 
@@ -96,6 +97,7 @@ mods API 的类型文件由 `/plugin-types` 生成，插件不提交它；CI 每
 | `config.list()` 中 `theme` 行的字符串值，以及内建主题名的明/暗归类 | 调色板选错侧（浅色终端上画深色文本） | 插件自己的 `colorScheme` 设置；读不到就保持当前调色板 |
 | 自定义主题 `<config>/themes/<slug>.json` 的 `base`（`light` / `dark`） | 自定义主题按默认侧绘制 | 名字不在内建表才读；读不到返回 `undefined`，保持当前 |
 | `/etc/localtime` 的 `realPath` 推导时区 | 卡片上的发送时间用错时区（Windows 无此文件） | 读不到就不展示时区换算 |
+| 引擎对 raw color 的映射：`#hex` / `rgb()` / `ansi256()` / `ansi:<name>` 各自生成 SGR，未知字符串不产生 SGR；颜色深度不足时 24 位量化到 256 色 | 卡片面板、accent tint 与行高亮落到终端默认或近似色（外观级） | 无；`/session-rail-preview` 在同一终端逐族对照，可区分主题/侧别与终端绘制 |
 
 ## G. 测试接口（`claude-code/testing`）
 

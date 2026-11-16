@@ -5335,3 +5335,89 @@ test('a resumed session whose parent file was a branch keeps its resumed line', 
   // conversation still began with a resume.
   expect(texts.some((text: string) => text.includes('resumed at'))).toBe(true)
 })
+
+test('returning from the agents view keeps one current session line', async ($, on) => {
+  mock.clock(on)
+  // A fresh session with one prompt: its transcript holds the prompt, and the
+  // engine's own list is where the rail reads the conversation from.
+  const sent = '2026-09-24T00:00:00.000Z'
+  const rows = [{ type: 'user', uuid: 'h1', origin: { kind: 'human' }, timestamp: sent, message: { role: 'user', content: 'test1' } }]
+  const disk = beneath(jsonl(rows))
+  const store = world(on, {}, disk.transcript, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'test1' }])
+  store.set(THEME_TEST_KEY, 'dark')
+  on('prompt.submit', ($: any, e: any) => ({ text: e.text }))
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'startup', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await submit($, 'test1')
+  await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'UserMessage', requestId: 'u1', props: prompt('test1', null) })
+  // ← opens the agents view: the pane states whose transcript it holds.
+  const agents = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: { ...pane('dock', 40), view: { agentId: 'ag1' } } })
+  expect((await agents.findAll({ type: 'Text' })).map((node: any) => String(node.text))).toEqual(['Prompts of the main conversation only'])
+  await agents.unmount()
+  // Enter returns to the conversation, and the engine announces that start as a
+  // fork of the conversation it opened. Nothing was copied into this list, so
+  // the moment is a boundary at the end of it that no prompt ever crossed; the
+  // pane head already names this session and dates its start.
+  await $.classic.SessionStart({ source: 'fork', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  const heads = texts.filter((text: string) => /^ {3}current session/.test(text))
+  // One session, one line: the head, dated where the conversation started, not
+  // a second line under the only prompt dated when the view came back.
+  expect(heads).toHaveLength(1)
+  expect(heads[0]!.endsWith(stampShort(Date.parse(sent)))).toBe(true)
+  expect(texts.some((text: string) => text === ' test1')).toBe(true)
+})
+
+test('a copied block above keeps the current session line at the end of the list', async ($, on) => {
+  mock.clock(on)
+  const parentId = 'aaaaaaaa-1111-4111-8111-111111111111'
+  const disk = beneath(jsonl([
+    { type: 'user', uuid: 'u1', forkedFrom: { sessionId: parentId }, origin: { kind: 'human' }, timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'copied prompt' } },
+  ]))
+  const store = world(on, {}, disk.transcript, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'copied prompt' }])
+  await $.classic.SessionStart({ source: 'fork', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  // The copied row is headed with the session it came from, so this session's
+  // own part really does open below it: the line stays, and the head is left
+  // out because the first block is dated.
+  const from = texts.findIndex((text: string) => /^ {3}prompts from aaaaaaaa/.test(text))
+  const current = texts.findIndex((text: string) => /^ {3}current session/.test(text))
+  const row = texts.indexOf(' copied prompt')
+  expect(from).toBeGreaterThanOrEqual(0)
+  expect(from).toBeLessThan(row)
+  expect(current).toBeGreaterThan(row)
+  expect(texts.filter((text: string) => /^ {3}current session/.test(text))).toHaveLength(1)
+})
+
+test('a resume with nothing sent since keeps its line under the last prompt', async ($, on) => {
+  mock.clock(on)
+  const rows = [
+    { type: 'user', uuid: 'u1', origin: { kind: 'human' }, timestamp: '2026-09-24T00:00:00.000Z', message: { role: 'user', content: 'history prompt' } },
+    { type: 'user', uuid: 'u2', origin: { kind: 'human' }, timestamp: '2026-09-24T00:05:00.000Z', message: { role: 'user', content: 'second prompt' } },
+  ]
+  const disk = beneath(jsonl(rows))
+  world(on, {}, disk.transcript, disk)
+  await $.classic.SessionStart({ source: 'resume', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  // `resumed at …` is not what the head says: a resume with nothing sent since
+  // still tells the person the conversation was reopened, after its history.
+  const resumed = texts.findIndex((text: string) => /^ {3}resumed at \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text))
+  const last = texts.indexOf(' second prompt')
+  expect(resumed).toBeGreaterThan(last)
+})
+
+test('a branched conversation with no prompt yet names itself once', async ($, on) => {
+  const disk = { ...beneath(), isMissing: true }
+  world(on, {}, TRANSCRIPT, disk)
+  // A /branch of a conversation that had no prompt: the engine still reports a
+  // fork start, and the boundary is the start of a list with nothing above it.
+  await $.classic.SessionStart({ source: 'fork', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  expect(texts.filter((text: string) => /^ {3}current session/.test(text))).toHaveLength(1)
+})

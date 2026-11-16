@@ -118,6 +118,8 @@ A fork (`claude --resume <id> --fork-session`) or a context overflow starts a ne
 
 Two palettes, dark and light, picked by "Color scheme" (`auto` follows your `/config` theme). Eleven card families, each with a dark and a light side. `/session-rail-preview` shows them in the scheme you are using.
 
+The card panels and the stats tint are 24-bit colors, so the terminal has to advertise truecolor. Where `COLORTERM=truecolor` is unset (some Windows terminals leave it unset) the engine quantizes the colors: the eleven panels collapse into one gray, with only `ochre` keeping its hue, and a 16-color terminal falls back to its default background. Set `COLORTERM=truecolor` in the environment where the terminal supports it — `/session-rail-preview` then shows the families apart.
+
 <img src="docs/themes.gif" alt="session-rail: a hovered prompt's card redrawn once per card theme in the dark scheme — warm-taupe, warm-charcoal, sienna, mauve, teal, indigo, burgundy, olive, plum, ochre and slate — its panel, prompt highlight and stats tint moving together" width="800">
 
 <img src="docs/themes-light.png" alt="The theme preview pane in the light scheme: the same eleven families on their light panels, the sample prompt in black and the stats line in each family's light accent" width="800">

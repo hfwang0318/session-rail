@@ -5421,3 +5421,31 @@ test('a branched conversation with no prompt yet names itself once', async ($, o
   const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
   expect(texts.filter((text: string) => /^ {3}current session/.test(text))).toHaveLength(1)
 })
+
+test('a fork boundary under a later prompt still draws one current session line', async ($, on) => {
+  mock.clock(on)
+  // One prompt was sent, the agents view re-announced the conversation as a
+  // fork of itself, and a second prompt was sent after it: the boundary now
+  // falls under the second prompt rather than at the end of the list, and it
+  // still opens no other block (both prompts are this conversation's own).
+  const sent = '2026-09-24T00:00:00.000Z'
+  const rows = [{ type: 'user', uuid: 'h1', origin: { kind: 'human' }, timestamp: sent, message: { role: 'user', content: 'first' } }]
+  const disk = beneath(jsonl(rows))
+  const store = world(on, {}, disk.transcript, disk)
+  store.set(ENGINE_MESSAGES_TEST_KEY, [{ role: 'user', text: 'first' }, { role: 'user', text: 'second' }])
+  store.set(THEME_TEST_KEY, 'dark')
+  on('prompt.submit', ($: any, e: any) => ({ text: e.text }))
+  await $.session.start({ cwd: '/t', surface: 'terminal', isInteractive: true })
+  await $.classic.SessionStart({ source: 'startup', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await submit($, 'first')
+  await $.classic.SessionStart({ source: 'fork', session_id: 's1', transcript_path: '/t/s1.jsonl' })
+  await submit($, 'second')
+  const rail = await $.ui.mount({ plugin: 'session-rail', surface: 'terminal', component: 'Pane', requestId: 'session-rail', props: pane('dock', 40) })
+  const texts = (await rail.findAll({ type: 'Text' })).map((node: any) => String(node.text))
+  const heads = texts.filter((text: string) => /^ {3}current session/.test(text))
+  // The head names the one block; the boundary after it would say the same
+  // thing again, so it stays out even with a prompt sent after it.
+  expect(heads).toHaveLength(1)
+  expect(texts.some((text: string) => text === ' first')).toBe(true)
+  expect(texts.some((text: string) => text === ' second')).toBe(true)
+})

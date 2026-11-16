@@ -3880,21 +3880,21 @@ export const register: Register = (on, options) => {
     // line speaks for this session's own block opening; the head already names
     // that block and dates its start, so the two say the same thing in the
     // same words. Without an earlier block headed with another session's id
-    // above it, a boundary at the end of the list has nothing to separate: the
-    // prompts above it are drawn as this session's own, and no prompt below it
-    // was sent since. A /branch or /fork whose copied rows the rail cannot see
-    // yet draws exactly that — a conversation the engine reports as a fork of
+    // above it, there is no other block for the line to open: the prompts
+    // above and below it are all this session's own, drawn under the head's
+    // words. A /branch or /fork whose copied rows the rail cannot see yet
+    // draws exactly that — a conversation the engine reports as a fork of
     // another, listed by the engine's own prompts alone — and so does a view
     // switch that re-announces the conversation at a moment of its own (the
     // agents view returning to it), which records a boundary no prompt ever
-    // crossed. The line goes; the moment stays in the list, so prompts sent
-    // after it still open this session's own part, and the line comes back
-    // as soon as a copied block is read and headed above it. A /resume keeps
-    // its line: `resumed at …` is not what the head says, and it tells a
+    // crossed, whether it falls at the end of the list or under a prompt sent
+    // after it. The line goes; the moment stays in the list, so the prompts
+    // sent after it remain this session's own part, and the line comes back
+    // once a copied block is read and headed above it. A /resume keeps its
+    // line: `resumed at …` is not what the head says, and it tells a
     // conversation resumed with nothing sent since from a fresh one.
     const repeatsHead = (moment: number, index: number) =>
       branchBoundary(moment) &&
-      index === entries.length &&
       !entries.slice(0, index).some(entry => entry.from !== undefined)
     const nextColumns = isRail ? e.props.bodyColumns : 0
     if (nextColumns !== railColumns) {
